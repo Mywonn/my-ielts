@@ -2105,11 +2105,12 @@ const updateWidth = () => windowWidth.value = window.innerWidth
 onMounted(() => window.addEventListener('resize', updateWidth))
 // 注意：如果你有 onUnmounted，记得移除，没有就算了，不影响功能
 
-// 核心判断：按钮是否应该去右边？
-// 逻辑：如果黑板打开(showScratchpad) 且 黑板在屏幕左半边 (padX < 屏幕一半) -> 按钮去右边
-const isFloatBtnRight = computed(() => {
-  if (!showScratchpad.value) return false // 黑板没开，按钮保持在左边不动
-  return padX.value < (windowWidth.value / 2)
+// 核心判断：按钮是否应该去左边？(因为默认在右边了)
+// 逻辑：如果黑板打开(showScratchpad) 且 黑板在屏幕右半边 (padX > 屏幕一半) -> 按钮去左边避让
+const isFloatBtnLeft = computed(() => {
+  if (!showScratchpad.value) return false // 黑板没开，按钮保持在右边不动
+  // 如果 padX 大于屏幕的一半，说明黑板大概率在右边
+  return padX.value > (windowWidth.value / 2 - 100)
 })
 
 // ==========================================
@@ -2279,8 +2280,8 @@ const removeAudioTag = (word) => {
         
         <div class="right-tools">
             <button v-if="isReviewMode" @click="showStatsModal = true" class="btn action-btn" title="学习统计">📊</button>
-            <button  @click="toggleScratchpad" class="btn action-btn" :class="{ 'active-pad': showScratchpad }" title="打开/关闭草稿板">🖊️</button>
-            <button v-if="isReviewMode" @click="exportMistakes" class="btn action-btn special-btn" title="导出错题文本 (TXT)">📥 </button>
+            <button @click="toggleScratchpad" class="btn action-btn desktop-only" :class="{ 'active-pad': showScratchpad }" title="打开/关闭草稿板">🖊️</button>
+            <button v-if="isReviewMode" @click="exportMistakes" class="btn action-btn special-btn desktop-only" title="导出错题文本 (TXT)">📥 </button>
             <button @click="doExport" class="btn action-btn" title="导出/备份进度 (JSON)">⬇️ </button>
             <button @click="doImport" class="btn action-btn" style="margin-left: 8px;" title="导入/恢复进度">⬆️ </button>
             <input type="file" id="fileInput" hidden @change="onFileChange">
@@ -2567,7 +2568,7 @@ const removeAudioTag = (word) => {
         <button class="pad-btn-clear" @click="clearPad">🗑️ (Space)</button>
       </div>
     </div> 
-    <div class="floating-action-group" :class="{ 'pos-right': isFloatBtnRight }">
+    <div class="floating-action-group" :class="{ 'pos-left': isFloatBtnLeft }">
       <button v-if="isReviewMode" @click="refreshReviewData" class="floating-btn refresh-btn" title="刷新数据">🔄</button>
       <button v-if="!isReviewMode" @click="openStoryModal" class="floating-btn story-btn" title="本页助记文章/故事">📜</button>
       <button @click="manualAddWord" class="floating-btn add-btn" title="手动加入生词">➕</button>
@@ -3185,14 +3186,16 @@ const removeAudioTag = (word) => {
   transform: scale(0.9); /* 点击时有按压感 */
 }
 /* =========================================
-   左侧悬浮操作组 (容器 + 按钮)
+   右侧悬浮操作组 (容器 + 按钮)
    ========================================= */
 .floating-action-group {
   position: fixed;
   top: 50%;
   
-  /* 智能定位：距离中心左侧 680px，或者屏幕边缘 20px */
-  left: max(20px, calc(50% - 680px)); 
+  /* 🔥 修改 1：默认定位在右侧 */
+  /* 距离中心右侧 680px，或者屏幕边缘 20px */
+  right: max(20px, calc(50% - 680px)); 
+  left: auto; /* 清除左侧定位 */
   
   transform: translateY(-50%); /* 垂直居中 */
   z-index: 1500;
@@ -3200,6 +3203,7 @@ const removeAudioTag = (word) => {
   display: flex;
   flex-direction: column; /* 垂直排列 */
   gap: 15px; /* 按钮之间的间距 */
+  transition: all 0.3s ease-in-out; /* 添加平滑过渡动画 */
 }
 
 /* 按钮通用样式 */
@@ -3243,18 +3247,22 @@ const removeAudioTag = (word) => {
   transform: scale(0.95);
 }
 
-/* 移动端适配 */
+/* 🔥 修改 2：移动端适配也改到右边 */
 @media (max-width: 768px) {
   .floating-action-group {
-    left: 10px; /* 手机紧贴左边 */
+    left: auto; 
+    right: 10px; /* 手机紧贴右边 */
     gap: 10px;
   }
-  .floating-btn {
-    width: 40px;
-    height: 40px;
-    font-size: 20px;
-    opacity: 0.9;
-  }
+  /* ... */
+}
+
+/* 🔥 修改 3：当拥有 pos-left 类时，强制飞到左边去 (避让模式) */
+.floating-action-group.pos-left {
+  right: auto !important; /* 取消右边定位 */
+  
+  /* 飞到左侧对称位置 */
+  left: max(20px, calc(50% - 680px)); 
 }
 /* 自定义弹窗输入框样式 */
 .modal-input-field {
