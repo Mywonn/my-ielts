@@ -2239,7 +2239,6 @@ const removeAudioTag = (word) => {
   <div class="app-root">
     
     <div class="tools-bar sticky-toolbar">
-      <div class="notch-spacer mobile-only"></div>
       <div class="bar-inner">
         <div class="left-tools">
           <div class="mode-switch">
@@ -2860,18 +2859,21 @@ const removeAudioTag = (word) => {
   min-height: 100vh; 
 }
 
+/* 吸顶工具栏 - 增大尺寸 */
 .tools-bar { 
+  /* ⚡️关键：改成纯白，对应你的要求“标题栏是白的，外面也是白的” */
   background: #ffffff; 
+  
+  /* 确保宽度占满屏幕 */
   width: 100%; 
+  
+  /* 底部加一条浅灰线区分 */
   border-bottom: 1px solid #e5e7eb; 
   
-  /* 👇 只要保留这些基础的就行，不需要写复杂的 env() 了 👇 */
-  padding-top: 15px;
-  padding-bottom: 15px; 
-  
+  padding: 15px 0; 
   position: sticky; 
   top: 0; 
-  z-index: 9999; 
+  z-index: 1000; 
   box-shadow: 0 4px 6px rgba(0,0,0,0.02); 
 }
 .bar-inner { max-width: 1200px; margin: 0 auto; padding: 0 16px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; }
@@ -4032,28 +4034,6 @@ const removeAudioTag = (word) => {
   transform: scale(0.9);
 }
 
-/* 🔥🔥🔥 终极方案：刘海占位块 🔥🔥🔥 */
-.notch-spacer {
-  width: 100%;
-  height: 0; /* 电脑上不占地方 */
-  background: transparent;
-}
-
-@media (max-width: 768px) {
-  /* 手机端：强行撑开 60px 的高度 */
-  /* 如果觉得 60px 还不够，可以改成 70px 或 80px */
-  .notch-spacer {
-    height: 60px !important; 
-    display: block;
-  }
-
-  /* 同时把原本工具栏的 padding 改小一点，防止太高了 */
-  .tools-bar {
-    padding-top: 5px !important;
-    height: auto !important;
-  }
-}
-  
 </style>
 
 
