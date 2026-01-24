@@ -2860,38 +2860,19 @@ const removeAudioTag = (word) => {
   min-height: 100vh; 
 }
 
-/* 吸顶工具栏 */
 .tools-bar { 
   background: #ffffff; 
   width: 100%; 
   border-bottom: 1px solid #e5e7eb; 
   
-  /* 电脑端的默认高度 */
+  /* 👇 只要保留这些基础的就行，不需要写复杂的 env() 了 👇 */
   padding-top: 15px;
   padding-bottom: 15px; 
   
   position: sticky; 
   top: 0; 
-  
-  /* 🔥 改动1：把层级设得超级高，防止被其他元素盖住 */
   z-index: 9999; 
   box-shadow: 0 4px 6px rgba(0,0,0,0.02); 
-}
-
-/* 🔥🔥🔥 改动2：专门针对手机端的“刘海暴力避让” 🔥🔥🔥 */
-/* 请把这段加在 .tools-bar 的下面 */
-@media (max-width: 768px) {
-  .tools-bar {
-    /* 逻辑说明：
-       max(50px, ...) 的意思是：
-       无论系统能不能读到刘海高度，我都强制让顶部空出至少 50px！
-       这样绝对不可能再被遮挡了。
-    */
-    padding-top: max(50px, env(safe-area-inset-top) + 10px) !important;
-    
-    /* 确保高度足够容纳按钮 */
-    height: auto;
-  }
 }
 .bar-inner { max-width: 1200px; margin: 0 auto; padding: 0 16px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; }
 .left-tools { display: flex; gap: 15px; align-items: center; }
