@@ -1,8 +1,7 @@
 <script setup>
 import { ref, computed, watch, onMounted, reactive, nextTick, onUnmounted } from 'vue'
 import vocabularyData from './vocabulary'
-// 🔥🔥🔥【新增】引入 marked 解析器 (直接从 CDN 加载，无需安装)
-import { marked } from 'https://cdn.jsdelivr.net/npm/marked/lib/marked.esm.js'
+
 
 // ==========================================
 // 0. 音频配置
@@ -2142,14 +2141,15 @@ const openNoteModal = (groupId) => {
 const showReadModal = ref(false)
 const readNoteData = reactive({ title: '', content: '', groupId: -1 })
 
-// 升级版：使用 marked 解析 Markdown (支持表格、引用、代码块等)
+// ✅ 修改后的代码
 const renderMarkdown = (text) => {
   if (!text) return ''
   try {
-    // marked.parse 会把 markdown 文本变成标准的 HTML
-    return marked.parse(text)
+    // 原来是 return marked.parse(text)
+    // 改为从 window 对象调用：
+    return window.marked.parse(text)
   } catch (e) {
-    return text // 如果解析失败，兜底显示纯文本
+    return text 
   }
 }
 
