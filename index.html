@@ -11,23 +11,17 @@
   <title>My IELTS</title>
   <meta name="description" content="Everything in my IELTS preparetion">
   <style>
-  html, body {
-    margin: 0;
-    padding: 0;
-    height: 100%;
-    overflow: hidden; /* 禁止 body 滚动 */
-  }
-
+  /* iOS 安全区域（防止被状态栏 / 灵动岛挡住） */
   #app {
-    height: 100%;
-    box-sizing: border-box;
-    overflow-y: auto; /* 只让 app 内部滚动 */
     padding-top: env(safe-area-inset-top);
     padding-right: env(safe-area-inset-right);
     padding-bottom: env(safe-area-inset-bottom);
     padding-left: env(safe-area-inset-left);
+    box-sizing: border-box;
+    min-height: 100vh;
   }
 </style>
+
 
 </head>
 <body>
