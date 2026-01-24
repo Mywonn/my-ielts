@@ -2859,18 +2859,16 @@ const removeAudioTag = (word) => {
   min-height: 100vh; 
 }
 
-/* 吸顶工具栏 - 增大尺寸 */
+/* 吸顶工具栏 - 增大尺寸 + 适配手机刘海屏 */
 .tools-bar { 
-  /* ⚡️关键：改成纯白，对应你的要求“标题栏是白的，外面也是白的” */
   background: #ffffff; 
-  
-  /* 确保宽度占满屏幕 */
   width: 100%; 
-  
-  /* 底部加一条浅灰线区分 */
   border-bottom: 1px solid #e5e7eb; 
   
-  padding: 15px 0; 
+  /* 🔥🔥🔥 核心修改：顶部内边距 = 15px 或 刘海高度 (取最大值) */
+  padding-top: max(15px, env(safe-area-inset-top));
+  padding-bottom: 15px; 
+  
   position: sticky; 
   top: 0; 
   z-index: 1000; 
