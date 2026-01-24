@@ -2861,18 +2861,21 @@ const removeAudioTag = (word) => {
 
 /* 吸顶工具栏 - 增大尺寸 */
 .tools-bar { 
-  /* ⚡️关键：改成纯白，对应你的要求“标题栏是白的，外面也是白的” */
+  /* 背景色保持不变 */
   background: #ffffff; 
   
-  /* 确保宽度占满屏幕 */
   width: 100%; 
-  
-  /* 底部加一条浅灰线区分 */
   border-bottom: 1px solid #e5e7eb; 
   
-  padding: 15px 0; 
+  /* 🔴 修改 1：顶部内边距 = 原有 15px + 手机刘海高度 */
+  padding-top: calc(15px + env(safe-area-inset-top));
+  padding-bottom: 15px;
+  
   position: sticky; 
-  top: env(safe-area-inset-top);
+  
+  /* 🔴 修改 2：让它直接贴在屏幕最顶端，盖住刘海区域 */
+  top: 0;
+  
   z-index: 1000; 
   box-shadow: 0 4px 6px rgba(0,0,0,0.02); 
 }
@@ -4033,35 +4036,7 @@ const removeAudioTag = (word) => {
 .tool-btn-simple:active {
   transform: scale(0.9);
 }
-/* =========================================
-   修复方案：精准刘海占位 + 颜色自适应
-   ========================================= */
 
-/* 1. 占位块基础样式 */
-.notch-spacer {
-  width: 100%;
-  height: 0;
-  /* 🔥 核心修改A：默认白色背景（填补黄框区域） */
-  background-color: #ffffff; 
-  transition: background-color 0.3s ease;
-}
-
-/* 2. 夜间模式适配 (自动变黑) */
-.dark .notch-spacer {
-  /* 🔥 核心修改B：夜间变成深蓝色，和菜单融为一体 */
-  background-color: #1e293b !important;
-}
-
-/* 3. 手机端专属调整 */
-@media (max-width: 768px) {
-  
-  /* 占位块高度微调：从 60px 减小到 46px */
-  /* 46px 刚好能盖住刘海，又不会浪费太多屏幕空间 */
-  .notch-spacer {
-    height: 46px !important; 
-    display: block;
-  }
- }
 </style>
 
 
