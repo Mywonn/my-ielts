@@ -1,7 +1,8 @@
 <script setup>
 import { ref, computed, watch, onMounted, reactive, nextTick, onUnmounted } from 'vue'
 import vocabularyData from './vocabulary'
-
+// 🔥🔥🔥【新增】引入 marked 解析器 (直接从 CDN 加载，无需安装)
+import { marked } from 'https://cdn.jsdelivr.net/npm/marked/lib/marked.esm.js'
 
 // ==========================================
 // 0. 音频配置
@@ -2141,15 +2142,14 @@ const openNoteModal = (groupId) => {
 const showReadModal = ref(false)
 const readNoteData = reactive({ title: '', content: '', groupId: -1 })
 
-// ✅ 修改后的代码
+// 升级版：使用 marked 解析 Markdown (支持表格、引用、代码块等)
 const renderMarkdown = (text) => {
   if (!text) return ''
   try {
-    // 原来是 return marked.parse(text)
-    // 改为从 window 对象调用：
-    return window.marked.parse(text)
+    // marked.parse 会把 markdown 文本变成标准的 HTML
+    return marked.parse(text)
   } catch (e) {
-    return text 
+    return text // 如果解析失败，兜底显示纯文本
   }
 }
 
@@ -2861,21 +2861,18 @@ const removeAudioTag = (word) => {
 
 /* 吸顶工具栏 - 增大尺寸 */
 .tools-bar { 
-  /* 背景色保持不变 */
+  /* ⚡️关键：改成纯白，对应你的要求“标题栏是白的，外面也是白的” */
   background: #ffffff; 
   
+  /* 确保宽度占满屏幕 */
   width: 100%; 
+  
+  /* 底部加一条浅灰线区分 */
   border-bottom: 1px solid #e5e7eb; 
   
-  /* 🔴 修改 1：顶部内边距 = 原有 15px + 手机刘海高度 */
-  padding-top: calc(15px + env(safe-area-inset-top));
-  padding-bottom: 15px;
-  
+  padding: 15px 0; 
   position: sticky; 
-  
-  /* 🔴 修改 2：让它直接贴在屏幕最顶端，盖住刘海区域 */
-  top: 0;
-  
+  top: env(safe-area-inset-top);
   z-index: 1000; 
   box-shadow: 0 4px 6px rgba(0,0,0,0.02); 
 }
