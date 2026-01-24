@@ -2859,22 +2859,29 @@ const removeAudioTag = (word) => {
   min-height: 100vh; 
 }
 
-/* 吸顶工具栏 - 增大尺寸 */
 .tools-bar { 
-  /* ⚡️关键：改成纯白，对应你的要求“标题栏是白的，外面也是白的” */
-  background: #ffffff; 
+  /* 1. 背景保持纯白，确保能挡住后面透出来的词汇 */
+  background: #ffffff !important; 
   
-  /* 确保宽度占满屏幕 */
-  width: 100%; 
-  
-  /* 底部加一条浅灰线区分 */
-  border-bottom: 1px solid #e5e7eb; 
-  
-  padding: 15px 0; 
+  /* 2. 吸顶位置直接设为 0，盖住系统状态栏区域 */
   position: sticky; 
-  top: env(safe-area-inset-top);
+  top: 0;
+  width: 100%; 
   z-index: 1000; 
+
+  /* 3. 核心修复：增加顶部内边距，把按钮压到刘海/灵动岛下方 */
+  /* padding-top 会自动加上手机的安全区域高度 */
+  padding-top: env(safe-area-inset-top) !important;
+  padding-bottom: 15px;
+
+  border-bottom: 1px solid #e5e7eb; 
   box-shadow: 0 4px 6px rgba(0,0,0,0.02); 
+}
+
+/* 如果是夜间模式，也要适配背景色 */
+.dark .tools-bar {
+  background-color: #1e293b !important;
+  border-bottom-color: #334155 !important;
 }
 .bar-inner { max-width: 1200px; margin: 0 auto; padding: 0 16px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; }
 .left-tools { display: flex; gap: 15px; align-items: center; }
