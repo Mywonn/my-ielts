@@ -7,8 +7,8 @@ import { marked } from 'https://cdn.jsdelivr.net/npm/marked/lib/marked.esm.js'
 // ==========================================
 // 0. 音频配置
 // ==========================================
-const TIMEOUT_SOUND = '/timeout.mp3'
-const DO_SOUND = '/do.mp3'
+const TIMEOUT_SOUND = '/my-ielts/timeout.mp3'
+const DO_SOUND = '/my-ielts/do.mp3'
 
 const playSound = (url) => {
   const audio = new Audio(url)
