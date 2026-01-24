@@ -1184,15 +1184,6 @@ function manualAddWord() {
   setTimeout(() => document.getElementById('custom-word-input')?.focus(), 100)
 }
 
-// 返回首页函数
-const goHome = () => {
-  // 如果是单页应用，通常跳转到根目录或特定域名
-  window.location.href = '/my-ielts/' 
-  // 或者你想重置状态：
-  // isReviewMode.value = false
-  // chunkIndex.value = 0
-}  
-  
 // --- B. 确认单词：关当前窗 -> 判生词 -> 开下一窗 ---
 function confirmAddWord() {
   const input = newWordInput.value
@@ -2582,7 +2573,6 @@ const removeAudioTag = (word) => {
       <button v-if="!isReviewMode" @click="openStoryModal" class="floating-btn story-btn" title="本页助记文章/故事">📜</button>
       <button @click="manualAddWord" class="floating-btn add-btn" title="手动加入生词">➕</button>
       <button @click="openSearchModal" class="floating-btn search-btn" title="搜索单词/词根">🔍</button>
-      <button @click="goHome" class="floating-btn home-btn" title="返回首页">🏠</button>
     </div>
     <div v-if="showAddWordModal" class="modal-overlay" @click.self="showAddWordModal = false">
       <div class="modal-box" style="max-width: 360px;">
@@ -2869,23 +2859,36 @@ const removeAudioTag = (word) => {
   min-height: 100vh; 
 }
 
-/* 吸顶工具栏 - 增大尺寸 */
+/* 吸顶工具栏 */
 .tools-bar { 
-  /* ⚡️关键：改成纯白，对应你的要求“标题栏是白的，外面也是白的” */
+  /* 1. 确保背景色是纯白，防止下移后透出底下的内容 */
   background: #ffffff; 
   
-  /* 确保宽度占满屏幕 */
-  width: 100%; 
+  /* 2. 适配灵动岛/刘海屏的核心代码 */
+  /* 让工具栏的顶部内边距自动增加，把内容顶下来 */
+  padding-top: env(safe-area-inset-top); 
   
-  /* 底部加一条浅灰线区分 */
+  /* 3. 保持原有样式 */
+  width: 100%; 
   border-bottom: 1px solid #e5e7eb; 
   
-  padding: 15px 0; 
+  /* 4. 关键：不要用 top: env(...)，而是用 padding 撑开 */
+  /* 这样背景色会自动填充整个刘海区域，不会变成透明 */
+  padding-bottom: 15px; /* 保持原有的底部内边距 */
+  
+  /* 5. 确保吸顶 */
   position: sticky; 
-  top: env(safe-area-inset-top);
+  top: 0; 
   z-index: 1000; 
   box-shadow: 0 4px 6px rgba(0,0,0,0.02); 
 }
+
+.dark .tools-bar {
+  /* 确保这里也是实心颜色，不是 transparent */
+  background-color: #1e293b !important;
+  border-bottom: 1px solid #334155 !important;
+  color: #cbd5e1 !important;
+}  
 .bar-inner { max-width: 1200px; margin: 0 auto; padding: 0 16px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; }
 .left-tools { display: flex; gap: 15px; align-items: center; }
 .right-tools { display: flex; align-items: center; gap: 10px; }
@@ -4044,15 +4047,6 @@ const removeAudioTag = (word) => {
   transform: scale(0.9);
 }
 
-/* 首页按钮颜色 (紫色/靛蓝色) */
-.home-btn {
-  color: #6366f1; 
-}
-.home-btn:hover {
-  background: #eef2ff;
-  transform: scale(1.15);
-  box-shadow: 0 8px 16px rgba(99, 102, 241, 0.25);
-}  
 </style>
 
 
