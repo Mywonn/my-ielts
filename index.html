@@ -32,28 +32,10 @@
   </noscript>
   <script>
   (function () {
+    const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
     const setting = localStorage.getItem('color-schema') || 'auto'
-
-    const prefersDark =
-      window.matchMedia &&
-      window.matchMedia('(prefers-color-scheme: dark)').matches
-
-    // 最终是否深色，只由 color-schema 决定
-    const isDark =
-      setting === 'dark' ||
-      (setting === 'auto' && prefersDark)
-
-    // 页面主题
-    document.documentElement.classList.toggle('dark', isDark)
-
-    // iOS 状态栏
-    const meta = document.querySelector(
-      'meta[name="apple-mobile-web-app-status-bar-style"]'
-    )
-
-    if (meta) {
-      meta.setAttribute('content', isDark ? 'black-translucent' : 'black')
-    }
+    if (setting === 'dark' || (prefersDark && setting !== 'light'))
+      document.documentElement.classList.toggle('dark', true)
   })()
 </script>
 
