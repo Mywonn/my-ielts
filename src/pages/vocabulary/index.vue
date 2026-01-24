@@ -2859,22 +2859,23 @@ const removeAudioTag = (word) => {
   min-height: 100vh; 
 }
 
-/* 吸顶工具栏 - 增大尺寸 */
+/* 吸顶工具栏 - 改为 Fixed 固定定位 */
 .tools-bar { 
-  /* ⚡️关键：改成纯白，对应你的要求“标题栏是白的，外面也是白的” */
-  background: #ffffff; 
-  
-  /* 确保宽度占满屏幕 */
+  background: #ffffff; /* 确保背景是白色 */
   width: 100%; 
-  
-  /* 底部加一条浅灰线区分 */
   border-bottom: 1px solid #e5e7eb; 
   
-  padding: 15px 0; 
-  position: sticky; 
-  top: env(safe-area-inset-top);
-  z-index: 1000; 
+  /* 🔥 核心修改：从 sticky 改为 fixed，永远钉在屏幕最上方 */
+  position: fixed; 
+  top: 0; 
+  left: 0; /* 确保左边对齐 */
+  
+  z-index: 9999; /* 层级最高，防止被遮挡 */
   box-shadow: 0 4px 6px rgba(0,0,0,0.02); 
+
+  /* 电脑端保持默认 */
+  padding-top: 15px;
+  padding-bottom: 15px; 
 }
 .bar-inner { max-width: 1200px; margin: 0 auto; padding: 0 16px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; }
 .left-tools { display: flex; gap: 15px; align-items: center; }
@@ -4033,7 +4034,43 @@ const removeAudioTag = (word) => {
 .tool-btn-simple:active {
   transform: scale(0.9);
 }
+  
+/* 🔥🔥🔥 终极方案：刘海占位块 🔥🔥🔥 */
+.notch-spacer {
+  width: 100%;
+  height: 0;
+  background: #ffffff; /* 🔥 核心修改：填上白色，不要透明 */
+  transition: background-color 0.3s;
+}
 
+@media (max-width: 768px) {
+  /* 手机端：强行撑开高度，根据你的截图，50px 比较合适 */
+  .notch-spacer {
+    height: 50px !important; 
+    display: block;
+  }
+
+  /* 工具栏本身的高度微调 */
+  .tools-bar {
+    padding-top: 5px !important;
+    height: auto !important;
+  }
+}
+
+/* 🔥🔥🔥 内容避让 (防止单词被固定的菜单挡住) 🔥🔥🔥 */
+@media (max-width: 768px) {
+  /* 给整个页面容器加顶部内边距 */
+  /* 115px = 刘海占位(50) + 菜单高度(约65) */
+  .vocabulary-page, .main-content { 
+    padding-top: 120px !important; 
+  }
+  
+  /* 如果上面那个不生效，试试直接给 body 下的第一个 div 加 */
+  /* 或者如果你的单词列表是用 table 写的 */
+  .word-list-container {
+     padding-top: 120px !important;
+  }
+}
 </style>
 
 
@@ -4118,11 +4155,14 @@ const removeAudioTag = (word) => {
   color: #fff !important;
 }
 
-/* 8. 其他按钮工具栏保持不变 */
-.dark .tools-bar, .dark .stats-bar {
-  background-color: #1e293b !important;
-  border-bottom: 1px solid #334155 !important;
-  color: #cbd5e1 !important;
+/* 夜间模式适配 */
+.dark .tools-bar {
+  background-color: #1e293b !important; /* 深色背景 */
+  border-bottom-color: #334155 !important;
+}
+
+.dark .notch-spacer {
+  background-color: #1e293b !important; /* 🔥 占位块也要变黑 */
 }
 .dark .action-btn {
   background-color: #1e293b !important;
