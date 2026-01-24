@@ -1184,6 +1184,15 @@ function manualAddWord() {
   setTimeout(() => document.getElementById('custom-word-input')?.focus(), 100)
 }
 
+// 返回首页函数
+const goHome = () => {
+  // 如果是单页应用，通常跳转到根目录或特定域名
+  window.location.href = '/my-ielts/' 
+  // 或者你想重置状态：
+  // isReviewMode.value = false
+  // chunkIndex.value = 0
+}  
+  
 // --- B. 确认单词：关当前窗 -> 判生词 -> 开下一窗 ---
 function confirmAddWord() {
   const input = newWordInput.value
@@ -2573,6 +2582,7 @@ const removeAudioTag = (word) => {
       <button v-if="!isReviewMode" @click="openStoryModal" class="floating-btn story-btn" title="本页助记文章/故事">📜</button>
       <button @click="manualAddWord" class="floating-btn add-btn" title="手动加入生词">➕</button>
       <button @click="openSearchModal" class="floating-btn search-btn" title="搜索单词/词根">🔍</button>
+      <button @click="goHome" class="floating-btn home-btn" title="返回首页">🏠</button>
     </div>
     <div v-if="showAddWordModal" class="modal-overlay" @click.self="showAddWordModal = false">
       <div class="modal-box" style="max-width: 360px;">
@@ -2859,29 +2869,22 @@ const removeAudioTag = (word) => {
   min-height: 100vh; 
 }
 
+/* 吸顶工具栏 - 增大尺寸 */
 .tools-bar { 
-  /* 1. 背景保持纯白，确保能挡住后面透出来的词汇 */
-  background: #ffffff !important; 
+  /* ⚡️关键：改成纯白，对应你的要求“标题栏是白的，外面也是白的” */
+  background: #ffffff; 
   
-  /* 2. 吸顶位置直接设为 0，盖住系统状态栏区域 */
-  position: sticky; 
-  top: 0;
+  /* 确保宽度占满屏幕 */
   width: 100%; 
-  z-index: 1000; 
-
-  /* 3. 核心修复：增加顶部内边距，把按钮压到刘海/灵动岛下方 */
-  /* padding-top 会自动加上手机的安全区域高度 */
-  padding-top: env(safe-area-inset-top) !important;
-  padding-bottom: 15px;
-
+  
+  /* 底部加一条浅灰线区分 */
   border-bottom: 1px solid #e5e7eb; 
+  
+  padding: 15px 0; 
+  position: sticky; 
+  top: env(safe-area-inset-top);
+  z-index: 1000; 
   box-shadow: 0 4px 6px rgba(0,0,0,0.02); 
-}
-
-/* 如果是夜间模式，也要适配背景色 */
-.dark .tools-bar {
-  background-color: #1e293b !important;
-  border-bottom-color: #334155 !important;
 }
 .bar-inner { max-width: 1200px; margin: 0 auto; padding: 0 16px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; }
 .left-tools { display: flex; gap: 15px; align-items: center; }
@@ -3022,6 +3025,15 @@ const removeAudioTag = (word) => {
 .mobile-hide { display: inline; }
 
 @media (max-width: 768px) {
+  /* 🚀 在这里添加：隐藏手机端顶部工具栏 */
+  .tools-bar {
+    display: none !important;
+  }
+  
+  /* 确保内容区不会因为没有顶部栏而留出空白 */
+  .app-root {
+    padding-top: 0 !important;
+  }
   .mobile-hide { display: none; }
   .desktop-only { display: none !important; }
   .mobile-only { display: block; }
@@ -4041,6 +4053,15 @@ const removeAudioTag = (word) => {
   transform: scale(0.9);
 }
 
+/* 首页按钮颜色 (紫色/靛蓝色) */
+.home-btn {
+  color: #6366f1; 
+}
+.home-btn:hover {
+  background: #eef2ff;
+  transform: scale(1.15);
+  box-shadow: 0 8px 16px rgba(99, 102, 241, 0.25);
+}  
 </style>
 
 
