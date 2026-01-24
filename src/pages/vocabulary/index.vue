@@ -3025,15 +3025,6 @@ const removeAudioTag = (word) => {
 .mobile-hide { display: inline; }
 
 @media (max-width: 768px) {
-  /* 🚀 在这里添加：隐藏手机端顶部工具栏 */
-  .tools-bar {
-    display: none !important;
-  }
-  
-  /* 确保内容区不会因为没有顶部栏而留出空白 */
-  .app-root {
-    padding-top: 0 !important;
-  }
   .mobile-hide { display: none; }
   .desktop-only { display: none !important; }
   .mobile-only { display: block; }
