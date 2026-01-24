@@ -2859,20 +2859,28 @@ const removeAudioTag = (word) => {
   min-height: 100vh; 
 }
 
-/* 吸顶工具栏 - 增大尺寸 + 适配手机刘海屏 */
+/* 吸顶工具栏 */
 .tools-bar { 
   background: #ffffff; 
   width: 100%; 
   border-bottom: 1px solid #e5e7eb; 
   
-  /* 🔥🔥🔥 核心修改：顶部内边距 = 15px 或 刘海高度 (取最大值) */
-  padding-top: max(15px, env(safe-area-inset-top));
+  /* 🔥 1. 默认给一个基础高度 */
+  padding-top: 15px;
   padding-bottom: 15px; 
   
   position: sticky; 
   top: 0; 
   z-index: 1000; 
   box-shadow: 0 4px 6px rgba(0,0,0,0.02); 
+}
+
+/* 🔥🔥🔥 2. 针对手机端的暴力修复 (强行加高) 🔥🔥🔥 */
+@media (max-width: 768px) {
+  .tools-bar {
+    /* 强行设为 48px (足以避开绝大多数刘海)，如果能读到 env 就用 env，读不到就用 48px */
+    padding-top: max(48px, env(safe-area-inset-top)) !important;
+  }
 }
 .bar-inner { max-width: 1200px; margin: 0 auto; padding: 0 16px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; }
 .left-tools { display: flex; gap: 15px; align-items: center; }
