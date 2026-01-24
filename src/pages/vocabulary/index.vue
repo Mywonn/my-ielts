@@ -2865,21 +2865,28 @@ const removeAudioTag = (word) => {
   width: 100%; 
   border-bottom: 1px solid #e5e7eb; 
   
-  /* 🔥 1. 默认给一个基础高度 */
-  padding-top: 15px;
-  padding-bottom: 15px; 
-  
   position: sticky; 
   top: 0; 
-  z-index: 1000; 
+  z-index: 9999; /* 🔥 改大一点，防止被遮挡 */
   box-shadow: 0 4px 6px rgba(0,0,0,0.02); 
+
+  /* --- 默认高度 (电脑端) --- */
+  padding-top: 15px;
+  padding-bottom: 15px;
 }
 
-/* 🔥🔥🔥 2. 针对手机端的暴力修复 (强行加高) 🔥🔥🔥 */
+/* 🔥🔥🔥 针对手机端的暴力修正 (必须写在 @media 里面) 🔥🔥🔥 */
 @media (max-width: 768px) {
   .tools-bar {
-    /* 强行设为 48px (足以避开绝大多数刘海)，如果能读到 env 就用 env，读不到就用 48px */
-    padding-top: max(48px, env(safe-area-inset-top)) !important;
+    /* 逻辑：
+       1. env(safe-area-inset-top) 是刘海高度 (iPhone 14大约是 47px)
+       2. 如果读不到刘海 (比如浏览器不支持)，就强制用 50px
+       3. 无论如何，内容都会被推下来，绝对不会被遮挡！
+    */
+    padding-top: max(50px, env(safe-area-inset-top)) !important;
+    
+    /* 可选：为了美观，稍微加高一点整体高度 */
+    height: auto; 
   }
 }
 .bar-inner { max-width: 1200px; margin: 0 auto; padding: 0 16px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; }
