@@ -2250,6 +2250,13 @@ const removeAudioTag = (word) => {
             <input type="checkbox" v-model="isDictation">
             <span>{{ isDictation ? '🎙️ ' : '👀 ' }}</span>
           </label>
+          <button v-if="isDictation" 
+                  class="mobile-only tool-btn-simple" 
+                  @click="toggleAllZh" 
+                  style="margin-left: 10px; font-size: 20px;"
+                  :title="isAllRevealedComputed ? '全部隐藏' : '全部显示'">
+            {{ isAllRevealedComputed ? '📖' : '🙈' }}
+          </button>
         </div>
 
         <div class="middle-tools">
@@ -4004,6 +4011,20 @@ const removeAudioTag = (word) => {
   color: #fbbf24;
 }
 
+/* 🔥 新增：手机端工具栏简洁按钮样式 */
+.tool-btn-simple {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  transition: transform 0.2s;
+}
+.tool-btn-simple:active {
+  transform: scale(0.9);
+}
 
 </style>
 
