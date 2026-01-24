@@ -2865,28 +2865,31 @@ const removeAudioTag = (word) => {
   width: 100%; 
   border-bottom: 1px solid #e5e7eb; 
   
+  /* 电脑端的默认高度 */
+  padding-top: 15px;
+  padding-bottom: 15px; 
+  
   position: sticky; 
   top: 0; 
-  z-index: 9999; /* 🔥 改大一点，防止被遮挡 */
+  
+  /* 🔥 改动1：把层级设得超级高，防止被其他元素盖住 */
+  z-index: 9999; 
   box-shadow: 0 4px 6px rgba(0,0,0,0.02); 
-
-  /* --- 默认高度 (电脑端) --- */
-  padding-top: 15px;
-  padding-bottom: 15px;
 }
 
-/* 🔥🔥🔥 针对手机端的暴力修正 (必须写在 @media 里面) 🔥🔥🔥 */
+/* 🔥🔥🔥 改动2：专门针对手机端的“刘海暴力避让” 🔥🔥🔥 */
+/* 请把这段加在 .tools-bar 的下面 */
 @media (max-width: 768px) {
   .tools-bar {
-    /* 逻辑：
-       1. env(safe-area-inset-top) 是刘海高度 (iPhone 14大约是 47px)
-       2. 如果读不到刘海 (比如浏览器不支持)，就强制用 50px
-       3. 无论如何，内容都会被推下来，绝对不会被遮挡！
+    /* 逻辑说明：
+       max(50px, ...) 的意思是：
+       无论系统能不能读到刘海高度，我都强制让顶部空出至少 50px！
+       这样绝对不可能再被遮挡了。
     */
-    padding-top: max(50px, env(safe-area-inset-top)) !important;
+    padding-top: max(50px, env(safe-area-inset-top) + 10px) !important;
     
-    /* 可选：为了美观，稍微加高一点整体高度 */
-    height: auto; 
+    /* 确保高度足够容纳按钮 */
+    height: auto;
   }
 }
 .bar-inner { max-width: 1200px; margin: 0 auto; padding: 0 16px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; }
