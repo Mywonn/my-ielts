@@ -2269,10 +2269,6 @@ const syncConfig = reactive({
 const isSyncing = ref(false) // loading 状态
 // 🔥 新增：控制云同步菜单的展开/收起
 const isCloudMenuOpen = ref(false)
-  // 🔥 新增：控制云同步菜单的展开/收起
-const isCloudMenuOpen = ref(false)   // <--- 第 2271 行
-
-// 👇👇👇【请在这里（第2272行）插入下面的代码】👇👇👇
 
 // 🔥🔥🔥【新增】自动关闭定时器逻辑
 let cloudMenuTimer = null
