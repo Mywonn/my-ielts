@@ -2328,6 +2328,12 @@ const uploadToCloud = async () => {
   }
 }
 
+// ... 在 isSyncing 附近添加 ...
+const isSyncing = ref(false)
+// 🔥 新增：控制云同步菜单的展开/收起
+const isCloudMenuOpen = ref(false)
+// ...
+  
 // 🔥 从云端下载 (Restore)
 const downloadFromCloud = async () => {
   if (!syncConfig.token || !syncConfig.gistId) return alert('请先点击 ⚙️ 配置 GitHub Token 和 Gist ID')
@@ -2718,23 +2724,26 @@ const downloadFromCloud = async () => {
       <button v-if="!isReviewMode" @click="openStoryModal" class="floating-btn story-btn" title="本页助记文章/故事">📜</button>
       <button @click="manualAddWord" class="floating-btn add-btn" title="手动加入生词">➕</button>
       <button @click="openSearchModal" class="floating-btn search-btn" title="搜索单词/词根">🔍</button>
-      <button @click="uploadToCloud" class="floating-btn sync-btn svg-icon-btn" title="上传进度到云端" :disabled="isSyncing">
-        <svg v-if="isSyncing" class="animate-spin" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-        <svg v-else xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/>
-        </svg>
+      <button @click="isCloudMenuOpen = !isCloudMenuOpen" class="floating-btn sync-btn main-cloud-trigger" :class="{ 'active': isCloudMenuOpen }" title="云同步菜单">
+         <svg v-if="isSyncing" class="animate-spin" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+         <svg v-else xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M18.5 9.51c-1.35-2.5-4.15-4.01-7.03-3.48-2.86.53-5.08 2.81-5.37 5.69C3.36 12.17 1.5 14.5 1.5 17.5c0 3.31 2.69 6 6 6h10c3.31 0 6-2.69 6-6 0-3-2.25-5.52-5-5.99zM17.5 21H8c-2.21 0-4-1.79-4-4 0-2.17 1.67-3.93 3.83-3.99.38-.01.74.14 1.04.42.58.55 1.48.64 2.17.16.76-.53.94-1.56.39-2.33-.6-1.03-.57-2.33.19-3.36.76-1.03 2.1-1.51 3.33-1.28.8.16 1.46.71 1.74 1.48.14.4.5.7.92.75 2.13.24 3.89 2.01 3.89 4.15 0 2.21-1.79 4-4 4z"/></svg>
       </button>
 
-      <button @click="downloadFromCloud" class="floating-btn sync-btn svg-icon-btn" title="从云端下载进度" :disabled="isSyncing">
-        <svg v-if="isSyncing" class="animate-spin" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-        <svg v-else xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM12 17l-5-5h3V8h4v4h3l-5 5z"/>
-        </svg>
-      </button>
+      <Transition name="cloud-pop">
+        <div v-if="isCloudMenuOpen" class="cloud-sub-menu" style="display: flex; flex-direction: column; gap: 10px; align-items: center;">
+            
+            <button @click="showSyncModal = true" class="floating-btn sync-btn sub-btn" title="配置云同步" style="font-size: 20px;">⚙️</button>
+            
+            <button @click="downloadFromCloud" class="floating-btn sync-btn svg-icon-btn sub-btn" title="从云端下载进度" :disabled="isSyncing">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM12 17l-5-5h3V8h4v4h3l-5 5z"/></svg>
+            </button>
 
-      <button @click="showSyncModal = true" class="floating-btn sync-btn" title="配置云同步" style="font-size: 20px;">
-        ⚙️
-      </button>
+            <button @click="uploadToCloud" class="floating-btn sync-btn svg-icon-btn sub-btn" title="上传进度到云端" :disabled="isSyncing">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/></svg>
+            </button>
+            
+        </div>
+      </Transition>
       
     </div>
     <div v-if="showAddWordModal" class="modal-overlay" @click.self="showAddWordModal = false">
@@ -4238,55 +4247,87 @@ const downloadFromCloud = async () => {
   transform: scale(0.9);
 }
 
-/* 🔥🔥🔥【修改】云同步悬浮按钮样式 (适配 SVG) */
+/* 🔥🔥🔥【重构】云同步折叠菜单样式 */
+
+/* 1. 通用云同步按钮样式 (继承之前的紫色风格) */
 .sync-btn {
-  color: #a855f7; /* 紫色图标主体 */
+  color: #a855f7;
   border-color: #d8b4fe;
-  /* 确保SVG居中 */
   display: flex;
   justify-content: center;
   align-items: center;
-  padding: 0; /* 清除内边距 */
+  padding: 0;
+  transition: all 0.3s cubic-bezier(0.4, 0.0, 0.2, 1); /* 优化过渡曲线 */
 }
 
-/* 专门用于SVG按钮的微调 */
-.svg-icon-btn svg {
-  width: 22px; /* 图标稍微大一点点 */
-  height: 22px;
+/* 2. 主触发按钮 (那朵大云) */
+.main-cloud-trigger {
+    z-index: 10; /* 确保在最上层 */
+}
+/* 当菜单打开时，主按钮变成深紫色背景，白色图标，突出显示状态 */
+.main-cloud-trigger.active {
+    background: #a855f7;
+    color: white;
+    border-color: #a855f7;
+    box-shadow: 0 4px 12px rgba(168, 85, 247, 0.4);
 }
 
-.sync-btn:hover {
-  background: #faf5ff;
-  color: #9333ea; /* 悬停加深紫色 */
-  border-color: #a855f7;
-  transform: scale(1.1);
-  box-shadow: 0 8px 16px rgba(168, 85, 247, 0.25);
+/* 3. 子菜单按钮 (三个小按钮) */
+.sub-btn {
+    width: 40px;  /* 稍微比主按钮小一点，更有层次感 */
+    height: 40px;
+    font-size: 18px;
+    /* 稍微淡一点的背景，区分层级 */
+    background: #faf5ff; 
+}
+.sub-btn:hover {
+     background: #f3e8ff;
+     transform: scale(1.05);
+}
+.svg-icon-btn.sub-btn svg {
+    width: 20px;
+    height: 20px;
 }
 
-.sync-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
+/* 4. 🔥核心动画：菜单弹出/收起效果 (向下弹出) */
+/* 进入和离开的激活状态 */
+.cloud-pop-enter-active,
+.cloud-pop-leave-active {
+  transition: all 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
+  max-height: 200px; /* 设置一个足够大的最大高度用于动画 */
+  opacity: 1;
+  transform: translateY(0) scale(1);
 }
 
-/* 加载动画：旋转 */
-.animate-spin {
-  animation: spin 1s linear infinite;
-  color: #a855f7; /* 加载圈圈也是紫色 */
-}
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+/* 进入起始状态 和 离开结束状态 */
+.cloud-pop-enter-from,
+.cloud-pop-leave-to {
+  opacity: 0;
+  /* 向向上位移并缩小，造成从主按钮里“弹出来”的视觉差 */
+  transform: translateY(-20px) scale(0.8); 
+  max-height: 0; /* 高度收缩 */
+  margin-top: 0 !important; /* 消除间距，确保完全收起 */
 }
 
-/* 暗黑模式适配 */
-.dark .sync-btn {
-  background: #1e293b;
-  border-color: #6b21a8;
-  color: #d8b4fe; /* 暗色模式下的浅紫 */
+/* 确保子菜单容器本身是一个紧凑的整体 */
+.cloud-sub-menu {
+    margin-top: 10px; /* 展开时与主按钮的间距 */
+    overflow: hidden; /* 配合 max-height 实现高度动画 */
 }
-.dark .sync-btn:hover {
-  background: #3b0764;
-  color: #fff;
+
+
+/* 5. 其他通用样式 (保持不变) */
+.sync-btn:disabled { /* ...略... */ }
+.animate-spin { /* ...略... */ }
+.dark .sync-btn { /* ...略... */ }
+/* ...暗黑模式适配需同步修改主按钮激活状态... */
+.dark .main-cloud-trigger.active {
+    background: #9333ea;
+    border-color: #9333ea;
+}
+.dark .sub-btn {
+    background: #1e293b;
+    border-color: #4c1d95;
 }
   
 </style>
