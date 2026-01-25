@@ -774,23 +774,6 @@ const toggleAudio = (word) => {
   playingWord.value = word
 }
   
-  audio.onerror = () => {
-    // MP3 失败，尝试 TTS 机械音
-    currentAudio.value = null 
-    const u = new SpeechSynthesisUtterance(word)
-    u.lang = 'en-US'; u.volume = 1; u.rate = 0.85
-    const voices = window.speechSynthesis.getVoices()
-    const bestVoice = voices.find(v => v.name.includes('Google US')) || voices.find(v => v.lang.includes('en-US'))
-    if (bestVoice) u.voice = bestVoice
-    window._temp_tts = u
-    u.onend = () => { playingWord.value = null }
-    window.speechSynthesis.speak(u)
-  }
-
-  audio.play().catch(e => console.log('MP3播放受阻'))
-  playingWord.value = word
-}
-  
 // ★ 修改：输入框聚焦时自动播放
 const playOnFocus = (word) => {
   // 1. 如果当前已经在这个词了，就不重复触发
