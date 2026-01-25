@@ -682,6 +682,9 @@ const currentAudio = ref(null); const playingWord = ref(null)
 // 播放/停止 开关函数
 // ==========================================
 
+// ==========================================
+// 🔥🔥🔥【修复 2】播放/停止 开关函数 (修复自选词无声)
+// ==========================================
 const toggleAudio = (word) => {
   // 1. 记录听觉依赖
   if (revealedZh.has(word) && !audioPeekHistory.value.includes(word)) {
@@ -693,7 +696,7 @@ const toggleAudio = (word) => {
     if (currentAudio.value) { 
       currentAudio.value.pause()
       currentAudio.value.currentTime = 0 
-      currentAudio.value = null // 关键：清空引用
+      currentAudio.value = null 
     }
     window.speechSynthesis.cancel() 
     playingWord.value = null 
@@ -707,7 +710,31 @@ const toggleAudio = (word) => {
   }
   window.speechSynthesis.cancel()
 
-  // 4. 查找章节 (逻辑保持不变)
+  // 4. 定义 TTS 机械音播放逻辑 (抽离出来复用)
+  const playTTS = () => {
+    const u = new SpeechSynthesisUtterance(word)
+    u.lang = 'en-US'; u.volume = 1; u.rate = 0.85
+    const voices = window.speechSynthesis.getVoices()
+    const bestVoice = voices.find(v => v.name.includes('Google US')) || voices.find(v => v.lang.includes('en-US'))
+    if (bestVoice) u.voice = bestVoice
+    
+    u.onend = () => { playingWord.value = null }
+    u.onerror = (e) => { 
+        console.error('TTS Error:', e); 
+        playingWord.value = null 
+    }
+    window.speechSynthesis.speak(u)
+  }
+
+  // 🔥🔥🔥【核心修复】如果是自定义单词，直接播放 TTS，跳过 MP3 加载
+  // 这样可以避免手机端因为异步加载 MP3 失败而拦截后续的 TTS
+  if (customDict.value[word]) {
+     playingWord.value = word
+     playTTS()
+     return
+  }
+
+  // 5. 查找章节 (逻辑保持不变)
   let targetChapter = currentChapter.value
   if (isReviewMode.value && vocabularyData) {
     for (const chap in vocabularyData) {
@@ -722,16 +749,30 @@ const toggleAudio = (word) => {
     }
   }
 
-  // 5. 播放 MP3
+  // 6. 正常单词：尝试播放 MP3
   const audio = new Audio(`vocabulary/audio/${targetChapter}/${word}.mp3`)
-  
-  // 🔥🔥🔥【核心修复】必须赋值给全局变量，否则第二次点击停不下来
   currentAudio.value = audio 
 
   audio.onended = () => { 
     playingWord.value = null
     currentAudio.value = null 
   }
+  
+  // 如果 MP3 加载失败 (404)，则回退到 TTS
+  audio.onerror = () => {
+    currentAudio.value = null 
+    playTTS() // 调用上面的复用逻辑
+  }
+
+  audio.play().catch(e => {
+      console.log('MP3播放受阻或文件不存在，转TTS');
+      // 某些极端情况下 play() 报错也可以尝试 TTS，但在手机上可能依然受限
+      // 主要是靠上面的 customDict 判断来解决
+      playTTS()
+  })
+  
+  playingWord.value = word
+}
   
   audio.onerror = () => {
     // MP3 失败，尝试 TTS 机械音
@@ -2499,7 +2540,11 @@ const removeAudioTag = (word) => {
                   </div>
                 </div>
                 <div class="mobile-only mobile-pos">{{ word.pos }}</div>
-                <button class="mobile-only mobile-kill" @click="handleKill(word.en)">✕</button>
+                <button class="mobile-only mobile-kill" 
+                        @click="handleKill(word.en)"
+                        :style="isDictation ? { top: 'auto', bottom: '10px', right: '10px', background: '#fff', border: '1px solid #eee', borderRadius: '50%', width:'30px', height:'30px' } : {}">
+                  {{ word._isKilled ? '↺' : '✕' }}
+                </button>
               </div>
               
               <div class="col-pos text-center italic desktop-only">{{ word.pos }}</div>
