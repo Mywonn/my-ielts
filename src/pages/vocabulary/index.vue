@@ -4231,7 +4231,38 @@ const downloadFromCloud = async () => {
 .tool-btn-simple:active {
   transform: scale(0.9);
 }
+/* 🔥🔥🔥【新增】云同步悬浮按钮样式 (紫色) */
+.sync-btn {
+  color: #a855f7; /* 紫色图标 */
+  border-color: #d8b4fe; /* 浅紫边框 */
+  font-size: 16px; /* 稍微调小字体，防止两个emoji太挤 */
+  font-weight: bold;
+}
 
+.sync-btn:hover {
+  background: #faf5ff;
+  color: #9333ea;
+  border-color: #a855f7;
+  transform: scale(1.1); /* 悬停放大 */
+  box-shadow: 0 8px 16px rgba(168, 85, 247, 0.25); /* 紫色投影 */
+}
+
+.sync-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  filter: grayscale(1);
+}
+
+/* 暗黑模式适配 */
+.dark .sync-btn {
+  background: #1e293b;
+  border-color: #6b21a8;
+  color: #d8b4fe;
+}
+.dark .sync-btn:hover {
+  background: #3b0764;
+  color: #fff;
+}
 </style>
 
 
