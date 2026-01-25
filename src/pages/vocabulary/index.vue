@@ -2718,12 +2718,18 @@ const downloadFromCloud = async () => {
       <button v-if="!isReviewMode" @click="openStoryModal" class="floating-btn story-btn" title="本页助记文章/故事">📜</button>
       <button @click="manualAddWord" class="floating-btn add-btn" title="手动加入生词">➕</button>
       <button @click="openSearchModal" class="floating-btn search-btn" title="搜索单词/词根">🔍</button>
-      <button @click="uploadToCloud" class="floating-btn sync-btn" title="上传进度到云端" :disabled="isSyncing">
-        {{ isSyncing ? '⏳' : '☁️⬆️' }}
+      <button @click="uploadToCloud" class="floating-btn sync-btn svg-icon-btn" title="上传进度到云端" :disabled="isSyncing">
+        <svg v-if="isSyncing" class="animate-spin" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+        <svg v-else xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/>
+        </svg>
       </button>
 
-      <button @click="downloadFromCloud" class="floating-btn sync-btn" title="从云端下载进度" :disabled="isSyncing">
-        {{ isSyncing ? '⏳' : '☁️⬇️' }}
+      <button @click="downloadFromCloud" class="floating-btn sync-btn svg-icon-btn" title="从云端下载进度" :disabled="isSyncing">
+        <svg v-if="isSyncing" class="animate-spin" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+        <svg v-else xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM12 17l-5-5h3V8h4v4h3l-5 5z"/>
+        </svg>
       </button>
 
       <button @click="showSyncModal = true" class="floating-btn sync-btn" title="配置云同步" style="font-size: 20px;">
@@ -4231,38 +4237,58 @@ const downloadFromCloud = async () => {
 .tool-btn-simple:active {
   transform: scale(0.9);
 }
-/* 🔥🔥🔥【新增】云同步悬浮按钮样式 (紫色) */
+
+/* 🔥🔥🔥【修改】云同步悬浮按钮样式 (适配 SVG) */
 .sync-btn {
-  color: #a855f7; /* 紫色图标 */
-  border-color: #d8b4fe; /* 浅紫边框 */
-  font-size: 16px; /* 稍微调小字体，防止两个emoji太挤 */
-  font-weight: bold;
+  color: #a855f7; /* 紫色图标主体 */
+  border-color: #d8b4fe;
+  /* 确保SVG居中 */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 0; /* 清除内边距 */
+}
+
+/* 专门用于SVG按钮的微调 */
+.svg-icon-btn svg {
+  width: 22px; /* 图标稍微大一点点 */
+  height: 22px;
 }
 
 .sync-btn:hover {
   background: #faf5ff;
-  color: #9333ea;
+  color: #9333ea; /* 悬停加深紫色 */
   border-color: #a855f7;
-  transform: scale(1.1); /* 悬停放大 */
-  box-shadow: 0 8px 16px rgba(168, 85, 247, 0.25); /* 紫色投影 */
+  transform: scale(1.1);
+  box-shadow: 0 8px 16px rgba(168, 85, 247, 0.25);
 }
 
 .sync-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
-  filter: grayscale(1);
+}
+
+/* 加载动画：旋转 */
+.animate-spin {
+  animation: spin 1s linear infinite;
+  color: #a855f7; /* 加载圈圈也是紫色 */
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 /* 暗黑模式适配 */
 .dark .sync-btn {
   background: #1e293b;
   border-color: #6b21a8;
-  color: #d8b4fe;
+  color: #d8b4fe; /* 暗色模式下的浅紫 */
 }
 .dark .sync-btn:hover {
   background: #3b0764;
   color: #fff;
 }
+  
 </style>
 
 
