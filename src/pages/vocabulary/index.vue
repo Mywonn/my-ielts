@@ -2267,7 +2267,8 @@ const syncConfig = reactive({
   gistId: localStorage.getItem('my_ielts_gh_gist_id') || ''
 })
 const isSyncing = ref(false) // loading 状态
-
+// 🔥 新增：控制云同步菜单的展开/收起
+const isCloudMenuOpen = ref(false)
 // 保存配置
 const saveSyncConfig = () => {
   localStorage.setItem('my_ielts_gh_token', syncConfig.token.trim())
@@ -2328,11 +2329,7 @@ const uploadToCloud = async () => {
   }
 }
 
-// ... 在 isSyncing 附近添加 ...
-const isSyncing = ref(false)
-// 🔥 新增：控制云同步菜单的展开/收起
-const isCloudMenuOpen = ref(false)
-// ...
+
   
 // 🔥 从云端下载 (Restore)
 const downloadFromCloud = async () => {
