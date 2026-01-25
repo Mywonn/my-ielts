@@ -2269,6 +2269,33 @@ const syncConfig = reactive({
 const isSyncing = ref(false) // loading 状态
 // 🔥 新增：控制云同步菜单的展开/收起
 const isCloudMenuOpen = ref(false)
+  // 🔥 新增：控制云同步菜单的展开/收起
+const isCloudMenuOpen = ref(false)   // <--- 第 2271 行
+
+// 👇👇👇【请在这里（第2272行）插入下面的代码】👇👇👇
+
+// 🔥🔥🔥【新增】自动关闭定时器逻辑
+let cloudMenuTimer = null
+
+const toggleCloudMenu = () => {
+  // 1. 无论开还是关，先清除旧的定时器
+  if (cloudMenuTimer) clearTimeout(cloudMenuTimer)
+
+  // 2. 切换菜单状态
+  isCloudMenuOpen.value = !isCloudMenuOpen.value
+
+  // 3. 如果现在是【打开】状态，设置 5 秒后自动关闭
+  if (isCloudMenuOpen.value) {
+    cloudMenuTimer = setTimeout(() => {
+      isCloudMenuOpen.value = false
+    }, 5000) // 👈 5000 代表 5秒，可按需修改
+  }
+}
+
+// 页面销毁时清理定时器
+onUnmounted(() => {
+  if (cloudMenuTimer) clearTimeout(cloudMenuTimer)
+})
 // 保存配置
 const saveSyncConfig = () => {
   localStorage.setItem('my_ielts_gh_token', syncConfig.token.trim())
@@ -2721,7 +2748,7 @@ const downloadFromCloud = async () => {
       <button v-if="!isReviewMode" @click="openStoryModal" class="floating-btn story-btn" title="本页助记文章/故事">📜</button>
       <button @click="manualAddWord" class="floating-btn add-btn" title="手动加入生词">➕</button>
       <button @click="openSearchModal" class="floating-btn search-btn" title="搜索单词/词根">🔍</button>
-      <button @click="isCloudMenuOpen = !isCloudMenuOpen" class="floating-btn sync-btn main-cloud-trigger" :class="{ 'active': isCloudMenuOpen }" title="云同步菜单">
+      <button @click="toggleCloudMenu" class="floating-btn sync-btn main-cloud-trigger" :class="{ 'active': isCloudMenuOpen }" title="云同步菜单">
          
          <svg v-if="isSyncing" class="animate-spin" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
          
@@ -2733,17 +2760,13 @@ const downloadFromCloud = async () => {
 
       <Transition name="cloud-pop">
         <div v-if="isCloudMenuOpen" class="cloud-sub-menu" style="display: flex; flex-direction: column; gap: 10px; align-items: center;">
-            
-            <button @click="showSyncModal = true" class="floating-btn sync-btn sub-btn" title="配置云同步" style="font-size: 20px;">⚙️</button>
-            
-            <button @click="downloadFromCloud" class="floating-btn sync-btn svg-icon-btn sub-btn" title="从云端下载进度" :disabled="isSyncing">
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM12 17l-5-5h3V8h4v4h3l-5 5z"/></svg>
-            </button>
-
             <button @click="uploadToCloud" class="floating-btn sync-btn svg-icon-btn sub-btn" title="上传进度到云端" :disabled="isSyncing">
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/></svg>
             </button>
-            
+            <button @click="downloadFromCloud" class="floating-btn sync-btn svg-icon-btn sub-btn" title="从云端下载进度" :disabled="isSyncing">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM12 17l-5-5h3V8h4v4h3l-5 5z"/></svg>
+            </button>
+            <button @click="showSyncModal = true" class="floating-btn sync-btn sub-btn" title="配置云同步" style="font-size: 20px;">⚙️</button>
         </div>
       </Transition>
       
