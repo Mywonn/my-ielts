@@ -1769,10 +1769,44 @@ onMounted(() => {
   window.speechSynthesis.getVoices()
 })
 
-// 监听 tab 可见性变化（防止手机熄屏或长时间后台运行导致的计时器休眠偏差）
+// 🔥🔥🔥【核心修复】手机后台运行校准逻辑 🔥🔥🔥
+// 监听 tab 可见性变化（防止手机熄屏或切换App导致的计时器暂停）
 document.addEventListener('visibilitychange', () => {
+  // 只有当 1. 页面重新变得可见  2. 番茄钟理论上正在运行 时才执行
   if (document.visibilityState === 'visible' && pomoState.value === 'running') {
-     // 重新读取一次校准（可选优化，目前用上面的 localStorage 逻辑基本够用）
+     const local = localStorage.getItem('my_ielts_pomo')
+     
+     if (local) {
+       try {
+         const data = JSON.parse(local)
+         // 获取当前时间
+         const now = Date.now()
+         
+         // 计算：(现在的时间 - 上次保存的时间) = 离开了多久(秒)
+         // 注意：data.timestamp 是上次 setInterval 跑的时候存的
+         const elapsed = Math.floor((now - data.timestamp) / 1000)
+         
+         // 如果离开时间很短（比如小于1秒），忽略不计，防止闪烁
+         if (elapsed > 1) {
+           console.log(`后台运行了 ${elapsed} 秒，正在校准...`)
+           
+           // 计算剩余时间
+           const remaining = data.seconds - elapsed
+           
+           if (remaining > 0) {
+             // 如果还有时间，直接修正进度条
+             pomoSeconds.value = remaining
+           } else {
+             // 如果时间在后台已经跑完了
+             pomoSeconds.value = 0
+             // 这里不需要手动调用 stopTimer，
+             // 因为 setInterval 里的下一次检测会自动触发“时间到”的逻辑
+           }
+         }
+       } catch (e) {
+         console.error('校准时间失败', e)
+       }
+     }
   }
 })
 
