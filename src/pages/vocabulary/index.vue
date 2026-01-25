@@ -2257,6 +2257,123 @@ const removeAudioTag = (word) => {
     audioPeekHistory.value = audioPeekHistory.value.filter(w => w !== word)
   }
 }
+
+// ==========================================
+// ☁️ 云同步功能
+// ==========================================
+const showSyncModal = ref(false)
+const syncConfig = reactive({
+  token: localStorage.getItem('my_ielts_gh_token') || '',
+  gistId: localStorage.getItem('my_ielts_gh_gist_id') || ''
+})
+const isSyncing = ref(false) // loading 状态
+
+// 保存配置
+const saveSyncConfig = () => {
+  localStorage.setItem('my_ielts_gh_token', syncConfig.token.trim())
+  localStorage.setItem('my_ielts_gh_gist_id', syncConfig.gistId.trim())
+  alert('配置已保存！✅')
+  showSyncModal.value = false
+}
+
+// 🔥 上传到云端 (Backup)
+const uploadToCloud = async () => {
+  if (!syncConfig.token || !syncConfig.gistId) return alert('请先点击 ⚙️ 配置 GitHub Token 和 Gist ID')
+  
+  if (!confirm('确定要覆盖云端数据吗？(云端旧数据将丢失)')) return
+
+  isSyncing.value = true
+  try {
+    // 1. 准备数据 (复用你之前的导出逻辑)
+    const data = { 
+      k: killedList.value, 
+      r: reviewList.value, 
+      c: completedParts.value, 
+      m: masteredList.value,
+      d: customDict.value, 
+      s: statsHistory.value, 
+      n: groupNotes.value,
+      // 新增：故事列表
+      st: pageStories.value, 
+      // 新增：听觉依赖
+      ap: audioPeekHistory.value 
+    }
+    const content = JSON.stringify(data)
+
+    // 2. 调用 GitHub API
+    const url = `https://api.github.com/gists/${syncConfig.gistId}`
+    const res = await fetch(url, {
+      method: 'PATCH', // Gist 更新用 PATCH
+      headers: {
+        'Authorization': `token ${syncConfig.token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        files: {
+          'data.json': { content: content } // 必须对应你Gist里的文件名
+        }
+      })
+    })
+
+    if (res.ok) {
+      alert('☁️ 上传成功！数据已安全保存到 Gist。')
+    } else {
+      throw new Error(res.statusText)
+    }
+  } catch (e) {
+    alert('上传失败，请检查 Token 或网络: ' + e.message)
+    console.error(e)
+  } finally {
+    isSyncing.value = false
+  }
+}
+
+// 🔥 从云端下载 (Restore)
+const downloadFromCloud = async () => {
+  if (!syncConfig.token || !syncConfig.gistId) return alert('请先点击 ⚙️ 配置 GitHub Token 和 Gist ID')
+  
+  if (!confirm('⚠️ 警告：这将用云端数据覆盖当前本地进度！确定吗？')) return
+
+  isSyncing.value = true
+  try {
+    const url = `https://api.github.com/gists/${syncConfig.gistId}`
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Authorization': `token ${syncConfig.token}`
+      }
+    })
+    
+    if (!res.ok) throw new Error(res.statusText)
+    
+    const json = await res.json()
+    // 获取文件内容
+    const fileContent = json.files['data.json'].content
+    const d = JSON.parse(fileContent)
+
+    // 恢复数据 (复用你之前的导入逻辑)
+    if(d.k) killedList.value = d.k; 
+    if(d.r) reviewList.value = d.r; 
+    if(d.c) completedParts.value = d.c; 
+    if(d.m) masteredList.value = d.m; 
+    if(d.d) customDict.value = d.d; 
+    if(d.s) statsHistory.value = d.s; 
+    if(d.n) groupNotes.value = d.n;
+    // 恢复新增字段
+    if(d.st) pageStories.value = d.st;
+    if(d.ap) audioPeekHistory.value = d.ap;
+
+    alert('☁️ 同步成功！本地进度已更新。')
+    location.reload() // 刷新页面确保状态正确
+
+  } catch (e) {
+    alert('下载失败: ' + e.message)
+    console.error(e)
+  } finally {
+    isSyncing.value = false
+  }
+}
+  
 </script>
 
 <template>
@@ -2601,6 +2718,18 @@ const removeAudioTag = (word) => {
       <button v-if="!isReviewMode" @click="openStoryModal" class="floating-btn story-btn" title="本页助记文章/故事">📜</button>
       <button @click="manualAddWord" class="floating-btn add-btn" title="手动加入生词">➕</button>
       <button @click="openSearchModal" class="floating-btn search-btn" title="搜索单词/词根">🔍</button>
+      <button @click="uploadToCloud" class="floating-btn sync-btn" title="上传进度到云端" :disabled="isSyncing">
+        {{ isSyncing ? '⏳' : '☁️⬆️' }}
+      </button>
+
+      <button @click="downloadFromCloud" class="floating-btn sync-btn" title="从云端下载进度" :disabled="isSyncing">
+        {{ isSyncing ? '⏳' : '☁️⬇️' }}
+      </button>
+
+      <button @click="showSyncModal = true" class="floating-btn sync-btn" title="配置云同步" style="font-size: 20px;">
+        ⚙️
+      </button>
+      
     </div>
     <div v-if="showAddWordModal" class="modal-overlay" @click.self="showAddWordModal = false">
       <div class="modal-box" style="max-width: 360px;">
@@ -2873,6 +3002,34 @@ const removeAudioTag = (word) => {
   </div>
 </div>
 
+<div v-if="showSyncModal" class="modal-overlay" @click.self="showSyncModal = false">
+  <div class="modal-box" style="max-width: 400px; text-align: left;">
+    <h3 class="modal-title">☁️ GitHub 云同步配置</h3>
+    <p style="font-size:12px; color:#666; margin-bottom:15px; line-height:1.5;">
+      利用 GitHub Gist 实现免费私有云同步。<br>
+      数据存储在您自己的 GitHub 账号中，安全可控。
+    </p>
+    
+    <div style="margin-bottom: 15px;">
+      <label style="display:block; font-size:12px; font-weight:bold; margin-bottom:5px;">GitHub Token (勾选 gist 权限)</label>
+      <input type="password" v-model="syncConfig.token" class="modal-input-field" placeholder="ghp_xxxxxxxxxxxx...">
+    </div>
+
+    <div style="margin-bottom: 20px;">
+      <label style="display:block; font-size:12px; font-weight:bold; margin-bottom:5px;">Gist ID (浏览器地址栏最后一段)</label>
+      <input type="text" v-model="syncConfig.gistId" class="modal-input-field" placeholder="例如: e5a3c...">
+    </div>
+
+    <div class="modal-actions">
+      <button @click="showSyncModal = false" class="modal-btn" style="background:#f3f4f6; color:#6b7280;">取消</button>
+      <button @click="saveSyncConfig" class="modal-btn" style="background:#a855f7; color:white;">💾 保存配置</button>
+    </div>
+    
+    <div style="margin-top:15px; font-size:12px; color:#999; text-align:center;">
+      配置保存在本地浏览器，不会上传到任何服务器。
+    </div>
+  </div>
+</div>      
 </template>
 
 <style scoped>
