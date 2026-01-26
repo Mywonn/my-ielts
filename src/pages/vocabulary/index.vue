@@ -683,19 +683,26 @@ const currentAudio = ref(null); const playingWord = ref(null)
 // ==========================================
 
 // ==========================================
-// 🔥🔥🔥【修复 2】播放/停止 开关函数 (修复自选词无声)
+// 🔥🔥🔥【CDN 加速专用版】播放函数
 // ==========================================
 const toggleAudio = (word) => {
+  // -------------------------------------------------------------
+  // 🟢 已根据你的 GitHub 信息自动配置
+  // -------------------------------------------------------------
+  const GH_USERNAME = 'Mywonn'
+  const GH_REPO_NAME = 'my-ielts'
+  const GH_BRANCH = 'master'     // 你的仓库主分支是 master
+  // -------------------------------------------------------------
+
   // 1. 记录听觉依赖
   if (revealedZh.has(word) && !audioPeekHistory.value.includes(word)) {
     audioPeekHistory.value.push(word)
   }
 
-  // 2. 如果点击的是【正在播】的词 -> 执行“停止”
+  // 2. 停止当前播放
   if (playingWord.value === word) {
     if (currentAudio.value) { 
       currentAudio.value.pause()
-      currentAudio.value.currentTime = 0 
       currentAudio.value = null 
     }
     window.speechSynthesis.cancel() 
@@ -703,15 +710,16 @@ const toggleAudio = (word) => {
     return 
   }
 
-  // 3. 如果点击的是【其他】词 -> 先强制关掉之前的声音
+  // 3. 切歌逻辑
   if (currentAudio.value) { 
     currentAudio.value.pause()
     currentAudio.value = null 
   }
   window.speechSynthesis.cancel()
 
-  // 4. 定义 TTS 机械音播放逻辑 (抽离出来复用)
+  // 4. TTS 兜底 (当 CDN 还没缓存好或文件缺失时使用)
   const playTTS = () => {
+    playingWord.value = word 
     const u = new SpeechSynthesisUtterance(word)
     u.lang = 'en-US'; u.volume = 1; u.rate = 0.85
     const voices = window.speechSynthesis.getVoices()
@@ -719,22 +727,18 @@ const toggleAudio = (word) => {
     if (bestVoice) u.voice = bestVoice
     
     u.onend = () => { playingWord.value = null }
-    u.onerror = (e) => { 
-        console.error('TTS Error:', e); 
-        playingWord.value = null 
-    }
+    u.onerror = (e) => { console.error('TTS Error:', e); playingWord.value = null }
     window.speechSynthesis.speak(u)
   }
 
-  // 🔥🔥🔥【核心修复】如果是自定义单词，直接播放 TTS，跳过 MP3 加载
-  // 这样可以避免手机端因为异步加载 MP3 失败而拦截后续的 TTS
+  // 自定义词直接 TTS
   if (customDict.value[word]) {
      playingWord.value = word
      playTTS()
      return
   }
 
-  // 5. 查找章节 (逻辑保持不变)
+  // 5. 查找章节
   let targetChapter = currentChapter.value
   if (isReviewMode.value && vocabularyData) {
     for (const chap in vocabularyData) {
@@ -749,29 +753,35 @@ const toggleAudio = (word) => {
     }
   }
 
-  // 6. 正常单词：尝试播放 MP3
-  const audio = new Audio(`vocabulary/audio/${targetChapter}/${word}.mp3`)
-  currentAudio.value = audio 
+  // -------------------------------------------------------------
+  // 🔥 CDN 链接构造 (注意这里加了 public/)
+  // -------------------------------------------------------------
+  // 解释：因为你的源码在 master 分支，MP3文件物理位置是在 public 文件夹里的
+  const cdnUrl = `https://cdn.jsdelivr.net/gh/${GH_USERNAME}/${GH_REPO_NAME}@${GH_BRANCH}/public/vocabulary/audio/${targetChapter}/${word}.mp3`
+  
+  // 调试用：你可以在 F12 控制台看到这个链接，点进去应该能直接下载
+  console.log('CDN播放:', cdnUrl) 
+
+  const audio = new Audio(cdnUrl)
+  currentAudio.value = audio
+  playingWord.value = word
+
+  // 错误处理：CDN 加载失败自动切 TTS
+  audio.onerror = () => {
+    console.warn('CDN 资源未找到或加载失败，自动降级为 TTS')
+    currentAudio.value = null
+    playTTS()
+  }
 
   audio.onended = () => { 
     playingWord.value = null
     currentAudio.value = null 
   }
-  
-  // 如果 MP3 加载失败 (404)，则回退到 TTS
-  audio.onerror = () => {
-    currentAudio.value = null 
-    playTTS() // 调用上面的复用逻辑
-  }
 
   audio.play().catch(e => {
-      console.log('MP3播放受阻或文件不存在，转TTS');
-      // 某些极端情况下 play() 报错也可以尝试 TTS，但在手机上可能依然受限
-      // 主要是靠上面的 customDict 判断来解决
+      console.log('播放被拦截或失败，转TTS', e);
       playTTS()
   })
-  
-  playingWord.value = word
 }
   
 // ★ 修改：输入框聚焦时自动播放
