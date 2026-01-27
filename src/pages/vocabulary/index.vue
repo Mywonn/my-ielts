@@ -1739,7 +1739,6 @@ const stopTimer = (reset = true) => {
 onUnmounted(() => {
   if (timer) clearInterval(timer)
 })
-
 onMounted(() => {
   // 1. 番茄钟恢复逻辑 (保持不变)
   const local = localStorage.getItem('my_ielts_pomo')
@@ -1764,43 +1763,49 @@ onMounted(() => {
       }
     } catch (e) { console.error('番茄钟恢复失败', e) }
   }
-  
-  // 2. 预热语音引擎
   window.speechSynthesis.getVoices()
 
-  // 3. 🔥🔥🔥【修复版】检测网址参数，实现“新窗口打开”定位
+  // 2. 🔥🔥🔥【IQ 200版】精准跳转逻辑
   const params = new URLSearchParams(window.location.search)
   const targetChap = params.get('chap')
   const targetPart = params.get('part')
+  const targetAnchor = params.get('anchor') // 获取目标单词
   
   if (targetChap && targetPart) {
-    // A. 🔥 关键修复：先标记为“正在跳转”，防止 watch 将 chunkIndex 重置为 0
-    isSearchJumping = true 
+    isSearchJumping = true // 🔒 锁定，防止 watch 重置页码
 
-    // B. 强制退出复习模式
+    // A. 切换数据
     isReviewMode.value = false
-    
-    // C. 设置章节 (此时 watch 会触发，但因为 isSearchJumping=true，它会直接 return，不捣乱)
     currentChapter.value = decodeURIComponent(targetChap)
-    
-    // D. 设置页码 (必须在设置章节之后)
     chunkIndex.value = parseInt(targetPart)
     
-    // E. 稍微延迟后“解锁”跳转状态
-    nextTick(() => {
-       isSearchJumping = false
-    })
+    // B. 解锁
+    nextTick(() => { isSearchJumping = false })
     
-    // F. 滚动定位
+    // C. 滚动定位 (增加延时确保渲染)
     setTimeout(() => {
-      // 尝试找到第一个单词 (注意：这里我们尽量找 .row-item，不用具体ID，因为太快可能还没渲染好)
-      const firstWord = document.querySelector('.row-item')
-      if (firstWord) {
-        firstWord.scrollIntoView({ behavior: 'smooth', block: 'center' })
-        firstWord.classList.add('highlight-flash')
-        setTimeout(() => firstWord.classList.remove('highlight-flash'), 2000)
+      let targetEl = null
+      
+      // 优先策略：如果有具体单词，找单词的 ID
+      if (targetAnchor) {
+        const decodedWord = decodeURIComponent(targetAnchor)
+        // ID 规则必须和模板里的一致: word-row-单词名(空格转下划线)
+        const elementId = 'word-row-' + decodedWord.replace(/\s+/g, '_')
+        targetEl = document.getElementById(elementId)
       }
-    }, 600) // 稍微加长一点等待时间，确保页面渲染完毕
+      
+      // 兜底策略：如果没找到具体单词（比如单词改名了），就找本页第一个词
+      if (!targetEl) {
+        targetEl = document.querySelector('.row-item')
+      }
+
+      // 执行滚动和高亮
+      if (targetEl) {
+        targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        targetEl.classList.add('highlight-flash') // 闪烁特效
+        setTimeout(() => targetEl.classList.remove('highlight-flash'), 2500)
+      }
+    }, 600) // 600ms 等待 Vue 渲染列表
   }
 })
 
@@ -2093,8 +2098,12 @@ const goToWord = (item) => {
   }, 400) 
 }
 
-  // 🔥🔥🔥【核心修复】生成跳转链接 (保留 Hash 路由，防止跳回首页)
-const getSourceUrl = (sourceStr) => {
+// 🔥🔥🔥【IQ 200版】生成跳转链接 (带锚点参数)
+const getSourceUrl = (wordItem) => {
+  // 兼容性处理：如果传入的是字符串(旧代码)，防止报错
+  const sourceStr = typeof wordItem === 'string' ? wordItem : wordItem.source
+  const wordEn = typeof wordItem === 'string' ? '' : wordItem.en
+  
   if (!sourceStr || sourceStr === '生词本' || sourceStr === '未知') return '#'
   
   const separator = ' Part '
@@ -2105,15 +2114,16 @@ const getSourceUrl = (sourceStr) => {
   const partStr = sourceStr.substring(lastIndex + separator.length)
   const targetPartIdx = parseInt(partStr) - 1
   
-  // 1. 构造 Query 参数
-  const query = `?chap=${encodeURIComponent(targetChapter)}&part=${targetPartIdx}`
+  // 1. 构造 Query 参数 (新增 &anchor=单词)
+  let query = `?chap=${encodeURIComponent(targetChapter)}&part=${targetPartIdx}`
+  if (wordEn) {
+    query += `&anchor=${encodeURIComponent(wordEn)}`
+  }
   
-  // 2. 🔥 关键：获取当前的 Hash (例如 "#/vocabulary" 或 "#/")
-  // 必须把它加在 URL 的最后，否则 Vue Router 不知道要去哪个页面！
+  // 2. 获取 Hash，防止跳回首页
   const currentHash = window.location.hash
   
-  // 3. 拼接完整 URL: 路径 + 参数 + Hash
-  // 最终样子: /my-ielts/?chap=xx&part=xx#/
+  // 3. 完整拼接
   return `${window.location.pathname}${query}${currentHash}`
 }
   
@@ -2723,7 +2733,7 @@ const downloadFromCloud = async () => {
                     </div>
 
                     <a v-if="isShowSource || revealedSource.has(word.en)" 
-                       :href="getSourceUrl(word.source)"
+                       :href="getSourceUrl(word)" 
                        class="word-source-row clickable-source"
                        @click.prevent="handleJumpToSource(word)"
                        target="_blank"
