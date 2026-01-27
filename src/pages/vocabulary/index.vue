@@ -1778,7 +1778,30 @@ onMounted(() => {
   // ★ 新增：预热语音引擎（这行代码能解决 80% 的没声音问题）
   window.speechSynthesis.getVoices()
 })
-
+  
+// 🔥🔥🔥【新增】检测网址参数，实现“新窗口打开”定位 🔥🔥🔥
+  const params = new URLSearchParams(window.location.search)
+  const targetChap = params.get('chap')
+  const targetPart = params.get('part')
+  
+  if (targetChap && targetPart) {
+    // 1. 强制退出复习模式
+    isReviewMode.value = false
+    
+    // 2. 设置章节和页码
+    // 注意：这里可能会覆盖掉 localStorage 里的记录，但因为是新窗口，符合预期
+    currentChapter.value = decodeURIComponent(targetChap)
+    chunkIndex.value = parseInt(targetPart)
+    
+    // 3. 稍微延迟一下滚动，等待 DOM 渲染
+    setTimeout(() => {
+      // 尝试找到第一个单词并高亮，提示用户位置
+      const firstWord = document.querySelector('.row-item')
+      if (firstWord) firstWord.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 500)
+  }
+})
+  
 // 🔥🔥🔥【核心修复】手机后台运行校准逻辑 🔥🔥🔥
 // 监听 tab 可见性变化（防止手机熄屏或切换App导致的计时器暂停）
 document.addEventListener('visibilitychange', () => {
@@ -2068,6 +2091,23 @@ const goToWord = (item) => {
   }, 400) 
 }
 
+  // 🔥🔥🔥【新增】生成跳转链接 URL
+const getSourceUrl = (sourceStr) => {
+  if (!sourceStr || sourceStr === '生词本' || sourceStr === '未知') return '#'
+  
+  const separator = ' Part '
+  const lastIndex = sourceStr.lastIndexOf(separator)
+  if (lastIndex === -1) return '#'
+
+  const targetChapter = sourceStr.substring(0, lastIndex)
+  // 这里的 partStr 显示的是 10，但内部索引其实是 9，所以要 -1
+  const partStr = sourceStr.substring(lastIndex + separator.length)
+  const targetPartIdx = parseInt(partStr) - 1
+  
+  // 生成当前页面的 URL + 参数
+  return `?chap=${encodeURIComponent(targetChapter)}&part=${targetPartIdx}`
+}
+  
 // ==========================================
 // 🔥 新增：复习阶段折叠控制
 // ==========================================
@@ -2673,12 +2713,14 @@ const downloadFromCloud = async () => {
                       </button>
                     </div>
 
-                    <div v-if="isShowSource || revealedSource.has(word.en)" 
-                        class="word-source-row clickable-source"
-                        @click.stop="handleJumpToSource(word)"
-                        title="点击跳转到原文位置 🚀">
+                    <a v-if="isShowSource || revealedSource.has(word.en)" 
+                       :href="getSourceUrl(word.source)"
+                       class="word-source-row clickable-source"
+                       @click.prevent="handleJumpToSource(word)"
+                       target="_blank"
+                       title="左键: 当前页跳转 | 右键: 新窗口打开 🚀">
                       📍 {{ word.source }} ➜
-                    </div>
+                    </a>
 
                     <div v-if="isReviewMode && word._review" class="review-meta desktop-only">
                       <span v-if="word._review.time < Date.now()" class="tag-due">待复习</span>
@@ -3710,6 +3752,9 @@ const downloadFromCloud = async () => {
   cursor: pointer;
   transition: all 0.2s ease;
   display: inline-block; /* 让hover效果包裹得更紧凑 */
+  /* 🔥🔥🔥 新增这两行，去掉链接默认的下划线 */
+  text-decoration: none !important;
+  border-bottom: none;
 }
 
 .clickable-source:hover {
