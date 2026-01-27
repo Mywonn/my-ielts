@@ -2732,14 +2732,23 @@ const downloadFromCloud = async () => {
                       </button>
                     </div>
 
-                    <a v-if="isShowSource || revealedSource.has(word.en)" 
-                       :href="getSourceUrl(word)" 
-                       class="word-source-row clickable-source"
-                       @click.prevent="handleJumpToSource(word)"
-                       target="_blank"
-                       title="左键: 当前页跳转 | 右键: 新窗口打开 🚀">
-                      📍 {{ word.source }} ➜
-                    </a>
+                    <div v-if="isShowSource || revealedSource.has(word.en)" class="source-container">
+  
+                        <a :href="getSourceUrl(word)"
+                           class="word-source-row clickable-source"
+                           @click.prevent="handleJumpToSource(word)"
+                           title="点击在当前页跳转">
+                          📍 {{ word.source }}
+                        </a>
+                      
+                        <a :href="getSourceUrl(word)"
+                           class="word-source-row icon-only"
+                           target="_blank"
+                           title="新标签页打开并自动切换 🚀">
+                          🚀
+                        </a>
+                      
+                      </div>
 
                     <div v-if="isReviewMode && word._review" class="review-meta desktop-only">
                       <span v-if="word._review.time < Date.now()" class="tag-due">待复习</span>
@@ -4457,6 +4466,59 @@ const downloadFromCloud = async () => {
 .dark .sub-btn {
     background: #1e293b;
     border-color: #4c1d95;
+}
+
+/* 🔥 容器：让文字和火箭横向排列 */
+.source-container {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+/* 文字链接样式 */
+.clickable-source {
+  cursor: pointer;
+  text-decoration: none !important;
+  border-bottom: none;
+  display: inline-block;
+  transition: all 0.2s ease;
+  white-space: nowrap; 
+}
+
+/* 🚀 火箭按钮样式 */
+.icon-only {
+  cursor: pointer;
+  text-decoration: none !important;
+  border-bottom: none;
+  display: inline-block;
+  transition: all 0.2s ease;
+  
+  font-size: 12px;
+  background: #f0fdf4; /* 浅绿背景 */
+  color: #15803d;      /* 深绿图标 */
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid #dcfce7;
+  line-height: 1.5;
+}
+
+.icon-only:hover {
+  transform: scale(1.15);
+  background: #22c55e;
+  color: white;
+  border-color: #22c55e;
+}
+
+/* 暗黑模式适配 */
+.dark .icon-only {
+  background: #064e3b;
+  color: #86efac;
+  border-color: #065f46;
+}
+.dark .icon-only:hover {
+  background: #22c55e;
+  color: white;
 }
   
 </style>
