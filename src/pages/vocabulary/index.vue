@@ -1740,68 +1740,63 @@ onUnmounted(() => {
   if (timer) clearInterval(timer)
 })
 
-
 onMounted(() => {
+  // 1. 番茄钟恢复逻辑 (保持不变)
   const local = localStorage.getItem('my_ielts_pomo')
   if (local) {
     try {
       const data = JSON.parse(local)
-      // 1. 恢复模式（是休息还是专注）
       isBreak.value = data.isBreak
-      
-      // 2. 如果之前是【暂停】状态，直接恢复数字即可
       if (data.state === 'paused') {
         pomoSeconds.value = data.seconds
         pomoState.value = 'paused'
-      } 
-      // 3. 如果之前是【运行】状态，需要扣除掉“刷新页面期间流逝的时间”
-      else if (data.state === 'running') {
+      } else if (data.state === 'running') {
         const now = Date.now()
-        const elapsed = Math.floor((now - data.timestamp) / 1000) // 刚才过去了多少秒
-        const remaining = data.seconds - elapsed // 剩余时间
-
+        const elapsed = Math.floor((now - data.timestamp) / 1000)
+        const remaining = data.seconds - elapsed
         if (remaining > 0) {
-          // 还有剩余时间，继续跑
           pomoSeconds.value = remaining
-          startTimer() 
+          startTimer()
         } else {
-          // 离开期间时间已经走完了
           pomoSeconds.value = 0
-          stopTimer(false) // 标记为结束
-          // 可选：是否要在进来时直接弹窗？为了不吓到人，这里暂不弹窗，只归零
+          stopTimer(false)
         }
       }
     } catch (e) {
       console.error('番茄钟恢复失败', e)
     }
   }
-  // ★ 新增：预热语音引擎（这行代码能解决 80% 的没声音问题）
+  // 2. 预热语音引擎
   window.speechSynthesis.getVoices()
-})
-  
-// 🔥🔥🔥【新增】检测网址参数，实现“新窗口打开”定位 🔥🔥🔥
+
+  // 3. 🔥🔥🔥【新增】检测网址参数，实现“新窗口打开”定位
+  // (这段代码必须放在 onMounted 内部，确保页面加载完后执行)
   const params = new URLSearchParams(window.location.search)
   const targetChap = params.get('chap')
   const targetPart = params.get('part')
   
   if (targetChap && targetPart) {
-    // 1. 强制退出复习模式
+    // A. 强制退出复习模式
     isReviewMode.value = false
     
-    // 2. 设置章节和页码
-    // 注意：这里可能会覆盖掉 localStorage 里的记录，但因为是新窗口，符合预期
+    // B. 设置章节和页码
     currentChapter.value = decodeURIComponent(targetChap)
     chunkIndex.value = parseInt(targetPart)
     
-    // 3. 稍微延迟一下滚动，等待 DOM 渲染
+    // C. 稍微延迟一下滚动，等待 DOM 渲染
     setTimeout(() => {
-      // 尝试找到第一个单词并高亮，提示用户位置
       const firstWord = document.querySelector('.row-item')
-      if (firstWord) firstWord.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      if (firstWord) {
+        firstWord.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        // 可选：给个高亮提示
+        firstWord.classList.add('highlight-flash')
+        setTimeout(() => firstWord.classList.remove('highlight-flash'), 2000)
+      }
     }, 500)
   }
-})
-  
+}) 
+// ↑↑↑ 确保只有一个结束括号，并且包含了以上所有逻辑
+
 // 🔥🔥🔥【核心修复】手机后台运行校准逻辑 🔥🔥🔥
 // 监听 tab 可见性变化（防止手机熄屏或切换App导致的计时器暂停）
 document.addEventListener('visibilitychange', () => {
