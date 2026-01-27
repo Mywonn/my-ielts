@@ -4521,6 +4521,24 @@ const downloadFromCloud = async () => {
   color: white;
 }
   
+/* =========================================
+   📱 移动端适配 (Mobile Responsiveness)
+========================================= */
+
+/* 核心规则：当屏幕宽度小于 768px 时（常见的手机竖屏和窄屏平板），应用此规则 */
+@media (max-width: 767.98px) {
+  
+  /* 隐藏火箭图标 */
+  .icon-only {
+    display: none !important;
+  }
+
+  /* (可选优化) 因为火箭没了，容器可以不需要间距了，让文字靠边对齐更好看 */
+  .source-container {
+    gap: 0;
+  }
+}  
+  
 </style>
 
 
