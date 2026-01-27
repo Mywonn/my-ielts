@@ -2086,7 +2086,7 @@ const goToWord = (item) => {
   }, 400) 
 }
 
-  // 🔥🔥🔥【新增】生成跳转链接 URL
+  // 🔥🔥🔥【核心修复】生成跳转链接 (保留 Hash 路由，防止跳回首页)
 const getSourceUrl = (sourceStr) => {
   if (!sourceStr || sourceStr === '生词本' || sourceStr === '未知') return '#'
   
@@ -2095,12 +2095,19 @@ const getSourceUrl = (sourceStr) => {
   if (lastIndex === -1) return '#'
 
   const targetChapter = sourceStr.substring(0, lastIndex)
-  // 这里的 partStr 显示的是 10，但内部索引其实是 9，所以要 -1
   const partStr = sourceStr.substring(lastIndex + separator.length)
   const targetPartIdx = parseInt(partStr) - 1
   
-  // 生成当前页面的 URL + 参数
-  return `?chap=${encodeURIComponent(targetChapter)}&part=${targetPartIdx}`
+  // 1. 构造 Query 参数
+  const query = `?chap=${encodeURIComponent(targetChapter)}&part=${targetPartIdx}`
+  
+  // 2. 🔥 关键：获取当前的 Hash (例如 "#/vocabulary" 或 "#/")
+  // 必须把它加在 URL 的最后，否则 Vue Router 不知道要去哪个页面！
+  const currentHash = window.location.hash
+  
+  // 3. 拼接完整 URL: 路径 + 参数 + Hash
+  // 最终样子: /my-ielts/?chap=xx&part=xx#/
+  return `${window.location.pathname}${query}${currentHash}`
 }
   
 // ==========================================
