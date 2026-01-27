@@ -1762,40 +1762,47 @@ onMounted(() => {
           stopTimer(false)
         }
       }
-    } catch (e) {
-      console.error('番茄钟恢复失败', e)
-    }
+    } catch (e) { console.error('番茄钟恢复失败', e) }
   }
+  
   // 2. 预热语音引擎
   window.speechSynthesis.getVoices()
 
-  // 3. 🔥🔥🔥【新增】检测网址参数，实现“新窗口打开”定位
-  // (这段代码必须放在 onMounted 内部，确保页面加载完后执行)
+  // 3. 🔥🔥🔥【修复版】检测网址参数，实现“新窗口打开”定位
   const params = new URLSearchParams(window.location.search)
   const targetChap = params.get('chap')
   const targetPart = params.get('part')
   
   if (targetChap && targetPart) {
-    // A. 强制退出复习模式
+    // A. 🔥 关键修复：先标记为“正在跳转”，防止 watch 将 chunkIndex 重置为 0
+    isSearchJumping = true 
+
+    // B. 强制退出复习模式
     isReviewMode.value = false
     
-    // B. 设置章节和页码
+    // C. 设置章节 (此时 watch 会触发，但因为 isSearchJumping=true，它会直接 return，不捣乱)
     currentChapter.value = decodeURIComponent(targetChap)
+    
+    // D. 设置页码 (必须在设置章节之后)
     chunkIndex.value = parseInt(targetPart)
     
-    // C. 稍微延迟一下滚动，等待 DOM 渲染
+    // E. 稍微延迟后“解锁”跳转状态
+    nextTick(() => {
+       isSearchJumping = false
+    })
+    
+    // F. 滚动定位
     setTimeout(() => {
+      // 尝试找到第一个单词 (注意：这里我们尽量找 .row-item，不用具体ID，因为太快可能还没渲染好)
       const firstWord = document.querySelector('.row-item')
       if (firstWord) {
         firstWord.scrollIntoView({ behavior: 'smooth', block: 'center' })
-        // 可选：给个高亮提示
         firstWord.classList.add('highlight-flash')
         setTimeout(() => firstWord.classList.remove('highlight-flash'), 2000)
       }
-    }, 500)
+    }, 600) // 稍微加长一点等待时间，确保页面渲染完毕
   }
-}) 
-// ↑↑↑ 确保只有一个结束括号，并且包含了以上所有逻辑
+})
 
 // 🔥🔥🔥【核心修复】手机后台运行校准逻辑 🔥🔥🔥
 // 监听 tab 可见性变化（防止手机熄屏或切换App导致的计时器暂停）
