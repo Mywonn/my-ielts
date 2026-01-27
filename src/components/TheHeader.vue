@@ -41,7 +41,10 @@ const showMobileMenu = ref(false)
 
 <template>
   <header>
-    <nav class="fixed z-30 w-full border-b border-gray-200 bg-white px-4 py-3 dark:border-gray-700 dark:bg-gray-800">
+    <nav 
+        class="fixed z-30 w-full border-b border-gray-200 bg-white px-4 py-3 dark:border-gray-700 dark:bg-gray-800"
+        style="z-index: 3000;"
+      >
       <div class="mx-auto max-w-screen-2xl flex items-center justify-between">
         <div class="flex items-center justify-start">
           <a href="/" class="mr-14 flex">
@@ -92,7 +95,7 @@ const showMobileMenu = ref(false)
     </nav>
     <nav 
         class="fixed left-0 right-0 bottom-0 z-20 overflow-y-auto bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 lg:hidden"
-        style="top: 61px;" 
+        style="top: 61px; z-index: 2000;" 
         :class="showMobileMenu ? 'block' : 'hidden'"
       >
       <!-- Mobile menu -->
