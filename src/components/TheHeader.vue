@@ -90,7 +90,11 @@ const showMobileMenu = ref(false)
         </div>
       </div>
     </nav>
-    <nav class="bg-white dark:bg-gray-900">
+    <nav 
+        class="fixed left-0 right-0 bottom-0 z-20 overflow-y-auto bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 lg:hidden"
+        style="top: 61px;" 
+        :class="showMobileMenu ? 'block' : 'hidden'"
+      >
       <!-- Mobile menu -->
       <ul
         v-show="showMobileMenu"
