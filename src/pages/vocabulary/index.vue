@@ -3048,7 +3048,7 @@ const downloadFromCloud = async () => {
         <h3 style="margin: 0; color: #374151;">{{ msgContent }}</h3>
       </div>
     </div>
-</div>
+
 
 <div v-if="showEditModal" class="modal-overlay" @click.self="showEditModal = false">
       <div class="modal-box" style="max-width: 360px; text-align: left;">
