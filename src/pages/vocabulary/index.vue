@@ -4596,7 +4596,7 @@ const downloadFromCloud = async () => {
     top: -60px; 
     
     /* 🔴 改动在这里：从 240px 改为 320px (或者 auto) */
-    width: 320px; 
+    width: 240px; 
     
     background: #ffffff;
     border-radius: 12px;
