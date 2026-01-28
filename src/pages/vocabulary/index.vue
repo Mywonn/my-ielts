@@ -2943,6 +2943,14 @@ const downloadFromCloud = async () => {
       <button v-if="!isReviewMode" @click="openStoryModal" class="floating-btn story-btn" title="本页助记文章/故事">📜</button>
       <button @click="manualAddWord" class="floating-btn add-btn" title="手动加入生词">➕</button>
       <button @click="openSearchModal" class="floating-btn search-btn" title="搜索单词/词根">🔍</button>
+      <button v-show="showBackToTop" 
+              @click="scrollToTop" 
+              class="floating-btn top-btn" 
+              title="回到顶部">
+        <svg viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" class="svg-icon">
+          <path d="M512 64C264.512 64 64 264.576 64 512s200.512 448 448 448c247.424 0 448-200.576 448-448S759.424 64 512 64zM712.448 664.512c-11.776 0-22.784-3.072-32.448-8.384l-1.984 1.984L511.936 512l-162.112 145.472-1.344-1.344c-9.6 5.248-20.544 8.32-32.192 8.32-36.736 0-66.496-29.76-66.496-66.432 0-11.712 3.072-22.656 8.32-32.192L255.936 563.584l10.752-9.664c3.328-3.712 7.04-7.104 11.136-9.984l188.544-169.216 1.28 0C479.296 363.456 495.168 356.544 512.64 356.544s33.408 6.912 45.12 18.176l0.768 0 191.872 168.832c4.032 2.816 7.68 6.08 11.072 9.728l11.392 10.048-2.368 2.304c5.376 9.6 8.448 20.672 8.448 32.448C778.88 634.752 749.12 664.512 712.448 664.512z" fill="currentColor"></path>
+        </svg>
+      </button>
       <button @click="toggleCloudMenu" class="floating-btn sync-btn main-cloud-trigger" :class="{ 'active': isCloudMenuOpen }" title="云同步菜单">
          
          <svg v-if="isSyncing" class="animate-spin" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
@@ -2951,35 +2959,47 @@ const downloadFromCloud = async () => {
             <path d="M395.776 641.664a19.392 19.392 0 0 0-6.368-12.384l-36.672-32.416a190.496 190.496 0 0 1 87.328-70.88c47.52-19.2 99.776-18.72 146.944 1.28s83.776 57.28 103.008 104.8a31.936 31.936 0 0 0 41.632 17.696 31.936 31.936 0 0 0 17.696-41.632 254.208 254.208 0 0 0-137.312-139.776 254.56 254.56 0 0 0-195.936-1.728 253.984 253.984 0 0 0-111.552 87.616l-37.408-33.088a19.168 19.168 0 0 0-31.808 16.384l12.576 119.68a19.2 19.2 0 0 0 21.088 17.088l109.696-11.52a19.2 19.2 0 0 0 17.088-21.12zM757.92 729.088l-109.216 15.36a19.2 19.2 0 0 0-9.536 33.856l34.496 28.416a190.816 190.816 0 0 1-236.672 74.016 190.592 190.592 0 0 1-102.976-104.768 32 32 0 1 0-59.36 23.936 254.272 254.272 0 0 0 137.344 139.776 255.232 255.232 0 0 0 100 20.48 255.744 255.744 0 0 0 95.904-18.752 254.592 254.592 0 0 0 115.872-93.408l41.408 34.112a19.2 19.2 0 0 0 31.2-17.472l-16.736-119.168a19.264 19.264 0 0 0-21.728-16.384z" />
             <path d="M808.192 262.592a320.16 320.16 0 0 0-592.352 0A238.592 238.592 0 0 0 32 496a240.32 240.32 0 0 0 130.976 213.888 32 32 0 1 0 29.12-57.024A176.192 176.192 0 0 1 96 496a175.04 175.04 0 0 1 148.48-173.888l19.04-2.976 6.24-18.24C305.248 197.472 402.592 128 512 128a256 256 0 0 1 242.208 172.896l6.272 18.24 19.04 2.976A175.04 175.04 0 0 1 928 496a176.128 176.128 0 0 1-96.128 156.896 32.064 32.064 0 0 0 29.12 57.024A240.416 240.416 0 0 0 992 496a238.592 238.592 0 0 0-183.808-233.408z" />
          </svg>
-      </button>
-      <Transition name="fade-slide">
-        <button v-show="showBackToTop" 
-                @click="scrollToTop" 
-                class="floating-btn top-btn" 
-                title="回到顶部">
-          ⬆️
-        </button>
+     
       </Transition>
       
       <Transition name="cloud-pop">
         <div v-if="isCloudMenuOpen" class="cloud-sub-menu" style="display: flex; flex-direction: column; gap: 10px; align-items: center;">
-           <div class="sync-status-panel">
-        
-              <div class="status-row" style="color: #6b7280;">
-                <span>💻 本地:</span>
-                <span>{{ lastSyncTime || '未同步' }}</span>
+             <div class="sync-dashboard" :class="{ 'has-update': isNewVersionAvailable }">
+  
+              <div class="dash-header">
+                <span class="dash-title">数据同步状态</span>
+                <span v-if="isCheckingCloud" class="dash-loading">
+                  <svg class="animate-spin" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+                  检测中...
+                </span>
               </div>
-      
-              <div class="status-row" :class="{ 'highlight-update': isNewVersionAvailable }">
-                <span>☁️ 云端:</span>
-                <span v-if="isCheckingCloud">检测中...</span>
-                <span v-else>{{ serverTime || '未知' }}</span>
+            
+              <div class="dash-grid">
+                
+                <div class="dash-item local">
+                  <div class="item-label">💻 本地版本</div>
+                  <div class="item-time">{{ lastSyncTime || '--/-- --:--' }}</div>
+                </div>
+            
+                <div class="dash-connector">
+                  <div v-if="isNewVersionAvailable" class="icon-update">⬅️</div>
+                  <div v-else class="icon-idle">☁️</div>
+                </div>
+            
+                <div class="dash-item cloud" :class="{ 'highlight': isNewVersionAvailable }">
+                  <div class="item-label">Github Gist</div>
+                  <div class="item-time">{{ serverTime || '待检测' }}</div>
+                </div>
+            
               </div>
-              
-              <div v-if="isNewVersionAvailable" class="update-badge">
-                ✨ 有新版本
+            
+              <div v-if="isNewVersionAvailable" class="dash-footer update-mode">
+                ✨ 云端有新进度，建议下载
               </div>
-      
+              <div v-else-if="serverTime" class="dash-footer safe-mode">
+                ✅ 当前已是最新
+              </div>
+            
             </div>
             <button @click="uploadToCloud" class="floating-btn sync-btn svg-icon-btn sub-btn" title="上传进度到云端" :disabled="isSyncing">
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/></svg>
@@ -4670,57 +4690,156 @@ const downloadFromCloud = async () => {
   border-color: #334155;
 } 
 
-/* 🔥🔥🔥【新增】同步状态面板 */
-.sync-status-panel {
-  background: #f9fafb;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 8px 12px;
-  font-size: 11px;
+/* =========================================
+   🎨 颜值升级：同步仪表盘 (Sync Dashboard)
+   ========================================= */
+
+.sync-dashboard {
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 12px;
   width: 100%;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05); /* 柔和阴影 */
+  border: 1px solid #f3f4f6;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  margin-bottom: 5px;
+  gap: 8px;
+  margin-bottom: 8px;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
 }
 
-.status-row {
+/* 当有更新时，边框变紫，且有微光背景 */
+.sync-dashboard.has-update {
+  border-color: #d8b4fe;
+  background: linear-gradient(to bottom right, #fff, #faf5ff);
+  box-shadow: 0 4px 15px rgba(168, 85, 247, 0.15);
+}
+
+/* 1. 标题栏 */
+.dash-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  font-size: 10px;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 700;
+  border-bottom: 1px solid #f3f4f6;
+  padding-bottom: 6px;
+  margin-bottom: 4px;
+}
+
+.dash-loading {
+  color: #3b82f6;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* 2. 数据网格 (左右布局) */
+.dash-grid {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.dash-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.dash-item.cloud {
+  text-align: right;
+  align-items: flex-end;
+}
+
+.item-label {
+  font-size: 10px;
   color: #6b7280;
+  margin-bottom: 2px;
 }
 
-/* 发现新版本时，云端那一行变色提醒 */
-.highlight-update {
-  color: #a855f7 !important; /* 紫色高亮 */
-  font-weight: bold;
+.item-time {
+  font-size: 13px;
+  font-weight: 700; /* 加粗时间 */
+  color: #374151;
+  font-family: monospace; /* 等宽字体，数字对齐更好看 */
+  letter-spacing: -0.5px;
 }
 
-/* 新版本提示徽章 */
-.update-badge {
+/* 云端有更新时，时间变色 */
+.dash-item.cloud.highlight .item-time {
+  color: #a855f7;
+}
+
+/* 3. 中间连接图标 */
+.dash-connector {
+  font-size: 14px;
+  opacity: 0.5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+}
+
+.icon-update {
+  animation: bounce-left 1s infinite;
+  color: #a855f7;
+  opacity: 1;
+}
+
+/* 4. 底部状态条 */
+.dash-footer {
+  font-size: 11px;
+  text-align: center;
+  padding: 4px;
+  border-radius: 6px;
+  font-weight: 600;
+  margin-top: 2px;
+}
+
+.update-mode {
   background: #a855f7;
   color: white;
-  text-align: center;
-  border-radius: 4px;
-  padding: 2px 0;
-  margin-top: 2px;
-  font-weight: bold;
-  animation: pulse 2s infinite;
+  box-shadow: 0 2px 5px rgba(168, 85, 247, 0.3);
+  animation: pulse-badge 2s infinite;
 }
 
-@keyframes pulse {
-  0% { opacity: 0.8; }
-  50% { opacity: 1; }
-  100% { opacity: 0.8; }
+.safe-mode {
+  background: #ecfdf5;
+  color: #059669;
+  border: 1px solid #d1fae5;
 }
 
-/* 暗黑模式 */
-.dark .sync-status-panel {
+/* 动画定义 */
+@keyframes bounce-left {
+  0%, 100% { transform: translateX(0); }
+  50% { transform: translateX(-3px); }
+}
+
+@keyframes pulse-badge {
+  0% { opacity: 0.9; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.02); }
+  100% { opacity: 0.9; transform: scale(1); }
+}
+
+/* 🔥 暗黑模式适配 (Dark Mode) */
+.dark .sync-dashboard {
   background: #1e293b;
   border-color: #334155;
+  box-shadow: none;
 }
-.dark .status-row { color: #94a3b8; }  
+.dark .sync-dashboard.has-update {
+  background: linear-gradient(to bottom right, #1e293b, #3b0764);
+  border-color: #7e22ce;
+}
+.dark .dash-header { border-bottom-color: #334155; }
+.dark .item-label { color: #94a3b8; }
+.dark .item-time { color: #f1f5f9; }
+.dark .safe-mode { background: #064e3b; color: #6ee7b7; border-color: #065f46; }
 
  /* 🔥🔥🔥【新增】回到顶部按钮样式 */
 .top-btn {
@@ -4755,6 +4874,22 @@ const downloadFromCloud = async () => {
   opacity: 0;
   transform: translateY(10px) scale(0.8); /* 从下方淡出 */
 }
+
+/* 🔥🔥🔥【新增】SVG 图标通用样式 */
+.floating-btn .svg-icon {
+  width: 22px;  /* 设置一个合适的大小 */
+  height: 22px;
+  fill: currentColor; /* 让图标颜色跟随按钮文字颜色 */
+  display: block; /* 修复对齐问题 */
+}
+
+/* 确保按钮是个弹性容器，让 SVG 完美居中 */
+/* (现有的 .floating-btn 应该已经有了 flex 属性，如果没有可以加上下面这两行) */
+/* .floating-btn {
+     display: flex;
+     justify-content: center;
+     align-items: center;
+} */
   
 </style>
 
