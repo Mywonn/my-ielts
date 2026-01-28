@@ -2948,67 +2948,46 @@ const downloadFromCloud = async () => {
           <path d="M512 64C264.512 64 64 264.576 64 512s200.512 448 448 448c247.424 0 448-200.576 448-448S759.424 64 512 64zM712.448 664.512c-11.776 0-22.784-3.072-32.448-8.384l-1.984 1.984L511.936 512l-162.112 145.472-1.344-1.344c-9.6 5.248-20.544 8.32-32.192 8.32-36.736 0-66.496-29.76-66.496-66.432 0-11.712 3.072-22.656 8.32-32.192L255.936 563.584l10.752-9.664c3.328-3.712 7.04-7.104 11.136-9.984l188.544-169.216 1.28 0C479.296 363.456 495.168 356.544 512.64 356.544s33.408 6.912 45.12 18.176l0.768 0 191.872 168.832c4.032 2.816 7.68 6.08 11.072 9.728l11.392 10.048-2.368 2.304c5.376 9.6 8.448 20.672 8.448 32.448C778.88 634.752 749.12 664.512 712.448 664.512z" fill="currentColor"></path>
         </svg>
       </button>
-      <div class="cloud-wrapper">
+    <div class="cloud-wrapper">
+        
         <button @click="toggleCloudMenu" class="floating-btn sync-btn main-cloud-trigger" :class="{ 'active': isCloudMenuOpen }" title="云同步菜单">
-           
            <svg v-if="isSyncing" class="animate-spin" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-           
            <svg v-else xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 1024 1024" fill="currentColor">
               <path d="M395.776 641.664a19.392 19.392 0 0 0-6.368-12.384l-36.672-32.416a190.496 190.496 0 0 1 87.328-70.88c47.52-19.2 99.776-18.72 146.944 1.28s83.776 57.28 103.008 104.8a31.936 31.936 0 0 0 41.632 17.696 31.936 31.936 0 0 0 17.696-41.632 254.208 254.208 0 0 0-137.312-139.776 254.56 254.56 0 0 0-195.936-1.728 253.984 253.984 0 0 0-111.552 87.616l-37.408-33.088a19.168 19.168 0 0 0-31.808 16.384l12.576 119.68a19.2 19.2 0 0 0 21.088 17.088l109.696-11.52a19.2 19.2 0 0 0 17.088-21.12zM757.92 729.088l-109.216 15.36a19.2 19.2 0 0 0-9.536 33.856l34.496 28.416a190.816 190.816 0 0 1-236.672 74.016 190.592 190.592 0 0 1-102.976-104.768 32 32 0 1 0-59.36 23.936 254.272 254.272 0 0 0 137.344 139.776 255.232 255.232 0 0 0 100 20.48 255.744 255.744 0 0 0 95.904-18.752 254.592 254.592 0 0 0 115.872-93.408l41.408 34.112a19.2 19.2 0 0 0 31.2-17.472l-16.736-119.168a19.264 19.264 0 0 0-21.728-16.384z" />
               <path d="M808.192 262.592a320.16 320.16 0 0 0-592.352 0A238.592 238.592 0 0 0 32 496a240.32 240.32 0 0 0 130.976 213.888 32 32 0 1 0 29.12-57.024A176.192 176.192 0 0 1 96 496a175.04 175.04 0 0 1 148.48-173.888l19.04-2.976 6.24-18.24C305.248 197.472 402.592 128 512 128a256 256 0 0 1 242.208 172.896l6.272 18.24 19.04 2.976A175.04 175.04 0 0 1 928 496a176.128 176.128 0 0 1-96.128 156.896 32.064 32.064 0 0 0 29.12 57.024A240.416 240.416 0 0 0 992 496a238.592 238.592 0 0 0-183.808-233.408z" />
            </svg>
-       
         </button>
         
         <Transition name="cloud-pop">
-          <div v-if="isCloudMenuOpen" class="cloud-sub-menu" style="display: flex; flex-direction: column; gap: 10px; align-items: center;">
+          <div v-if="isCloudMenuOpen" class="cloud-sub-menu">
                <div class="sync-dashboard" :class="{ 'has-update': isNewVersionAvailable }">
-    
-                <div class="dash-header">
-                  <span class="dash-title">数据同步状态</span>
-                  <span v-if="isCheckingCloud" class="dash-loading">
-                    <svg class="animate-spin" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
-                    检测中...
-                  </span>
-                </div>
-              
-                <div class="dash-grid">
-                  
-                  <div class="dash-item local">
-                    <div class="item-label">💻 本地版本</div>
-                    <div class="item-time">{{ lastSyncTime || '--/-- --:--' }}</div>
+                  <div class="dash-header">
+                    <span class="dash-title">数据同步状态</span>
+                    <span v-if="isCheckingCloud" class="dash-loading">
+                      <svg class="animate-spin" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+                      检测中...
+                    </span>
                   </div>
-              
-                  <div class="dash-connector">
-                    <div v-if="isNewVersionAvailable" class="icon-update">⬅️</div>
-                    <div v-else class="icon-idle">☁️</div>
+                  <div class="dash-grid">
+                    <div class="dash-item local"><div class="item-label">💻 本地版本</div><div class="item-time">{{ lastSyncTime || '--/-- --:--' }}</div></div>
+                    <div class="dash-connector"><div v-if="isNewVersionAvailable" class="icon-update">⬅️</div><div v-else class="icon-idle">☁️</div></div>
+                    <div class="dash-item cloud" :class="{ 'highlight': isNewVersionAvailable }"><div class="item-label">Github Gist</div><div class="item-time">{{ serverTime || '待检测' }}</div></div>
                   </div>
-              
-                  <div class="dash-item cloud" :class="{ 'highlight': isNewVersionAvailable }">
-                    <div class="item-label">Github Gist</div>
-                    <div class="item-time">{{ serverTime || '待检测' }}</div>
-                  </div>
-              
-                </div>
-              
-                <div v-if="isNewVersionAvailable" class="dash-footer update-mode">
-                  ✨ 云端有新进度，建议下载
-                </div>
-                <div v-else-if="serverTime" class="dash-footer safe-mode">
-                  ✅ 当前已是最新
-                </div>
-              
-              </div>
-              <button @click="uploadToCloud" class="floating-btn sync-btn svg-icon-btn sub-btn" title="上传进度到云端" :disabled="isSyncing">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/></svg>
-              </button>
-              <button @click="downloadFromCloud" class="floating-btn sync-btn svg-icon-btn sub-btn" title="从云端下载进度" :disabled="isSyncing">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM12 17l-5-5h3V8h4v4h3l-5 5z"/></svg>
-              </button>
-              <button @click="showSyncModal = true" class="floating-btn sync-btn sub-btn" title="配置云同步" style="font-size: 20px;">⚙️</button>
+                  <div v-if="isNewVersionAvailable" class="dash-footer update-mode">✨ 云端有新进度，建议下载</div>
+                  <div v-else-if="serverTime" class="dash-footer safe-mode">✅ 当前已是最新</div>
+               </div>
+               
+               <button @click="uploadToCloud" class="floating-btn sync-btn svg-icon-btn sub-btn" title="上传进度到云端" :disabled="isSyncing">
+                   <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/></svg>
+               </button>
+               <button @click="downloadFromCloud" class="floating-btn sync-btn svg-icon-btn sub-btn" title="从云端下载进度" :disabled="isSyncing">
+                   <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM12 17l-5-5h3V8h4v4h3l-5 5z"/></svg>
+               </button>
+               <button @click="showSyncModal = true" class="floating-btn sync-btn sub-btn" title="配置云同步" style="font-size: 20px;">⚙️</button>
           </div>
         </Transition>
-     </div>  
+      </div>
+      
     </div>
     <div v-if="showAddWordModal" class="modal-overlay" @click.self="showAddWordModal = false">
       <div class="modal-box" style="max-width: 360px;">
@@ -4575,6 +4554,7 @@ const downloadFromCloud = async () => {
   max-height: 0; /* 高度收缩 */
   margin-top: 0 !important; /* 消除间距，确保完全收起 */
 }
+
 /* 🔥🔥🔥【新增】包裹器，用于定位 */
 .cloud-wrapper {
   position: relative;
@@ -4583,37 +4563,67 @@ const downloadFromCloud = async () => {
   justify-content: center;
 }
 
-/* 🔥🔥🔥【修改】子菜单样式：改为绝对定位到左侧 */
+/* 🔥🔥🔥【核心容器】子菜单容器 */
 .cloud-sub-menu {
     position: absolute;
-    right: 65px;  /* 按钮宽度50px + 间距15px，确保在左侧 */
-    bottom: 0;    /* 底部对齐主按钮 */
+    /* 让按钮组出现在主按钮的正下方 */
+    top: 60px;  /* 50px按钮高度 + 10px间距 */
+    right: 0;   /* 对齐父容器右侧 */
     
-    margin-top: 0 !important; /* 清除旧的顶部间距 */
-    width: 220px; /* 固定宽度，防止 Dashboard 被挤压 */
-    z-index: 100; /* 确保浮在最上层 */
+    /* 垂直排列按钮 */
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    align-items: center;
     
-    /* 内部元素靠右对齐，紧贴主按钮 */
-    align-items: flex-end; 
+    /* 🔥关键：必须允许内容溢出，这样Dashboard才能飞到左边去 */
+    overflow: visible !important; 
+    z-index: 100;
+    
+    width: 50px; /* 和主按钮同宽 */
+    margin-top: 0 !important;
 }
 
-/* 4. 🔥核心动画：修改为从右向左弹出 */
-/* 进入和离开的激活状态 */
+/* 🔥🔥🔥【左侧悬浮】状态面板 */
+.sync-dashboard {
+    position: absolute;
+    
+    /* 位于容器左侧 */
+    right: 100%; 
+    margin-right: 15px; /* 距离按钮组的间距 */
+    
+    /* 🔥🔥🔥 核心修改：Top改为负值，对齐主按钮顶部 */
+    /* top: -60px 刚好抵消掉父容器的 top: 60px，从而和主按钮顶部对齐 */
+    top: -60px; 
+    
+    width: 240px;
+    
+    /* 样式美化 */
+    background: #ffffff;
+    border-radius: 12px;
+    padding: 12px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+    border: 1px solid #f3f4f6;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    z-index: 101; 
+}
+
+/* 🔥🔥🔥【动画优化】整体向下弹出 */
 .cloud-pop-enter-active,
 .cloud-pop-leave-active {
-  transition: all 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
   opacity: 1;
-  transform: translateX(0) scale(1);
+  transform: translateY(0) scale(1);
 }
 
-/* 进入起始状态 和 离开结束状态 */
 .cloud-pop-enter-from,
 .cloud-pop-leave-to {
   opacity: 0;
-  /* 向右位移并缩小，造成从主按钮里“向左弹出”的视觉差 */
-  transform: translateX(20px) scale(0.9); 
+  /* 产生从主按钮“掉下来”的视觉效果 */
+  transform: translateY(-20px) scale(0.8); 
 }
-
 
 /* 5. 其他通用样式 (保持不变) */
 .sync-btn:disabled { /* ...略... */ }
