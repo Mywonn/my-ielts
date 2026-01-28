@@ -2402,10 +2402,15 @@ const isSyncing = ref(false) // loading 状态
 // 🔥 新增：控制云同步菜单的展开/收起
 const isCloudMenuOpen = ref(false)
 
- // 🔥🔥🔥【新增】记录最后同步时间
+// 🔥🔥🔥【云同步核心逻辑 - 完整修复版】🔥🔥🔥
+
+// 1. 定义定时器
+let cloudMenuTimer = null
+
+// 2. 上次同步时间
 const lastSyncTime = useMyStorage('my_ielts_last_sync_time', '')
 
-// 辅助函数：格式化时间 (例如: 10/24 15:30)
+// 3. 更新时间的工具函数
 const updateSyncTime = () => {
   const now = new Date()
   const m = String(now.getMonth() + 1).padStart(2, '0')
@@ -2415,17 +2420,17 @@ const updateSyncTime = () => {
   lastSyncTime.value = `${m}/${d} ${h}:${min}`
 }
 
-// --- 云端版本检测逻辑 ---
+// 4. 云端版本检测变量
 const serverTime = ref('')
 const isNewVersionAvailable = ref(false)
-const isCheckingCloud = ref(false) // 检测中的 loading 状态
+const isCheckingCloud = ref(false)
 
+// 5. 检测云端状态函数
 const checkCloudStatus = async () => {
   if (!syncConfig.token || !syncConfig.gistId) return
   
   isCheckingCloud.value = true
   try {
-    // 1. 只请求 Gist 的元数据（不下载内容，速度快）
     const res = await fetch(`https://api.github.com/gists/${syncConfig.gistId}`, {
       headers: { 'Authorization': `token ${syncConfig.token}` }
     })
@@ -2434,14 +2439,13 @@ const checkCloudStatus = async () => {
       const data = await res.json()
       const serverDate = new Date(data.updated_at)
       
-      // 2. 格式化云端时间
       const m = String(serverDate.getMonth() + 1).padStart(2, '0')
       const d = String(serverDate.getDate()).padStart(2, '0')
       const h = String(serverDate.getHours()).padStart(2, '0')
       const min = String(serverDate.getMinutes()).padStart(2, '0')
       serverTime.value = `${m}/${d} ${h}:${min}`
 
-      // 3. 智能对比：如果云端时间明显晚于本地最后同步时间，说明有新版本
+      // 智能对比
       if (lastSyncTime.value && serverTime.value > lastSyncTime.value) {
         isNewVersionAvailable.value = true
       } else {
@@ -2453,22 +2457,17 @@ const checkCloudStatus = async () => {
   } finally {
     isCheckingCloud.value = false
   }
-}  
+}
 
-  
-// 🔥🔥🔥【新增】自动关闭定时器逻辑
-let cloudMenuTimer = null
-
+// 6. 菜单切换函数 (集成检测逻辑)
 const toggleCloudMenu = () => {
-  // 1. 清除旧定时器
   if (cloudMenuTimer) clearTimeout(cloudMenuTimer)
 
-  // 2. 切换菜单状态
   isCloudMenuOpen.value = !isCloudMenuOpen.value
 
-  // 3. 🔥 如果是【打开】状态，立即触发云端检测
   if (isCloudMenuOpen.value) {
-    checkCloudStatus() // <--- 关键：调用刚才补上的检测函数
+    // 打开时立即检测
+    checkCloudStatus()
 
     // 5秒后自动关闭
     cloudMenuTimer = setTimeout(() => {
@@ -2476,11 +2475,7 @@ const toggleCloudMenu = () => {
     }, 5000)
   }
 }
-
-// 页面销毁时清理定时器
-onUnmounted(() => {
-  if (cloudMenuTimer) clearTimeout(cloudMenuTimer)
-})
+  
 // 保存配置
 const saveSyncConfig = () => {
   localStorage.setItem('my_ielts_gh_token', syncConfig.token.trim())
