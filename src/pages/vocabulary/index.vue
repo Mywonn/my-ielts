@@ -2415,7 +2415,7 @@ const updateSyncTime = () => {
   lastSyncTime.value = `${m}/${d} ${h}:${min}`
 }
 
-// 🔥🔥🔥【新增】云端版本检测逻辑
+// --- 云端版本检测逻辑 ---
 const serverTime = ref('')
 const isNewVersionAvailable = ref(false)
 const isCheckingCloud = ref(false) // 检测中的 loading 状态
@@ -2442,7 +2442,6 @@ const checkCloudStatus = async () => {
       serverTime.value = `${m}/${d} ${h}:${min}`
 
       // 3. 智能对比：如果云端时间明显晚于本地最后同步时间，说明有新版本
-      // (这里简单对比字符串即可，或者存时间戳对比更严谨，但通常人工判断足够)
       if (lastSyncTime.value && serverTime.value > lastSyncTime.value) {
         isNewVersionAvailable.value = true
       } else {
@@ -2454,24 +2453,27 @@ const checkCloudStatus = async () => {
   } finally {
     isCheckingCloud.value = false
   }
-}
+}  
+
   
 // 🔥🔥🔥【新增】自动关闭定时器逻辑
 let cloudMenuTimer = null
 
 const toggleCloudMenu = () => {
-  // 1. 无论开还是关，先清除旧的定时器
+  // 1. 清除旧定时器
   if (cloudMenuTimer) clearTimeout(cloudMenuTimer)
 
   // 2. 切换菜单状态
   isCloudMenuOpen.value = !isCloudMenuOpen.value
 
-  // 3. 如果现在是【打开】状态，设置 5 秒后自动关闭
+  // 3. 🔥 如果是【打开】状态，立即触发云端检测
   if (isCloudMenuOpen.value) {
-    checkCloudStatus()
+    checkCloudStatus() // <--- 关键：调用刚才补上的检测函数
+
+    // 5秒后自动关闭
     cloudMenuTimer = setTimeout(() => {
       isCloudMenuOpen.value = false
-    }, 5000) // 👈 5000 代表 5秒，可按需修改
+    }, 5000)
   }
 }
 
