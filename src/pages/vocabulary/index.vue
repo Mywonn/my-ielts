@@ -2957,7 +2957,7 @@ const downloadFromCloud = async () => {
             <path d="M808.192 262.592a320.16 320.16 0 0 0-592.352 0A238.592 238.592 0 0 0 32 496a240.32 240.32 0 0 0 130.976 213.888 32 32 0 1 0 29.12-57.024A176.192 176.192 0 0 1 96 496a175.04 175.04 0 0 1 148.48-173.888l19.04-2.976 6.24-18.24C305.248 197.472 402.592 128 512 128a256 256 0 0 1 242.208 172.896l6.272 18.24 19.04 2.976A175.04 175.04 0 0 1 928 496a176.128 176.128 0 0 1-96.128 156.896 32.064 32.064 0 0 0 29.12 57.024A240.416 240.416 0 0 0 992 496a238.592 238.592 0 0 0-183.808-233.408z" />
          </svg>
      
-      </Transition>
+      </button>
       
       <Transition name="cloud-pop">
         <div v-if="isCloudMenuOpen" class="cloud-sub-menu" style="display: flex; flex-direction: column; gap: 10px; align-items: center;">
@@ -3048,7 +3048,7 @@ const downloadFromCloud = async () => {
         <h3 style="margin: 0; color: #374151;">{{ msgContent }}</h3>
       </div>
     </div>
-
+</div>
 
 <div v-if="showEditModal" class="modal-overlay" @click.self="showEditModal = false">
       <div class="modal-box" style="max-width: 360px; text-align: left;">
