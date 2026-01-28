@@ -4745,22 +4745,6 @@ const downloadFromCloud = async () => {
    🎨 颜值升级：同步仪表盘 (Sync Dashboard)
    ========================================= */
 
-.sync-dashboard {
-  background: #ffffff;
-  border-radius: 12px;
-  padding: 12px;
-  width: 100%;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05); /* 柔和阴影 */
-  border: 1px solid #f3f4f6;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-bottom: 8px;
-  transition: all 0.3s ease;
-  position: relative;
-  overflow: hidden;
-}
-
 /* 当有更新时，边框变紫，且有微光背景 */
 .sync-dashboard.has-update {
   border-color: #d8b4fe;
@@ -4811,14 +4795,6 @@ const downloadFromCloud = async () => {
   font-size: 10px;
   color: #6b7280;
   margin-bottom: 2px;
-}
-
-.item-time {
-  font-size: 13px;
-  font-weight: 700; /* 加粗时间 */
-  color: #374151;
-  font-family: monospace; /* 等宽字体，数字对齐更好看 */
-  letter-spacing: -0.5px;
 }
 
 /* 云端有更新时，时间变色 */
