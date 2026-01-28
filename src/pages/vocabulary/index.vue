@@ -4584,21 +4584,20 @@ const downloadFromCloud = async () => {
     margin-top: 0 !important;
 }
 
-/* 🔥🔥🔥【左侧悬浮】状态面板 */
+/* 🔥🔥🔥【修改】把宽度加大，防止文字挤下去 */
 .sync-dashboard {
     position: absolute;
     
     /* 位于容器左侧 */
     right: 100%; 
-    margin-right: 15px; /* 距离按钮组的间距 */
+    margin-right: 15px; 
     
-    /* 🔥🔥🔥 核心修改：Top改为负值，对齐主按钮顶部 */
-    /* top: -60px 刚好抵消掉父容器的 top: 60px，从而和主按钮顶部对齐 */
+    /* 顶部对齐主按钮 */
     top: -60px; 
     
-    width: 240px;
+    /* 🔴 改动在这里：从 240px 改为 320px (或者 auto) */
+    width: 320px; 
     
-    /* 样式美化 */
     background: #ffffff;
     border-radius: 12px;
     padding: 12px;
@@ -4608,6 +4607,18 @@ const downloadFromCloud = async () => {
     flex-direction: column;
     gap: 8px;
     z-index: 101; 
+}
+
+/* 🔥🔥🔥【新增】强制时间文字不换行 */
+.item-time {
+  font-size: 13px;
+  font-weight: 700;
+  color: #374151;
+  font-family: monospace;
+  letter-spacing: -0.5px;
+  
+  /* 🔴 核心修复：强制不换行 */
+  white-space: nowrap; 
 }
 
 /* 🔥🔥🔥【动画优化】整体向下弹出 */
