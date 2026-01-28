@@ -1734,7 +1734,36 @@ const stopTimer = (reset = true) => {
     document.title = 'MyIELTS' 
   }
 }
+  
+// 🔥🔥🔥【新增】回到顶部逻辑
+const showBackToTop = ref(false)
 
+const handleScroll = () => {
+  // 当页面滚动超过 300px 时显示按钮
+  showBackToTop.value = window.scrollY > 300
+}
+
+const scrollToTop = () => {
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+// 修改 onMounted，添加滚动监听
+onMounted(() => {
+  window.addEventListener('resize', updateWidth) // 原有的
+  window.addEventListener('scroll', handleScroll) // 🔥 新增
+  
+  // ... 原有的其他代码 ...
+})
+
+// 修改 onUnmounted，记得销毁监听
+onUnmounted(() => {
+  if (timer) clearInterval(timer) // 原有的
+  if (cloudMenuTimer) clearTimeout(cloudMenuTimer) // 原有的
+  
+  window.removeEventListener('resize', updateWidth)
+  window.removeEventListener('scroll', handleScroll) // 🔥 新增
+})
+  
 // 🔥🔥🔥【新增】组件销毁/刷新时，自动清理定时器
 onUnmounted(() => {
   if (timer) clearInterval(timer)
@@ -2373,6 +2402,60 @@ const isSyncing = ref(false) // loading 状态
 // 🔥 新增：控制云同步菜单的展开/收起
 const isCloudMenuOpen = ref(false)
 
+ // 🔥🔥🔥【新增】记录最后同步时间
+const lastSyncTime = useMyStorage('my_ielts_last_sync_time', '')
+
+// 辅助函数：格式化时间 (例如: 10/24 15:30)
+const updateSyncTime = () => {
+  const now = new Date()
+  const m = String(now.getMonth() + 1).padStart(2, '0')
+  const d = String(now.getDate()).padStart(2, '0')
+  const h = String(now.getHours()).padStart(2, '0')
+  const min = String(now.getMinutes()).padStart(2, '0')
+  lastSyncTime.value = `${m}/${d} ${h}:${min}`
+}
+
+// 🔥🔥🔥【新增】云端版本检测逻辑
+const serverTime = ref('')
+const isNewVersionAvailable = ref(false)
+const isCheckingCloud = ref(false) // 检测中的 loading 状态
+
+const checkCloudStatus = async () => {
+  if (!syncConfig.token || !syncConfig.gistId) return
+  
+  isCheckingCloud.value = true
+  try {
+    // 1. 只请求 Gist 的元数据（不下载内容，速度快）
+    const res = await fetch(`https://api.github.com/gists/${syncConfig.gistId}`, {
+      headers: { 'Authorization': `token ${syncConfig.token}` }
+    })
+    
+    if (res.ok) {
+      const data = await res.json()
+      const serverDate = new Date(data.updated_at)
+      
+      // 2. 格式化云端时间
+      const m = String(serverDate.getMonth() + 1).padStart(2, '0')
+      const d = String(serverDate.getDate()).padStart(2, '0')
+      const h = String(serverDate.getHours()).padStart(2, '0')
+      const min = String(serverDate.getMinutes()).padStart(2, '0')
+      serverTime.value = `${m}/${d} ${h}:${min}`
+
+      // 3. 智能对比：如果云端时间明显晚于本地最后同步时间，说明有新版本
+      // (这里简单对比字符串即可，或者存时间戳对比更严谨，但通常人工判断足够)
+      if (lastSyncTime.value && serverTime.value > lastSyncTime.value) {
+        isNewVersionAvailable.value = true
+      } else {
+        isNewVersionAvailable.value = false
+      }
+    }
+  } catch (e) {
+    console.error('检测云端失败', e)
+  } finally {
+    isCheckingCloud.value = false
+  }
+}
+  
 // 🔥🔥🔥【新增】自动关闭定时器逻辑
 let cloudMenuTimer = null
 
@@ -2385,6 +2468,7 @@ const toggleCloudMenu = () => {
 
   // 3. 如果现在是【打开】状态，设置 5 秒后自动关闭
   if (isCloudMenuOpen.value) {
+    checkCloudStatus()
     cloudMenuTimer = setTimeout(() => {
       isCloudMenuOpen.value = false
     }, 5000) // 👈 5000 代表 5秒，可按需修改
@@ -2443,6 +2527,7 @@ const uploadToCloud = async () => {
     })
 
     if (res.ok) {
+      updateSyncTime() // 🔥【新增】上传成功更新时间
       alert('☁️ 上传成功！数据已安全保存到 Gist。')
     } else {
       throw new Error(res.statusText)
@@ -2491,7 +2576,7 @@ const downloadFromCloud = async () => {
     // 恢复新增字段
     if(d.st) pageStories.value = d.st;
     if(d.ap) audioPeekHistory.value = d.ap;
-
+    updateSyncTime() // 🔥【新增】下载成功更新时间
     alert('☁️ 同步成功！本地进度已更新。')
     location.reload() // 刷新页面确保状态正确
 
@@ -2867,9 +2952,35 @@ const downloadFromCloud = async () => {
             <path d="M808.192 262.592a320.16 320.16 0 0 0-592.352 0A238.592 238.592 0 0 0 32 496a240.32 240.32 0 0 0 130.976 213.888 32 32 0 1 0 29.12-57.024A176.192 176.192 0 0 1 96 496a175.04 175.04 0 0 1 148.48-173.888l19.04-2.976 6.24-18.24C305.248 197.472 402.592 128 512 128a256 256 0 0 1 242.208 172.896l6.272 18.24 19.04 2.976A175.04 175.04 0 0 1 928 496a176.128 176.128 0 0 1-96.128 156.896 32.064 32.064 0 0 0 29.12 57.024A240.416 240.416 0 0 0 992 496a238.592 238.592 0 0 0-183.808-233.408z" />
          </svg>
       </button>
-
+      <Transition name="fade-slide">
+        <button v-show="showBackToTop" 
+                @click="scrollToTop" 
+                class="floating-btn top-btn" 
+                title="回到顶部">
+          ⬆️
+        </button>
+      </Transition>
+      
       <Transition name="cloud-pop">
         <div v-if="isCloudMenuOpen" class="cloud-sub-menu" style="display: flex; flex-direction: column; gap: 10px; align-items: center;">
+           <div class="sync-status-panel">
+        
+              <div class="status-row" style="color: #6b7280;">
+                <span>💻 本地:</span>
+                <span>{{ lastSyncTime || '未同步' }}</span>
+              </div>
+      
+              <div class="status-row" :class="{ 'highlight-update': isNewVersionAvailable }">
+                <span>☁️ 云端:</span>
+                <span v-if="isCheckingCloud">检测中...</span>
+                <span v-else>{{ serverTime || '未知' }}</span>
+              </div>
+              
+              <div v-if="isNewVersionAvailable" class="update-badge">
+                ✨ 有新版本
+              </div>
+      
+            </div>
             <button @click="uploadToCloud" class="floating-btn sync-btn svg-icon-btn sub-btn" title="上传进度到云端" :disabled="isSyncing">
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/></svg>
             </button>
@@ -4538,6 +4649,112 @@ const downloadFromCloud = async () => {
     gap: 0;
   }
 }  
+
+/* 🔥🔥🔥【新增】同步时间小标签样式 */
+.sync-time-tag {
+  font-size: 11px;
+  color: #6b7280;
+  background: #f3f4f6;
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid #e5e7eb;
+  white-space: nowrap;
+  margin-bottom: 2px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
+
+/* 暗黑模式适配 */
+.dark .sync-time-tag {
+  background: #1e293b;
+  color: #94a3b8;
+  border-color: #334155;
+} 
+
+/* 🔥🔥🔥【新增】同步状态面板 */
+.sync-status-panel {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 11px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 5px;
+}
+
+.status-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: #6b7280;
+}
+
+/* 发现新版本时，云端那一行变色提醒 */
+.highlight-update {
+  color: #a855f7 !important; /* 紫色高亮 */
+  font-weight: bold;
+}
+
+/* 新版本提示徽章 */
+.update-badge {
+  background: #a855f7;
+  color: white;
+  text-align: center;
+  border-radius: 4px;
+  padding: 2px 0;
+  margin-top: 2px;
+  font-weight: bold;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0% { opacity: 0.8; }
+  50% { opacity: 1; }
+  100% { opacity: 0.8; }
+}
+
+/* 暗黑模式 */
+.dark .sync-status-panel {
+  background: #1e293b;
+  border-color: #334155;
+}
+.dark .status-row { color: #94a3b8; }  
+
+ /* 🔥🔥🔥【新增】回到顶部按钮样式 */
+.top-btn {
+  background: #374151; /* 深灰色 */
+  color: white;
+  border-color: #4b5563;
+  z-index: 1400; /* 略低于云同步菜单 */
+}
+.top-btn:hover {
+  background: #111827;
+  transform: translateY(-3px); /* 悬停时稍微上浮 */
+  box-shadow: 0 6px 12px rgba(0,0,0,0.3);
+}
+
+/* 暗黑模式适配 */
+.dark .top-btn {
+  background: #475569;
+  border-color: #64748b;
+}
+.dark .top-btn:hover {
+  background: #334155;
+}
+
+/* 🔥🔥🔥【新增】平滑显隐动画 */
+.fade-slide-enter-active,
+.fade-slide-leave-active {
+  transition: all 0.3s ease;
+}
+
+.fade-slide-enter-from,
+.fade-slide-leave-to {
+  opacity: 0;
+  transform: translateY(10px) scale(0.8); /* 从下方淡出 */
+}
   
 </style>
 
