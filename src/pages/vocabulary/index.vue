@@ -3466,14 +3466,14 @@ const downloadFromCloud = async () => {
 .finish-btn:hover { background: #f3f4f6; }
 .finish-btn.done { background: #ecfdf5; color: #059669; border-color: #065f46; font-weight: bold; }
 
-.mobile-only { display: none; }
+.mobile-only { display: none !important; }
 .desktop-only { display: block; }
 .mobile-hide { display: inline; }
 
 @media (max-width: 768px) {
   .mobile-hide { display: none; }
   .desktop-only { display: none !important; }
-  .mobile-only { display: block; }
+  .mobile-only { display: block !important; }
   .grid-layout { display: block; } 
   .row-item { position: relative; padding: 12px; }
   .word-wrapper { margin-bottom: 6px; }
