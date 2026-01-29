@@ -4236,6 +4236,8 @@ const downloadFromCloud = async () => {
   display: flex;
   flex-direction: column;
   background: #ffffff;
+  /* 🔥🔥🔥 加上这一行，强制左对齐，覆盖掉默认的居中 🔥🔥🔥 */
+  text-align: left !important;
 }
 
 /* 顶部栏 */
