@@ -2270,125 +2270,124 @@ const isFloatBtnLeft = computed(() => {
 })
 
 // ==========================================
-// 🔥🔥🔥【新增】分组笔记/辨析功能逻辑
+// 🔥🔥🔥【升级版】分组笔记/辨析功能逻辑 (修复版)
 // ==========================================
 const showNoteModal = ref(false)
-const currentNoteKey = ref('') // 存当前正在编辑的 Key (如 Chapter1_5)
-const noteForm = reactive({ title: '', content: '' })
+const currentNoteKey = ref('') 
+// 新增：笔记列表数据
+const noteList = ref([]) 
+const currentNoteIdx = ref(0) 
+const isNoteEditing = ref(false) 
 
 // 1. 生成唯一 Key
 const getGroupKey = (groupId) => {
   return `${currentChapter.value}_${groupId}`
 }
 
-// 2. 打开窗口
-const openNoteModal = (groupId) => {
+// 升级版：使用 marked 解析 Markdown (保留此函数)
+const renderMarkdown = (text) => {
+  if (!text) return ''
+  try { return marked.parse(text) } catch (e) { return text }
+}
+
+// 2. 打开笔记窗口 (智能合并：阅读/编辑合二为一)
+const openNoteModal = (groupId, mode = 'read') => {
   const key = getGroupKey(groupId)
   currentNoteKey.value = key
-  const note = groupNotes.value[key] || { title: '', content: '' }
-  
-  noteForm.title = note.title
-  noteForm.content = note.content
+  const savedData = groupNotes.value[key]
+
+  // 数据初始化与迁移
+  if (!savedData) {
+    noteList.value = [{ title: '辨析点 1', content: '' }]
+    mode = 'edit' 
+  } else if (savedData.content !== undefined && !Array.isArray(savedData)) {
+    // 旧数据迁移
+    noteList.value = [{ title: savedData.title || '辨析点 1', content: savedData.content }]
+  } else if (Array.isArray(savedData)) {
+    noteList.value = JSON.parse(JSON.stringify(savedData))
+  } else {
+    noteList.value = [{ title: '辨析点 1', content: '' }]
+  }
+
+  // 重置状态
+  currentNoteIdx.value = 0
+  isNoteEditing.value = (mode === 'edit')
   showNoteModal.value = true
 }
 
-// ==========================================
-// 🔥🔥🔥【新增】阅读模式逻辑
-// ==========================================
-const showReadModal = ref(false)
-const readNoteData = reactive({ title: '', content: '', groupId: -1 })
-
-// 升级版：使用 marked 解析 Markdown (支持表格、引用、代码块等)
-const renderMarkdown = (text) => {
-  if (!text) return ''
-  try {
-    // marked.parse 会把 markdown 文本变成标准的 HTML
-    return marked.parse(text)
-  } catch (e) {
-    return text // 如果解析失败，兜底显示纯文本
-  }
+// 3. 切换当前的辨析点
+const switchNote = (index) => {
+  currentNoteIdx.value = index
+  isNoteEditing.value = !noteList.value[index].content 
 }
 
-// 打开阅读窗
-const openReadModal = (groupId) => {
-  const key = getGroupKey(groupId)
-  const note = groupNotes.value[key]
+// 4. 添加新的辨析点
+const addNewNote = () => {
+  const newIdx = noteList.value.length
+  noteList.value.push({ title: `辨析点 ${newIdx + 1}`, content: '' })
+  switchNote(newIdx) 
+  isNoteEditing.value = true 
+}
 
-  // 如果没内容，去编辑
-  if (!note || (!note.title && !note.content)) {
-    openNoteModal(groupId)
+// 5. 删除当前辨析点
+const deleteCurrentNote = () => {
+  if (noteList.value.length <= 1) {
+    noteList.value[0].content = ''
+    noteList.value[0].title = '辨析点 1'
     return
   }
-
-  // 🔥🔥🔥【修改】如果标题为空，默认显示 "词义辨析"
-  readNoteData.title = note.title || '词义辨析' 
-
-  readNoteData.content = note.content
-  readNoteData.groupId = groupId
-  showReadModal.value = true
+  if (!confirm('确定要删除这条辨析吗？')) return
+  noteList.value.splice(currentNoteIdx.value, 1)
+  if (currentNoteIdx.value >= noteList.value.length) {
+    currentNoteIdx.value = noteList.value.length - 1
+  }
 }
 
-// 从阅读模式跳转到编辑模式
-const switchToEdit = () => {
-  showReadModal.value = false
-  openNoteModal(readNoteData.groupId)
-}
-
-// 3. 保存笔记
+// 6. 保存笔记
 const saveNote = () => {
-  if (!noteForm.title.trim() && !noteForm.content.trim()) {
-    // 如果全空，就是删除
+  const validNotes = noteList.value.filter(n => n.title.trim() || n.content.trim())
+  if (validNotes.length === 0) {
     const newNotes = { ...groupNotes.value }
     delete newNotes[currentNoteKey.value]
     groupNotes.value = newNotes
   } else {
-    // 保存
-    groupNotes.value = {
-      ...groupNotes.value,
-      [currentNoteKey.value]: { 
-        title: noteForm.title.trim(), 
-        content: noteForm.content 
-      }
-    }
+    groupNotes.value = { ...groupNotes.value, [currentNoteKey.value]: validNotes }
   }
-  showNoteModal.value = false
+  isNoteEditing.value = false
 }
 
-// 4. 获取当前显示的标题 (用于模板显示)
-const getGroupTitle = (groupId) => {
-  const key = getGroupKey(groupId)
-  const title = groupNotes.value[key]?.title || ''
-  // 🔥 修复：如果只有空格，也算没标题
-  return title.trim()
-}
+// 7. 辅助计算
+const currentNote = computed(() => {
+  return noteList.value[currentNoteIdx.value] || { title: '', content: '' }
+})
 
-// 🔥 新增：判断该组是否有笔记数据（无论是有标题，还是有内容，都算有）
-const hasNoteData = (groupId) => {
-  const key = getGroupKey(groupId)
-  const note = groupNotes.value[key]
-  // 只要对象存在，且 (标题不为空 OR 内容不为空)，就返回 true
-  return note && ( (note.title && note.title.trim()) || (note.content && note.content.trim()) )
-}
-
-// 🔥 修改：为了防止标题为空时界面塌陷，如果没有标题但有内容，返回默认文案
+// 8. 界面显示标题
 const getDisplayTitle = (groupId) => {
   const key = getGroupKey(groupId)
-  const note = groupNotes.value[key]
-  if (!note) return ''
-  
-  // 优先返回用户写的标题
-  if (note.title && note.title.trim()) return note.title.trim()
-  
-  // 如果没标题但有内容，返回默认占位符
-  if (note.content && note.content.trim()) return '📝 词义辨析'
-  
+  const data = groupNotes.value[key]
+  if (!data) return ''
+  if (!Array.isArray(data)) {
+    if (data.title && data.title.trim()) return data.title.trim()
+    if (data.content) return '📝 词义辨析'
+    return ''
+  }
+  if (data.length > 0) {
+    const first = data[0]
+    if (first.title && first.title !== '辨析点 1') return first.title
+    return `📝 词义辨析 (${data.length})`
+  }
   return ''
 }
-const removeAudioTag = (word) => {
-  if (confirm(`确认移除 "${word}" 的听觉依赖标记吗？`)) {
-    audioPeekHistory.value = audioPeekHistory.value.filter(w => w !== word)
-  }
+
+// 9. 判断是否有笔记
+const hasNoteData = (groupId) => {
+  const key = getGroupKey(groupId)
+  const data = groupNotes.value[key]
+  if (!data) return false
+  if (!Array.isArray(data)) return (data.title && data.title.trim()) || (data.content && data.content.trim())
+  return data.length > 0
 }
+
 
 // ==========================================
 // ☁️ 云同步功能
@@ -2720,7 +2719,7 @@ const downloadFromCloud = async () => {
        borderBottom: hasNoteData(block.groupId) ? ('1px solid ' + block.color + '20') : 'none'
      }">
   
-  <div class="note-title" @click="openReadModal(block.groupId)">
+  <div class="note-title" @click="openNoteModal(block.groupId, 'read')">
     <span v-if="hasNoteData(block.groupId)" class="note-exist-text" :style="{ color: block.color }">
        <span style="font-weight:800; margin-right:4px;">P.</span> {{ getDisplayTitle(block.groupId) }}
     </span>
@@ -2735,7 +2734,7 @@ const downloadFromCloud = async () => {
       📋
     </button>
     
-    <button class="note-action-btn" @click.stop="openNoteModal(block.groupId)" title="编辑笔记">
+    <button class="note-action-btn" @click.stop="openNoteModal(block.groupId, 'edit')" title="编辑笔记">
       ⚙️
     </button>
   </div>
@@ -3133,44 +3132,82 @@ const downloadFromCloud = async () => {
         </div>
       </div>
     </div>
+
 <div v-if="showNoteModal" class="modal-overlay" @click.self="showNoteModal = false">
-      <div class="modal-box" style="max-width: 600px; text-align: left; height: 80vh; display: flex; flex-direction: column;">
-        <h3 class="modal-title">📝 分组辨析笔记</h3>
-        
-        <div style="margin-bottom: 10px;">
-          <label style="font-size:12px; color:#666; font-weight:bold;">标题 (显示在列表上方)</label>
-          <input type="text" v-model="noteForm.title" class="modal-input-field" placeholder="例如：Discover vs Invent 区别..." autocomplete="off">
-        </div>
-
-        <div style="flex: 1; display: flex; flex-direction: column; margin-bottom: 15px; min-height: 0;">
-          <label style="font-size:12px; color:#666; font-weight:bold; margin-bottom: 5px;">详细内容 (支持换行/简单Markdown)</label>
-          <textarea v-model="noteForm.content" 
-                    class="modal-input-field" 
-                    style="flex: 1; resize: none; line-height: 1.6; font-family: sans-serif;" 
-                    placeholder="在这里记录详细的词义辨析、场景用法等..."></textarea>
-        </div>
-
-        <div class="modal-actions">
-          <button @click="showNoteModal = false" class="modal-btn" style="background:#f3f4f6; color:#6b7280;">取消</button>
-          <button @click="saveNote" class="modal-btn" style="background:#8b5cf6; color:white;">💾 保存笔记</button>
-        </div>
-      </div>
-    </div>
-    <div v-if="showReadModal" class="modal-overlay" @click.self="showReadModal = false">
-  <div class="modal-box read-card-modal">
+  <div class="modal-box read-card-modal" style="height: 80vh; display:flex; flex-direction:column; padding:0;">
     
     <div class="read-header">
       <h3 class="read-title">
-        {{ readNoteData.title || '无标题笔记' }}
+        {{ isNoteEditing ? '✏️ 编辑辨析笔记' : '📖 词义辨析' }}
       </h3>
+      
       <div class="read-actions">
-        <button class="icon-btn edit-switch-btn" @click="switchToEdit" title="修改内容">✎</button>
-        <button class="icon-btn close-btn" @click="showReadModal = false">✕</button>
+        <button v-if="!isNoteEditing" class="icon-btn edit-switch-btn" @click="isNoteEditing = true" title="编辑">
+          ✎ 编辑
+        </button>
+        <button v-else class="icon-btn" @click="isNoteEditing = false" title="预览">
+          👁️ 预览
+        </button>
+        <button class="icon-btn close-btn" @click="showNoteModal = false">✕</button>
       </div>
     </div>
 
-    <div class="read-content markdown-body" v-html="renderMarkdown(readNoteData.content)"></div>
-    
+    <div style="flex: 1; display: flex; overflow: hidden;">
+      
+      <div class="story-sidebar">
+        <div class="sidebar-header">辨析分组</div>
+        <div class="sidebar-list">
+           <div v-for="(item, idx) in noteList" :key="idx" 
+                class="sidebar-item" 
+                :class="{ active: currentNoteIdx === idx }"
+                @click="switchNote(idx)">
+              <span class="item-icon">{{ item.content ? '📝' : '⚪' }}</span>
+              <span class="item-title">{{ item.title || '无标题' }}</span>
+           </div>
+        </div>
+        <button class="sidebar-add-btn" @click="addNewNote">
+           + 新增分组
+        </button>
+      </div>
+
+      <div class="story-content-area">
+        <div v-if="!isNoteEditing" class="markdown-body story-reader">
+             <h2 style="margin-top:0; border-bottom:1px solid #eee; padding-bottom:10px;">
+               {{ currentNote.title }}
+             </h2>
+             <div v-if="currentNote.content" v-html="renderMarkdown(currentNote.content)"></div>
+             <div v-else class="empty-story-tip">
+               <div style="font-size: 40px;">💡</div>
+               <div>此分组暂无内容<br>点击右上角 <b>"✎ 编辑"</b> 开始记录</div>
+             </div>
+        </div>
+
+        <div v-else class="story-editor-layout">
+          <div style="margin-bottom: 10px;">
+             <label style="font-size:12px; color:#666; font-weight:bold;">分组标题</label>
+             <input type="text" v-model="currentNote.title" class="modal-input-field" placeholder="例如：merchant vs businessman..." style="font-weight:bold;">
+          </div>
+          <div style="flex: 1; display: flex; gap: 15px; min-height: 0;">
+             <div style="flex: 1; display: flex; flex-direction: column;">
+                 <div class="editor-toolbar">
+                    <span>Markdown 内容</span>
+                    <button class="tiny-btn delete-btn" @click="deleteCurrentNote">🗑️ 删除此组</button>
+                 </div>
+                 <textarea v-model="currentNote.content" class="modal-input-field" style="flex: 1; resize: none; margin-bottom: 0; line-height: 1.6;" placeholder="在此记录详细辨析..."></textarea>
+             </div>
+             <div class="desktop-only preview-pane">
+                  <div class="editor-toolbar">实时预览</div>
+                  <div class="markdown-body" style="padding:10px; overflow-y:auto; height:100%;" v-html="renderMarkdown(currentNote.content)"></div>
+             </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="isNoteEditing" class="modal-actions" style="padding: 10px 20px; border-top: 1px solid #eee; margin:0;">
+      <button @click="isNoteEditing = false" class="modal-btn" style="background:#f3f4f6; color:#6b7280;">取消</button>
+      <button @click="saveNote" class="modal-btn" style="background:#8b5cf6; color:white;">💾 保存全部更改</button>
+    </div>
   </div>
 </div>
 
