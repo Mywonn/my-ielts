@@ -2250,7 +2250,120 @@ const copyGroupWords = (block) => {
     showCustomAlert(`已复制该组 ${block.list.length} 个单词! 📋`)
   }
 }
+// ==========================================
+// 🔥🔥🔥【升级版】分组笔记/辨析功能逻辑
+// ==========================================
+const showNoteModal = ref(false)
+const currentNoteKey = ref('') 
+// 新增：笔记列表数据
+const noteList = ref([]) 
+const currentNoteIdx = ref(0) 
+const isNoteEditing = ref(false) 
 
+// 1. 生成唯一 Key
+const getGroupKey = (groupId) => {
+  return `${currentChapter.value}_${groupId}`
+}
+
+// 2. 打开笔记窗口 (智能合并：阅读/编辑合二为一)
+const openNoteModal = (groupId, mode = 'read') => {
+  const key = getGroupKey(groupId)
+  currentNoteKey.value = key
+  const savedData = groupNotes.value[key]
+
+  // 数据初始化与迁移
+  if (!savedData) {
+    noteList.value = [{ title: '辨析点 1', content: '' }]
+    mode = 'edit' 
+  } else if (savedData.content !== undefined && !Array.isArray(savedData)) {
+    // 旧数据迁移
+    noteList.value = [{ title: savedData.title || '辨析点 1', content: savedData.content }]
+  } else if (Array.isArray(savedData)) {
+    noteList.value = JSON.parse(JSON.stringify(savedData))
+  } else {
+    noteList.value = [{ title: '辨析点 1', content: '' }]
+  }
+
+  // 重置状态
+  currentNoteIdx.value = 0
+  isNoteEditing.value = (mode === 'edit')
+  showNoteModal.value = true
+}
+
+// 3. 切换当前的辨析点
+const switchNote = (index) => {
+  currentNoteIdx.value = index
+  isNoteEditing.value = !noteList.value[index].content 
+}
+
+// 4. 添加新的辨析点
+const addNewNote = () => {
+  const newIdx = noteList.value.length
+  noteList.value.push({ title: `辨析点 ${newIdx + 1}`, content: '' })
+  switchNote(newIdx) 
+  isNoteEditing.value = true 
+}
+
+// 5. 删除当前辨析点
+const deleteCurrentNote = () => {
+  if (noteList.value.length <= 1) {
+    noteList.value[0].content = ''
+    noteList.value[0].title = '辨析点 1'
+    alert('已清空内容')
+    return
+  }
+  if (!confirm('确定要删除这条辨析吗？')) return
+  noteList.value.splice(currentNoteIdx.value, 1)
+  if (currentNoteIdx.value >= noteList.value.length) {
+    currentNoteIdx.value = noteList.value.length - 1
+  }
+}
+
+// 6. 保存笔记
+const saveNote = () => {
+  const validNotes = noteList.value.filter(n => n.title.trim() || n.content.trim())
+  if (validNotes.length === 0) {
+    const newNotes = { ...groupNotes.value }
+    delete newNotes[currentNoteKey.value]
+    groupNotes.value = newNotes
+  } else {
+    groupNotes.value = { ...groupNotes.value, [currentNoteKey.value]: validNotes }
+  }
+  isNoteEditing.value = false
+}
+
+// 7. 辅助计算
+const currentNote = computed(() => {
+  return noteList.value[currentNoteIdx.value] || { title: '', content: '' }
+})
+
+// 8. 界面显示标题
+const getDisplayTitle = (groupId) => {
+  const key = getGroupKey(groupId)
+  const data = groupNotes.value[key]
+  if (!data) return ''
+  if (!Array.isArray(data)) {
+    if (data.title && data.title.trim()) return data.title.trim()
+    if (data.content) return '📝 词义辨析'
+    return ''
+  }
+  if (data.length > 0) {
+    const first = data[0]
+    if (first.title && first.title !== '辨析点 1') return first.title
+    return `📝 词义辨析 (${data.length})`
+  }
+  return ''
+}
+
+// 9. 判断是否有笔记
+const hasNoteData = (groupId) => {
+  const key = getGroupKey(groupId)
+  const data = groupNotes.value[key]
+  if (!data) return false
+  if (!Array.isArray(data)) return (data.title && data.title.trim()) || (data.content && data.content.trim())
+  return data.length > 0
+}
+  
 // ==========================================
 // 🔥 新增：动态按钮避让逻辑
 // ==========================================
@@ -2269,200 +2382,7 @@ const isFloatBtnLeft = computed(() => {
   return padX.value > (windowWidth.value / 2 - 100)
 })
 
-// ==========================================
-// 🔥🔥🔥【升级版】分组笔记/辨析功能逻辑
-// ==========================================
-const showNoteModal = ref(false)
-const currentNoteKey = ref('') 
-// 新增：笔记列表数据，结构: [{ title: '辨析1', content: '...' }, ...]
-const noteList = ref([]) 
-const currentNoteIdx = ref(0) // 当前选中的是第几条辨析
-const isNoteEditing = ref(false) // 是否处于编辑模式
 
-// 1. 生成唯一 Key
-const getGroupKey = (groupId) => {
-  return `${currentChapter.value}_${groupId}`
-}
-
-// 2. 打开笔记窗口 (智能合并：阅读/编辑合二为一)
-// mode 参数: 'read' (默认预览) 或 'edit' (直接编辑)
-const openNoteModal = (groupId, mode = 'read') => {
-  const key = getGroupKey(groupId)
-  currentNoteKey.value = key
-  const savedData = groupNotes.value[key]
-
-  // A. 数据初始化与迁移 (兼容旧的单对象数据)
-  if (!savedData) {
-    // 情况1: 没数据 -> 初始化第一篇
-    noteList.value = [{ title: '辨析点 1', content: '' }]
-    mode = 'edit' // 没数据强制进入编辑模式
-  } else if (savedData.content !== undefined && !Array.isArray(savedData)) {
-    // 情况2: 旧数据 (只有 content 字段的对象) -> 迁移成数组格式
-    noteList.value = [{ 
-      title: savedData.title || '辨析点 1', 
-      content: savedData.content 
-    }]
-  } else if (Array.isArray(savedData)) {
-    // 情况3: 新数据 (已经是数组) -> 深拷贝
-    noteList.value = JSON.parse(JSON.stringify(savedData))
-  } else {
-    // 兜底
-    noteList.value = [{ title: '辨析点 1', content: '' }]
-  }
-
-  // 重置状态
-  currentNoteIdx.value = 0
-  isNoteEditing.value = (mode === 'edit')
-  
-  showNoteModal.value = true
-}
-
-// 3. 切换当前的辨析点
-const switchNote = (index) => {
-  currentNoteIdx.value = index
-  // 切换时，如果内容为空，自动进编辑；否则进预览
-  isNoteEditing.value = !noteList.value[index].content 
-}
-
-// 4. 添加新的辨析点
-const addNewNote = () => {
-  const newIdx = noteList.value.length
-  noteList.value.push({ 
-    title: `辨析点 ${newIdx + 1}`, 
-    content: '' 
-  })
-  switchNote(newIdx) // 自动跳到新建的这一篇
-  isNoteEditing.value = true // 自动进入编辑模式
-}
-
-// 5. 删除当前辨析点
-const deleteCurrentNote = () => {
-  if (noteList.value.length <= 1) {
-    // 如果只剩一篇，只清空内容，不删除
-    noteList.value[0].content = ''
-    noteList.value[0].title = '辨析点 1'
-    alert('已清空内容')
-    return
-  }
-  
-  if (!confirm('确定要删除这条辨析吗？')) return
-  
-  noteList.value.splice(currentNoteIdx.value, 1)
-  // 修正索引
-  if (currentNoteIdx.value >= noteList.value.length) {
-    currentNoteIdx.value = noteList.value.length - 1
-  }
-}
-
-// 6. 保存笔记 (存为数组)
-const saveNote = () => {
-  // 过滤掉完全没内容的“废”笔记，避免占用空间
-  // (保留至少一个，哪怕是空的，防止报错)
-  const validNotes = noteList.value.filter(n => n.title.trim() || n.content.trim())
-  
-  if (validNotes.length === 0) {
-    // 如果全空，就是删除该组笔记
-    const newNotes = { ...groupNotes.value }
-    delete newNotes[currentNoteKey.value]
-    groupNotes.value = newNotes
-  } else {
-    // 保存数组
-    groupNotes.value = {
-      ...groupNotes.value,
-      [currentNoteKey.value]: validNotes 
-    }
-  }
-  
-  isNoteEditing.value = false
-  // 这里的 alert 可选，如果为了流畅体验可以去掉
-  // alert('保存成功') 
-}
-
-// 7. 辅助：获取当前正在编辑/阅读的对象
-const currentNote = computed(() => {
-  return noteList.value[currentNoteIdx.value] || { title: '', content: '' }
-})
-
-// 8. 界面显示标题逻辑 (取第一个有标题的，或者默认)
-const getDisplayTitle = (groupId) => {
-  const key = getGroupKey(groupId)
-  const data = groupNotes.value[key]
-  
-  if (!data) return ''
-  
-  // 兼容旧数据 (对象)
-  if (!Array.isArray(data)) {
-    if (data.title && data.title.trim()) return data.title.trim()
-    if (data.content) return '📝 词义辨析'
-    return ''
-  }
-  
-  // 新数据 (数组) - 优先显示第一条的标题，或者显示“X条辨析”
-  if (data.length > 0) {
-    const first = data[0]
-    if (first.title && first.title !== '辨析点 1') return first.title
-    return `📝 词义辨析 (${data.length})`
-  }
-  
-  return ''
-}
-
-// 9. 判断是否有笔记数据
-const hasNoteData = (groupId) => {
-  const key = getGroupKey(groupId)
-  const data = groupNotes.value[key]
-  if (!data) return false
-  
-  // 旧数据判断
-  if (!Array.isArray(data)) {
-    return (data.title && data.title.trim()) || (data.content && data.content.trim())
-  }
-  
-  // 新数据判断 (只要数组里有东西)
-  return data.length > 0
-}
-
-// ==========================================
-// 🔥🔥🔥【新增】阅读模式逻辑
-// ==========================================
-const showReadModal = ref(false)
-const readNoteData = reactive({ title: '', content: '', groupId: -1 })
-
-// 升级版：使用 marked 解析 Markdown (支持表格、引用、代码块等)
-const renderMarkdown = (text) => {
-  if (!text) return ''
-  try {
-    // marked.parse 会把 markdown 文本变成标准的 HTML
-    return marked.parse(text)
-  } catch (e) {
-    return text // 如果解析失败，兜底显示纯文本
-  }
-}
-
-// 打开阅读窗
-const openReadModal = (groupId) => {
-  const key = getGroupKey(groupId)
-  const note = groupNotes.value[key]
-
-  // 如果没内容，去编辑
-  if (!note || (!note.title && !note.content)) {
-    openNoteModal(groupId)
-    return
-  }
-
-  // 🔥🔥🔥【修改】如果标题为空，默认显示 "词义辨析"
-  readNoteData.title = note.title || '词义辨析' 
-
-  readNoteData.content = note.content
-  readNoteData.groupId = groupId
-  showReadModal.value = true
-}
-
-// 从阅读模式跳转到编辑模式
-const switchToEdit = () => {
-  showReadModal.value = false
-  openNoteModal(readNoteData.groupId)
-}
 
 // 3. 保存笔记
 const saveNote = () => {
