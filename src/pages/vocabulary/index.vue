@@ -3479,7 +3479,18 @@ const downloadFromCloud = async () => {
   .word-wrapper { margin-bottom: 6px; }
   .en-text { font-size: 18px; }
   .speaker { font-size: 18px; padding: 5px; }
-  .mobile-pos { font-size: 12px; color: #6b7280; background: #f3f4f6; padding: 2px 6px; border-radius: 4px; display: inline-block; font-family: serif; font-style: italic; }
+    /* 🔥 修改后的代码：去掉了背景块，只保留精致的斜体灰字 */
+  .mobile-pos { 
+    font-size: 14px;      /* 稍微加大一点点，易读 */
+    color: #9ca3af;       /* 使用更柔和的灰色 */
+    background: none;     /* ❌ 移除灰色背景 */
+    padding: 0;           /* ❌ 移除内边距 */
+    border: none;         
+    display: inline-block; 
+    font-family: serif; 
+    font-style: italic; 
+    margin-left: 4px;     /* 与单词保持一点距离 */
+  }
   .mobile-kill { position: absolute; top: 10px; right: 10px; font-size: 20px; color: #d1d5db; background: none; border: none; padding: 5px; }
   .review-badge-m { font-size: 12px; margin-right: 5px; }
   .bar-inner { gap: 10px; justify-content: center; }
