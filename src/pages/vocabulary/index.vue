@@ -2706,7 +2706,7 @@ const downloadFromCloud = async () => {
               </svg>
             </button>
             <button @click="doExport" class="btn action-btn" title="导出/备份进度 (JSON)">⬇️ </button>
-            <button @click="doImport" class="btn action-btn" style="margin-left: 8px;" title="导入/恢复进度">⬆️ </button>
+            <button @click="doImport" class="btn action-btn" title="导入/恢复进度">⬆️ </button>
             <input type="file" id="fileInput" hidden @change="onFileChange">
 
             <div class="pomo-compact" :class="{ 'break-mode': isBreak }">
