@@ -1578,55 +1578,72 @@ const handleSpaceKey = (e) => {
 // 📊 新功能：易错单词排行榜 (Mistake Rank)
 // ==========================================
 const showMistakeModal = ref(false)
-const mistakePage = ref(1) // 当前页码
-const MISTAKE_PAGE_SIZE = 20 // 每页显示数量
+const mistakePage = ref(1) 
+const MISTAKE_PAGE_SIZE = 20 
 
-// 1. 计算易错榜单 (只显示错误次数 > 0 的)
+// 🔥🔥🔥【新增 1】控制显示模式的开关 (false=正在攻坚, true=已攻克)
+const showConquered = ref(false)
+
+// 1. 计算易错榜单 (核心修改：根据开关分流)
 const sortedMistakeList = computed(() => {
-  return reviewList.value
-    .filter(item => (item.failCount || 0) > 0) // 过滤掉没错过(或者旧数据)的词
-    .map(item => {
+  // A. 基础过滤：必须是错过的词 (failCount > 0)
+  const baseList = reviewList.value.filter(item => (item.failCount || 0) > 0)
+  
+  // B. 状态分流
+  const filteredList = baseList.filter(item => {
+    // 检查该词是否在斩杀表(killed) 或 掌握表(mastered) 中
+    // 注意：这里要防一手，有些词改名了或者数据同步问题，最好两个表都查
+    const isFinished = killedList.value.includes(item.w) || masteredList.value.includes(item.w)
+    
+    if (showConquered.value) {
+      // 🏆 榜中榜模式：只显示已攻克(已斩杀/已掌握)的
+      return isFinished
+    } else {
+      // 💥 攻坚模式：只显示还活着的(未斩杀且未掌握)
+      return !isFinished
+    }
+  })
+
+  // C. 组装数据 & 排序 (按错误次数从高到低)
+  return filteredList.map(item => {
       const info = findWordDetail(item.w)
       return {
         en: item.w,
-        count: item.failCount, // 错误次数
-        zh: info.zh,           // 中文
-        source: info.source,   // 出处 (用于跳转)
-        rawInfo: info          // 原始信息
+        count: item.failCount, 
+        zh: info.zh,           
+        source: info.source,
+        rawInfo: info
       }
     })
-    .sort((a, b) => b.count - a.count) // 按错误次数从高到低排序
+    .sort((a, b) => b.count - a.count) 
 })
 
-// 2. 当前页的数据
+// 2. 当前页的数据 (保持不变)
 const currentMistakePageData = computed(() => {
   const start = (mistakePage.value - 1) * MISTAKE_PAGE_SIZE
   const end = start + MISTAKE_PAGE_SIZE
   return sortedMistakeList.value.slice(start, end)
 })
 
-// 3. 总页数
+// 3. 总页数 (保持不变)
 const totalMistakePages = computed(() => {
   return Math.ceil(sortedMistakeList.value.length / MISTAKE_PAGE_SIZE) || 1
 })
 
-// 4. 打开弹窗
+// 4. 打开弹窗 (保持不变，默认重置为第一页，默认看攻坚榜)
 const openMistakeModal = () => {
-  mistakePage.value = 1 // 每次打开重置为第一页
+  mistakePage.value = 1 
+  showConquered.value = false // 每次打开默认看“未完成”的，想看战利品自己点
   showMistakeModal.value = true
 }
 
-// 5. 新窗口跳转
+// 5. 跳转 (保持不变)
 const jumpToWordNewTab = (item) => {
-  // 生成带有锚点和参数的 URL
   const url = getSourceUrl(item.rawInfo)
-  
   if (!url || url === '#') {
     alert('该单词来自自定义生词本，暂无固定章节位置')
     return
   }
-  
-  // 补全完整的 URL (包括协议和域名，防止 window.open 识别错误)
   const fullUrl = window.location.origin + url
   window.open(fullUrl, '_blank')
 }
@@ -3399,55 +3416,92 @@ const downloadFromCloud = async () => {
 </div>  
 
 <div v-if="showMistakeModal" class="modal-overlay" @click.self="showMistakeModal = false">
-      <div class="modal-box" style="max-width: 600px; height: 80vh; padding: 0; display: flex; flex-direction: column;">
-        
-        <div style="padding: 15px 20px; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center; background: #f9fafb;">
-          <h3 style="margin:0; font-size: 18px; color: #111827;">📉 易错单词排行榜</h3>
-          <button class="modal-close-icon static-pos" @click="showMistakeModal = false">✕</button>
+  <div class="modal-box" style="max-width: 600px; height: 80vh; padding: 0; display: flex; flex-direction: column;">
+    
+    <div class="mistake-header">
+      <div style="display:flex; align-items:center; gap: 10px;">
+        <h3 style="margin:0; font-size: 18px; color: #111827;">
+          {{ showConquered ? '🏆 荣誉殿堂 (已攻克)' : '📉 易错攻坚榜' }}
+        </h3>
+      </div>
+      
+      <div style="display: flex; align-items: center; gap: 15px;">
+        <div class="toggle-pill-group">
+          <button 
+            class="pill-btn" 
+            :class="{ active: !showConquered }" 
+            @click="showConquered = false; mistakePage = 1"
+            title="显示还在背诵队列中的错词">
+            正在攻坚
+          </button>
+          <button 
+            class="pill-btn" 
+            :class="{ active: showConquered }" 
+            @click="showConquered = true; mistakePage = 1"
+            title="显示已斩杀/已掌握的历史错词">
+            已攻克
+          </button>
         </div>
 
-        <div style="flex: 1; overflow-y: auto; padding: 0;">
-          <table class="mistake-table">
-            <thead style="position: sticky; top: 0; background: #fff; z-index: 10;">
-              <tr>
-                <th style="width: 45%;">单词 / 释义</th>
-                <th style="width: 25%; text-align: center;">错误次数</th>
-                <th style="width: 30%; text-align: right;">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="item in currentMistakePageData" :key="item.en">
-                <td>
-                  <div style="font-weight: bold; color: #1f2937; font-size: 16px;">{{ item.en }}</div>
-                  <div style="font-size: 12px; color: #6b7280; margin-top: 2px;">{{ item.zh }}</div>
-                </td>
-                <td style="text-align: center;">
-                  <span class="count-badge">{{ item.count }}</span>
-                </td>
-                <td style="text-align: right;">
-                  <button class="jump-link-btn" @click="jumpToWordNewTab(item)">
-                    跳转 🚀
-                  </button>
-                </td>
-              </tr>
-              <tr v-if="sortedMistakeList.length === 0">
-                <td colspan="3" style="text-align: center; padding: 40px; color: #9ca3af;">
-                  🎉 太棒了！暂无错题记录<br>
-                  <span style="font-size: 12px;">(答错后会自动记录在此处)</span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <div style="padding: 12px; border-top: 1px solid #e5e7eb; display: flex; justify-content: center; gap: 15px; align-items: center; background: #fff;">
-          <button class="page-nav-btn" :disabled="mistakePage === 1" @click="mistakePage--">上一页</button>
-          <span style="font-size: 14px; color: #374151; font-weight: bold;">{{ mistakePage }} / {{ totalMistakePages }}</span>
-          <button class="page-nav-btn" :disabled="mistakePage >= totalMistakePages" @click="mistakePage++">下一页</button>
-        </div>
-
+        <button class="modal-close-icon static-pos" @click="showMistakeModal = false">✕</button>
       </div>
     </div>
+
+    <div style="flex: 1; overflow-y: auto; padding: 0;">
+      <table class="mistake-table">
+        <thead style="position: sticky; top: 0; background: #fff; z-index: 10;">
+          <tr>
+            <th style="width: 45%;">单词 / 释义</th>
+            <th style="width: 25%; text-align: center;">累计错误</th>
+            <th style="width: 30%; text-align: right;">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="item in currentMistakePageData" :key="item.en" :class="{ 'conquered-tr': showConquered }">
+            <td>
+              <div style="font-weight: bold; font-size: 16px;" 
+                   :style="{ color: showConquered ? '#a855f7' : '#1f2937', textDecoration: showConquered ? 'line-through' : 'none' }">
+                {{ item.en }}
+              </div>
+              <div style="font-size: 12px; color: #6b7280; margin-top: 2px;">{{ item.zh }}</div>
+            </td>
+            <td style="text-align: center;">
+              <span class="count-badge" :class="{ 'purple-badge': showConquered }">{{ item.count }}</span>
+            </td>
+            <td style="text-align: right;">
+              <button class="jump-link-btn" @click="jumpToWordNewTab(item)">
+                跳转 🚀
+              </button>
+            </td>
+          </tr>
+          
+          <tr v-if="sortedMistakeList.length === 0">
+            <td colspan="3" style="text-align: center; padding: 60px 20px; color: #9ca3af;">
+              <div style="font-size: 40px; margin-bottom: 10px;">
+                {{ showConquered ? '🏺' : '🎉' }}
+              </div>
+              <div v-if="!showConquered">
+                太棒了！当前队列中暂无易错词<br>
+                <span style="font-size: 12px;">(快去看看“已攻克”里有没有你的战利品)</span>
+              </div>
+              <div v-else>
+                空空如也<br>
+                <span style="font-size: 12px;">(加油，把那些错词都“斩杀”掉！)</span>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div style="padding: 12px; border-top: 1px solid #e5e7eb; display: flex; justify-content: center; gap: 15px; align-items: center; background: #fff;">
+      <button class="page-nav-btn" :disabled="mistakePage === 1" @click="mistakePage--">上一页</button>
+      <span style="font-size: 14px; color: #374151; font-weight: bold;">{{ mistakePage }} / {{ totalMistakePages }}</span>
+      <button class="page-nav-btn" :disabled="mistakePage >= totalMistakePages" @click="mistakePage++">下一页</button>
+    </div>
+
+  </div>
+</div>
 
 </template>
 
@@ -5169,6 +5223,69 @@ const downloadFromCloud = async () => {
 .dark .jump-link-btn { background: #1e293b; border-color: #4b5563; color: #cbd5e1; }
 .dark .jump-link-btn:hover { border-color: #60a5fa; color: #60a5fa; }
 .dark .page-nav-btn { background: #1e293b; border-color: #4b5563; color: #e2e8f0; }
+
+/* 弹窗头部布局 */
+.mistake-header {
+  padding: 15px 20px; 
+  border-bottom: 1px solid #e5e7eb; 
+  display: flex; 
+  justify-content: space-between; 
+  align-items: center; 
+  background: #f9fafb;
+}
+
+/* 🔥🔥🔥 胶囊切换按钮组 */
+.toggle-pill-group {
+  display: flex;
+  background: #e5e7eb;
+  padding: 3px;
+  border-radius: 20px; /* 胶囊圆角 */
+  gap: 2px;
+}
+
+.pill-btn {
+  border: none;
+  background: transparent;
+  padding: 4px 12px;
+  border-radius: 16px;
+  font-size: 12px;
+  font-weight: bold;
+  color: #6b7280;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+/* 激活状态：变成白色卡片 */
+.pill-btn.active {
+  background: white;
+  color: #3b82f6; /* 默认蓝色 */
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+/* 当切换到“已攻克”时，激活颜色变成紫色，区分度更高 */
+.pill-btn:last-child.active {
+  color: #a855f7; 
+}
+
+/* 攻克榜的特殊样式 */
+.conquered-tr:hover {
+  background-color: #f3e8ff !important; /* 悬停变成淡紫色 */
+}
+
+/* 紫色徽章 (用于已攻克列表) */
+.purple-badge {
+  background: #f3e8ff;
+  color: #a855f7;
+}
+
+/* 暗黑模式适配 */
+.dark .mistake-header { background: #1e293b; border-bottom-color: #334155; }
+.dark .toggle-pill-group { background: #334155; }
+.dark .pill-btn { color: #94a3b8; }
+.dark .pill-btn.active { background: #1e293b; color: #60a5fa; }
+.dark .pill-btn:last-child.active { color: #c084fc; }
+.dark .conquered-tr:hover { background-color: #3b0764 !important; }
+.dark .purple-badge { background: #581c87; color: #e9d5ff; }
 
 </style>
 
