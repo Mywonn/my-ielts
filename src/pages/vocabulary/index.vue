@@ -3421,7 +3421,7 @@ const downloadFromCloud = async () => {
     <div class="mistake-header">
       <div style="display:flex; align-items:center; gap: 10px;">
         <h3 style="margin:0; font-size: 18px; color: #111827;">
-          {{ showConquered ? '🏆 荣誉殿堂 (已攻克)' : '📉 易错攻坚榜' }}
+          {{ showConquered ? '🏆 荣誉殿堂' : '📉 易错攻坚榜' }}
         </h3>
       </div>
       
