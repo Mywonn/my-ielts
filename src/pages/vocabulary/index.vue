@@ -5109,6 +5109,8 @@ const downloadFromCloud = async () => {
   padding: 10px 15px;
   border-bottom: 1px solid #f3f4f6;
   vertical-align: middle;
+  /* 🔥 新增这一行：强制左对齐，覆盖弹窗的默认居中 */
+  text-align: left;
 }
 .mistake-table tr:hover {
   background-color: #f9fafb;
