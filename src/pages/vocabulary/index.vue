@@ -3420,7 +3420,7 @@ const downloadFromCloud = async () => {
     
     <div class="mistake-header">
       <div style="display:flex; align-items:center; gap: 10px;">
-        <h3 style="margin:0; font-size: 18px; color: #111827;">
+        <h3 class="mistake-modal-title">
           {{ showConquered ? '🏆 荣誉殿堂' : '📉 易错攻坚榜' }}
         </h3>
       </div>
@@ -3449,7 +3449,7 @@ const downloadFromCloud = async () => {
 
     <div style="flex: 1; overflow-y: auto; padding: 0;">
       <table class="mistake-table">
-        <thead style="position: sticky; top: 0; background: #fff; z-index: 10;">
+        <thead class="mistake-thead">
           <tr>
             <th style="width: 45%;">单词 / 释义</th>
             <th style="width: 25%; text-align: center;">累计错误</th>
@@ -3459,8 +3459,8 @@ const downloadFromCloud = async () => {
         <tbody>
           <tr v-for="item in currentMistakePageData" :key="item.en" :class="{ 'conquered-tr': showConquered }">
             <td>
-              <div style="font-weight: bold; font-size: 16px;" 
-                   :style="{ color: showConquered ? '#a855f7' : '#1f2937', textDecoration: showConquered ? 'line-through' : 'none' }">
+              <div class="mistake-word" 
+                   :class="{ 'is-conquered': showConquered }">
                 {{ item.en }}
               </div>
               <div style="font-size: 12px; color: #6b7280; margin-top: 2px;">{{ item.zh }}</div>
@@ -3494,9 +3494,9 @@ const downloadFromCloud = async () => {
       </table>
     </div>
 
-    <div style="padding: 12px; border-top: 1px solid #e5e7eb; display: flex; justify-content: center; gap: 15px; align-items: center; background: #fff;">
+    <div class="mistake-footer">
       <button class="page-nav-btn" :disabled="mistakePage === 1" @click="mistakePage--">上一页</button>
-      <span style="font-size: 14px; color: #374151; font-weight: bold;">{{ mistakePage }} / {{ totalMistakePages }}</span>
+      <span style="font-size: 14px; color: #374151; font-weight: bold;" :class="{'dark-text-white': true}">{{ mistakePage }} / {{ totalMistakePages }}</span>
       <button class="page-nav-btn" :disabled="mistakePage >= totalMistakePages" @click="mistakePage++">下一页</button>
     </div>
 
@@ -5286,6 +5286,84 @@ const downloadFromCloud = async () => {
 .dark .pill-btn:last-child.active { color: #c084fc; }
 .dark .conquered-tr:hover { background-color: #3b0764 !important; }
 .dark .purple-badge { background: #581c87; color: #e9d5ff; }
+
+/* =========================================
+   🔥 修复：易错榜单夜间模式适配
+   ========================================= */
+
+/* 1. 表头固定与背景 */
+.mistake-thead {
+  position: sticky; 
+  top: 0; 
+  background: #fff; /* 默认白底 */
+  z-index: 10;
+}
+
+/* 2. 底部翻页栏 */
+.mistake-footer {
+  padding: 12px; 
+  border-top: 1px solid #e5e7eb; 
+  display: flex; 
+  justify-content: center; 
+  gap: 15px; 
+  align-items: center; 
+  background: #fff; /* 默认白底 */
+}
+
+/* 3. 单词文本颜色 */
+.mistake-word {
+  font-weight: bold; 
+  font-size: 16px; 
+  color: #1f2937; /* 默认深灰 */
+}
+.mistake-word.is-conquered {
+  color: #a855f7;       /* 默认紫色 */
+  text-decoration: line-through;
+}
+
+/* ------------- 🌙 Dark Mode 适配 ------------- */
+
+/* 表头变黑 */
+.dark .mistake-thead {
+  background: #1e293b; 
+}
+
+/* 底部栏变黑 (解决白条问题) */
+.dark .mistake-footer {
+  background: #1e293b;
+  border-top-color: #334155;
+}
+
+/* 底部页码文字变白 */
+.dark .mistake-footer span {
+  color: #e2e8f0 !important;
+}
+
+/* 单词文字变白 (解决看不清问题) */
+.dark .mistake-word {
+  color: #f1f5f9; 
+}
+.dark .mistake-word.is-conquered {
+  color: #c084fc; /* 夜间模式下用亮一点的紫色 */
+  opacity: 0.8;
+}
+
+/* 针对释义的小字稍微调亮 */
+.dark .mistake-table td div:nth-child(2) {
+  color: #94a3b8 !important;
+}
+
+/* 默认模式（日间）：深色文字 */
+.mistake-modal-title {
+  margin: 0;
+  font-size: 18px;
+  color: #111827; /* 深灰黑色 */
+}
+
+/* 🌙 夜间模式：亮白文字 */
+.dark .mistake-modal-title {
+  color: #f1f5f9 !important; /* 亮白色，强制覆盖 */
+}
 
 </style>
 
