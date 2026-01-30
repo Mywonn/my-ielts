@@ -915,15 +915,33 @@ function checkInput(word, e) {
     if (!revealedZh.has(word.en)) revealedZh.add(word.en)
     
     if (!isReviewMode.value) {
+        // 学习模式答错
         if (masteredList.value.includes(word.en)) masteredList.value = masteredList.value.filter(w => w !== word.en)
+        
         const existing = reviewList.value.find(i => i.w === word.en)
-        if (!existing) reviewList.value.push({ w: word.en, stage: 0, time: Date.now() + INTERVALS[0] * 60000 })
+        if (!existing) {
+           // 🔥 新增：failCount: 1
+           reviewList.value.push({ w: word.en, stage: 0, time: Date.now() + INTERVALS[0] * 60000, failCount: 1 })
+        } else {
+           // 🔥 新增：如果有记录，次数 +1
+           existing.failCount = (existing.failCount || 0) + 1
+           // 更新时间逻辑不变
+           existing.stage = 0
+           existing.time = Date.now() + INTERVALS[0] * 60000
+        }
     } else {
+        // 复习模式答错
         const idx = reviewList.value.findIndex(i => i.w === word.en)
-        if (idx > -1) { reviewList.value[idx].stage = 0; reviewList.value[idx].time = Date.now() + INTERVALS[0] * 60000 }
+        if (idx > -1) { 
+          reviewList.value[idx].stage = 0; 
+          reviewList.value[idx].time = Date.now() + INTERVALS[0] * 60000 
+          
+          // 🔥 新增：错误次数 +1
+          reviewList.value[idx].failCount = (reviewList.value[idx].failCount || 0) + 1
+        }
     }
   }
-}
+ } 
 // ==========================================
 // ⚔️ 智能斩杀/恢复逻辑 (Handle Kill/Restore)
 // ==========================================
@@ -1555,20 +1573,62 @@ const handleSpaceKey = (e) => {
     e.preventDefault(); clearPad()
   }
 }
-// ... 剩下的代码 (exportMistakes 等)
-function exportMistakes() {
-  if (reviewList.value.length === 0) { alert('当前没有错题记录'); return }
-  let content = "My IELTS Mistakes\n\n"; const list = [...reviewList.value].sort((a, b) => a.time - b.time)
-  list.forEach((item, index) => {
-    const info = findWordDetail(item.w)
-    content += `${index+1}. ${info.en} ${info.pos}\n   [义] ${info.zh}\n`
-    if(info.example) content += `   [例] ${info.example}\n`
-    if(info.notation) content += `   [注] ${info.notation}\n`
-    content += `\n`
-  })
-  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
-  const url = URL.createObjectURL(blob); const a = document.createElement('a')
-  a.href = url; a.download = `mistakes.txt`; a.click(); URL.revokeObjectURL(url)
+
+// ==========================================
+// 📊 新功能：易错单词排行榜 (Mistake Rank)
+// ==========================================
+const showMistakeModal = ref(false)
+const mistakePage = ref(1) // 当前页码
+const MISTAKE_PAGE_SIZE = 20 // 每页显示数量
+
+// 1. 计算易错榜单 (只显示错误次数 > 0 的)
+const sortedMistakeList = computed(() => {
+  return reviewList.value
+    .filter(item => (item.failCount || 0) > 0) // 过滤掉没错过(或者旧数据)的词
+    .map(item => {
+      const info = findWordDetail(item.w)
+      return {
+        en: item.w,
+        count: item.failCount, // 错误次数
+        zh: info.zh,           // 中文
+        source: info.source,   // 出处 (用于跳转)
+        rawInfo: info          // 原始信息
+      }
+    })
+    .sort((a, b) => b.count - a.count) // 按错误次数从高到低排序
+})
+
+// 2. 当前页的数据
+const currentMistakePageData = computed(() => {
+  const start = (mistakePage.value - 1) * MISTAKE_PAGE_SIZE
+  const end = start + MISTAKE_PAGE_SIZE
+  return sortedMistakeList.value.slice(start, end)
+})
+
+// 3. 总页数
+const totalMistakePages = computed(() => {
+  return Math.ceil(sortedMistakeList.value.length / MISTAKE_PAGE_SIZE) || 1
+})
+
+// 4. 打开弹窗
+const openMistakeModal = () => {
+  mistakePage.value = 1 // 每次打开重置为第一页
+  showMistakeModal.value = true
+}
+
+// 5. 新窗口跳转
+const jumpToWordNewTab = (item) => {
+  // 生成带有锚点和参数的 URL
+  const url = getSourceUrl(item.rawInfo)
+  
+  if (!url || url === '#') {
+    alert('该单词来自自定义生词本，暂无固定章节位置')
+    return
+  }
+  
+  // 补全完整的 URL (包括协议和域名，防止 window.open 识别错误)
+  const fullUrl = window.location.origin + url
+  window.open(fullUrl, '_blank')
 }
 
 const isCurrentPartCompleted = computed(() => {
@@ -2632,7 +2692,19 @@ const downloadFromCloud = async () => {
         <div class="right-tools">
             <button v-if="isReviewMode" @click="showStatsModal = true" class="btn action-btn" title="学习统计">📊</button>
             <button @click="toggleScratchpad" class="btn action-btn desktop-only" :class="{ 'active-pad': showScratchpad }" title="打开/关闭草稿板">🖊️</button>
-            <button v-if="isReviewMode" @click="exportMistakes" class="btn action-btn special-btn desktop-only" title="导出错题文本 (TXT)">📥 </button>
+            <button v-if="isReviewMode" @click="openMistakeModal" class="btn action-btn" title="易错单词排行榜" 
+              style="
+                width: 46px; 
+                height: 46px; 
+                padding: 0; 
+                display: inline-flex; 
+                align-items: center; 
+                justify-content: center;
+              ">
+              <svg viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" style="width: 20px; height: 20px; fill: currentColor;">
+                <path d="M821.339582 0H202.660418C138.073033 0 85.483304 52.589729 85.483304 117.377075v789.24585c0 64.787346 52.589729 117.377075 117.377075 117.377075h618.479203c64.787346 0 117.377075-52.589729 117.377075-117.377075V117.377075C938.516696 52.589729 885.926967 0 821.339582 0zM182.064441 449.512205l105.579379-105.579379L182.064441 238.553408 244.652216 175.965632l105.579379 105.579379L455.611013 175.965632l62.587776 62.587776-105.579379 105.579379 105.579379 105.579379-62.587776 62.587775-105.579379-105.579379-105.579379 105.579379L182.064441 449.512205zM791.945323 781.847295H216.057801c-18.99629 0-34.593244-14.397188-34.593243-31.993751s15.396993-31.993751 34.593243-31.993751h575.887522c18.99629 0 34.593244 14.397188 34.593244 31.993751s-15.396993 31.993751-34.593244 31.993751z m0-127.975004H216.057801c-18.99629 0-34.593244-14.397188-34.593243-31.993752s15.396993-31.993751 34.593243-31.993751h575.887522c18.99629 0 34.593244 14.397188 34.593244 31.993751s-15.396993 31.993751-34.593244 31.993752z m2.599492-127.975005h-149.370826c-17.596563 0-31.993751-14.397188-31.993751-31.993752s14.397188-31.993751 31.993751-31.993751h149.370826c17.596563 0 31.993751 14.397188 31.993752 31.993751s-14.197227 31.993751-31.993752 31.993752z m0-117.377075h-149.370826c-17.596563 0-31.993751-14.397188-31.993751-31.993751s14.397188-31.993751 31.993751-31.993752h149.370826c17.596563 0 31.993751 14.397188 31.993752 31.993752 0 17.796524-14.197227 31.993751-31.993752 31.993751z m0-117.177114h-149.370826c-17.596563 0-31.993751-14.397188-31.993751-31.993751s14.397188-31.993751 31.993751-31.993751h149.370826c17.596563 0 31.993751 14.397188 31.993752 31.993751s-14.197227 31.993751-31.993752 31.993751zM791.945323 923.819566H216.057801c-18.99629 0-34.593244-14.397188-34.593243-31.993751s15.396993-31.993751 34.593243-31.993751h575.887522c18.99629 0 34.593244 14.397188 34.593244 31.993751s-15.396993 31.993751-34.593244 31.993751z" p-id="1775"></path>
+              </svg>
+            </button>
             <button @click="doExport" class="btn action-btn" title="导出/备份进度 (JSON)">⬇️ </button>
             <button @click="doImport" class="btn action-btn" style="margin-left: 8px;" title="导入/恢复进度">⬆️ </button>
             <input type="file" id="fileInput" hidden @change="onFileChange">
@@ -3324,7 +3396,59 @@ const downloadFromCloud = async () => {
       配置保存在本地浏览器，不会上传到任何服务器。
     </div>
   </div>
-</div>      
+</div>  
+
+<div v-if="showMistakeModal" class="modal-overlay" @click.self="showMistakeModal = false">
+      <div class="modal-box" style="max-width: 600px; height: 80vh; padding: 0; display: flex; flex-direction: column;">
+        
+        <div style="padding: 15px 20px; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center; background: #f9fafb;">
+          <h3 style="margin:0; font-size: 18px; color: #111827;">📉 易错单词排行榜</h3>
+          <button class="modal-close-icon static-pos" @click="showMistakeModal = false">✕</button>
+        </div>
+
+        <div style="flex: 1; overflow-y: auto; padding: 0;">
+          <table class="mistake-table">
+            <thead style="position: sticky; top: 0; background: #fff; z-index: 10;">
+              <tr>
+                <th style="width: 45%;">单词 / 释义</th>
+                <th style="width: 25%; text-align: center;">错误次数</th>
+                <th style="width: 30%; text-align: right;">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="item in currentMistakePageData" :key="item.en">
+                <td>
+                  <div style="font-weight: bold; color: #1f2937; font-size: 16px;">{{ item.en }}</div>
+                  <div style="font-size: 12px; color: #6b7280; margin-top: 2px;">{{ item.zh }}</div>
+                </td>
+                <td style="text-align: center;">
+                  <span class="count-badge">{{ item.count }}</span>
+                </td>
+                <td style="text-align: right;">
+                  <button class="jump-link-btn" @click="jumpToWordNewTab(item)">
+                    跳转 🚀
+                  </button>
+                </td>
+              </tr>
+              <tr v-if="sortedMistakeList.length === 0">
+                <td colspan="3" style="text-align: center; padding: 40px; color: #9ca3af;">
+                  🎉 太棒了！暂无错题记录<br>
+                  <span style="font-size: 12px;">(答错后会自动记录在此处)</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div style="padding: 12px; border-top: 1px solid #e5e7eb; display: flex; justify-content: center; gap: 15px; align-items: center; background: #fff;">
+          <button class="page-nav-btn" :disabled="mistakePage === 1" @click="mistakePage--">上一页</button>
+          <span style="font-size: 14px; color: #374151; font-weight: bold;">{{ mistakePage }} / {{ totalMistakePages }}</span>
+          <button class="page-nav-btn" :disabled="mistakePage >= totalMistakePages" @click="mistakePage++">下一页</button>
+        </div>
+
+      </div>
+    </div>
+
 </template>
 
 <style scoped>
@@ -4967,7 +5091,83 @@ const downloadFromCloud = async () => {
      justify-content: center;
      align-items: center;
 } */
-  
+
+/* 易错表格样式 */
+.mistake-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.mistake-table th {
+  text-align: left;
+  padding: 12px 15px;
+  font-size: 13px;
+  color: #6b7280;
+  border-bottom: 2px solid #f3f4f6;
+  font-weight: 600;
+}
+.mistake-table td {
+  padding: 10px 15px;
+  border-bottom: 1px solid #f3f4f6;
+  vertical-align: middle;
+}
+.mistake-table tr:hover {
+  background-color: #f9fafb;
+}
+
+/* 错误次数徽章 */
+.count-badge {
+  background: #fee2e2;
+  color: #ef4444;
+  font-weight: bold;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+/* 跳转按钮 */
+.jump-link-btn {
+  background: white;
+  border: 1px solid #d1d5db;
+  color: #374151;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.jump-link-btn:hover {
+  border-color: #3b82f6;
+  color: #3b82f6;
+  background: #eff6ff;
+}
+
+/* 翻页按钮 */
+.page-nav-btn {
+  background: white;
+  border: 1px solid #e5e7eb;
+  padding: 6px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: #374151;
+  font-size: 13px;
+}
+.page-nav-btn:hover:not(:disabled) {
+  background: #f3f4f6;
+}
+.page-nav-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 暗黑模式适配 */
+.dark .mistake-table th { background: #1e293b; color: #94a3b8; border-bottom-color: #334155; }
+.dark .mistake-table td { border-bottom-color: #334155; color: #e2e8f0; }
+.dark .mistake-table tr:hover { background-color: #334155; }
+.dark .count-badge { background: #7f1d1d; color: #fca5a5; }
+.dark .jump-link-btn { background: #1e293b; border-color: #4b5563; color: #cbd5e1; }
+.dark .jump-link-btn:hover { border-color: #60a5fa; color: #60a5fa; }
+.dark .page-nav-btn { background: #1e293b; border-color: #4b5563; color: #e2e8f0; }
+
 </style>
 
 
