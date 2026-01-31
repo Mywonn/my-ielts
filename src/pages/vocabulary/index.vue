@@ -4531,6 +4531,7 @@ const downloadFromCloud = async () => {
   font-size: 15px; 
 }
 
+
 /* 暗黑模式适配 */
 .dark .markdown-body table { box-shadow: 0 0 0 1px #374151; }
 .dark .markdown-body th { background-color: #1e293b; color: #e2e8f0; border-bottom-color: #374151; }
@@ -4719,6 +4720,55 @@ const downloadFromCloud = async () => {
 }
 .tool-btn-simple:active {
   transform: scale(0.9);
+}
+/* 1. 强化侧边栏标题和未激活项的可见度 */
+.dark .sidebar-header {
+  color: #94a3b8 !important; /* 从原本的 9ca3af 调亮一点点，或者用 #64748b */
+  border-bottom: 1px solid #334155;
+}
+
+.dark .sidebar-item {
+  color: #94a3b8 !important; /* 默认未选中的文字调亮 */
+}
+
+.dark .sidebar-item:hover {
+  color: #f1f5f9 !important; /* 悬停时文字变亮白 */
+}
+
+/* 2. 补全 Markdown 的深层标题颜色 (h4/h5/h6) */
+.dark .markdown-body h4,
+.dark .markdown-body h5,
+.dark .markdown-body h6 {
+  color: #f1f5f9 !important; /* 强制所有层级标题在夜间都保持高亮 */
+  border-left: 3px solid #3b82f6; /* 给小标题加个蓝色前缀，增加辨识度 */
+  padding-left: 8px;
+}
+
+/* 3. 优化正文和列表的对比度 */
+.dark .markdown-body {
+  color: #e2e8f0 !important; /* 将默认灰改成更亮的 Slate-200 */
+}
+
+.dark .markdown-body p, 
+.dark .markdown-body li {
+  color: #cbd5e1 !important; /* 段落和列表文字微调 */
+}
+
+/* 4. 优化橙色高亮块 (重点词汇) 在夜间的显示 */
+/* 截图里的橙色背景太重，文字容易糊掉，我们换成更透亮的组合 */
+.dark .markdown-body strong, 
+.dark .markdown-body b {
+  background-color: rgba(245, 158, 11, 0.2) !important; /* 琥珀色半透明背景 */
+  color: #fbbf24 !important; /* 亮金色文字 */
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  padding: 1px 4px;
+}
+
+/* 5. 修复引用块 (blockquote) 的颜色，让例句更清晰 */
+.dark .markdown-body blockquote {
+  background: #0f172a !important; /* 纯黑底色 */
+  border-left-color: #3b82f6 !important; /* 亮蓝竖线 */
+  color: #94a3b8 !important;
 }
 
 /* 🔥🔥🔥【重构】云同步折叠菜单样式 */
@@ -5806,5 +5856,53 @@ const downloadFromCloud = async () => {
 .dark .story-reader {
   color: #d1d5db !important;
 }
+/* 1. 强化侧边栏标题和未激活项的可见度 */
+.dark .sidebar-header {
+  color: #94a3b8 !important; /* 从原本的 9ca3af 调亮一点点，或者用 #64748b */
+  border-bottom: 1px solid #334155;
+}
 
+.dark .sidebar-item {
+  color: #94a3b8 !important; /* 默认未选中的文字调亮 */
+}
+
+.dark .sidebar-item:hover {
+  color: #f1f5f9 !important; /* 悬停时文字变亮白 */
+}
+
+/* 2. 补全 Markdown 的深层标题颜色 (h4/h5/h6) */
+.dark .markdown-body h4,
+.dark .markdown-body h5,
+.dark .markdown-body h6 {
+  color: #f1f5f9 !important; /* 强制所有层级标题在夜间都保持高亮 */
+  border-left: 3px solid #3b82f6; /* 给小标题加个蓝色前缀，增加辨识度 */
+  padding-left: 8px;
+}
+
+/* 3. 优化正文和列表的对比度 */
+.dark .markdown-body {
+  color: #e2e8f0 !important; /* 将默认灰改成更亮的 Slate-200 */
+}
+
+.dark .markdown-body p, 
+.dark .markdown-body li {
+  color: #cbd5e1 !important; /* 段落和列表文字微调 */
+}
+
+/* 4. 优化橙色高亮块 (重点词汇) 在夜间的显示 */
+/* 截图里的橙色背景太重，文字容易糊掉，我们换成更透亮的组合 */
+.dark .markdown-body strong, 
+.dark .markdown-body b {
+  background-color: rgba(245, 158, 11, 0.2) !important; /* 琥珀色半透明背景 */
+  color: #fbbf24 !important; /* 亮金色文字 */
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  padding: 1px 4px;
+}
+
+/* 5. 修复引用块 (blockquote) 的颜色，让例句更清晰 */
+.dark .markdown-body blockquote {
+  background: #0f172a !important; /* 纯黑底色 */
+  border-left-color: #3b82f6 !important; /* 亮蓝竖线 */
+  color: #94a3b8 !important;
+}
 </style>
