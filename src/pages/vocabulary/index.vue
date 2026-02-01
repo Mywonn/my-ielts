@@ -1690,6 +1690,7 @@ const modalIsBreak = ref(false)   // 弹窗显示的是"休息结束"还是"专�
 const pomoSeconds = ref(getFocusSeconds())
 const pomoState = ref('idle')     // idle, running, paused
 const isBreak = ref(false)        // 当前是否在休息模式
+const pomoEndTime = ref(0)        // 🔥🔥🔥【新增】记录绝对结束时间戳
 let timer = null
 
 // 🔥🔥🔥【补全 2】丢失的格式化函数
@@ -1699,10 +1700,10 @@ const formatTime = (seconds) => {
   return `${m < 10 ? '0' + m : m}:${s < 10 ? '0' + s : s}`
 }
 
-// 🔥🔥🔥【补全 3】丢失的保存函数
 const savePomo = () => {
   localStorage.setItem('my_ielts_pomo', JSON.stringify({
     seconds: pomoSeconds.value,
+    endTime: pomoEndTime.value, // 🔥🔥🔥【新增】保存结束时间
     isBreak: isBreak.value,
     state: pomoState.value,
     timestamp: Date.now()
@@ -1749,7 +1750,7 @@ const handleModalOverlayClick = () => {
   savePomo()
 }
 
-// 9. 核心开始函数 (修复状态翻转逻辑)
+// 9. 核心开始函数 (修复版：使用绝对时间戳，解决后台停止计时问题)
 const startTimer = () => {
   if (pomoState.value === 'running') return
   if (timer) clearInterval(timer)
@@ -1759,12 +1760,22 @@ const startTimer = () => {
      pomoSeconds.value = isBreak.value ? 5 * 60 : getFocusSeconds()
   }
 
+  // 🔥🔥🔥 关键逻辑：计算出“目标结束时刻”
+  // 无论后台怎么卡，这个时间点是固定的（例如：10:05分结束）
+  const now = Date.now()
+  pomoEndTime.value = now + (pomoSeconds.value * 1000)
+
   pomoState.value = 'running'
   savePomo()
 
   timer = setInterval(() => {
-    if (pomoSeconds.value > 0) {
-      pomoSeconds.value--
+    const currentNow = Date.now()
+    // 🔥 倒计时 = 目标结束时刻 - 当前时刻
+    const remaining = Math.ceil((pomoEndTime.value - currentNow) / 1000)
+
+    if (remaining > 0) {
+      // 只要还没到点，强制修正为剩余时间
+      pomoSeconds.value = remaining
       
       // 更新网页标题
       const icon = isBreak.value ? '☕' : '🍅'
@@ -1772,23 +1783,22 @@ const startTimer = () => {
       document.title = `${formatTime(pomoSeconds.value)} ${icon} ${statusText}`
 
       if (!isBreak.value) {
+        // 简单统计时长（这里保持每秒+1即可，或者你可以做更复杂的差值计算）
         updateDailyStats('duration', 1)
       }
       savePomo() 
     } else {
       // ⏰ 倒计时结束
+      pomoSeconds.value = 0
       stopTimer(false) 
       
-      // 1. 记录刚才结束的状态
       const justFinishedBreak = isBreak.value 
       modalIsBreak.value = justFinishedBreak 
 
-      // 2. 播放声音 & 弹窗
       playSound(justFinishedBreak ? DO_SOUND : TIMEOUT_SOUND)
       showModal.value = true
       document.title = '🔔 时间到！'
 
-      // 3. 翻转状态：为下一轮做准备
       isBreak.value = !justFinishedBreak 
       pomoSeconds.value = isBreak.value ? 5 * 60 : getFocusSeconds()
       
@@ -1852,19 +1862,27 @@ onMounted(() => {
     try {
       const data = JSON.parse(local)
       isBreak.value = data.isBreak
+      
       if (data.state === 'paused') {
         pomoSeconds.value = data.seconds
         pomoState.value = 'paused'
       } else if (data.state === 'running') {
-        const now = Date.now()
-        const elapsed = Math.floor((now - data.timestamp) / 1000)
-        const remaining = data.seconds - elapsed
-        if (remaining > 0) {
-          pomoSeconds.value = remaining
-          startTimer()
+        // 🔥🔥🔥【新增】优先使用 endTime 恢复
+        if (data.endTime) {
+            const now = Date.now()
+            const remaining = Math.ceil((data.endTime - now) / 1000)
+            if (remaining > 0) {
+                pomoSeconds.value = remaining
+                pomoEndTime.value = data.endTime
+                startTimer() // 重新启动，startTimer 会自动复用 endTime
+            } else {
+                pomoSeconds.value = 0
+                stopTimer(false) // 时间已过，直接停止
+            }
         } else {
-          pomoSeconds.value = 0
-          stopTimer(false)
+            // 旧数据兼容
+            pomoSeconds.value = data.seconds
+            startTimer()
         }
       }
     } catch (e) { console.error('番茄钟恢复失败', e) }
