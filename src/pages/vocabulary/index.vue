@@ -552,7 +552,9 @@ const chapterOptions = computed(() => {
 
 const displayData = computed(() => {
   if (isReviewMode.value) {
-    const sourceList = reviewStaticList.value.length > 0 ? reviewStaticList.value : reviewList.value
+    // 🔥 修复 Bug：去掉 : reviewList.value 的后备逻辑
+    // 原因：当 reviewStaticList 为空（代表当前没复习任务）时，原逻辑会错误地显示 reviewList 里所有“未来才到期”的单词，导致“背完又出现”的假象。
+    const sourceList = reviewStaticList.value
     const groups = { 5:[], 4:[], 3:[], 2:[], 1:[], 0:[] }
     sourceList.forEach((item, i) => {
       const stage = item.stage >= 6 ? 5 : (item.stage || 0)
