@@ -5435,6 +5435,47 @@ const downloadFromCloud = async () => {
   color: #f1f5f9 !important; /* 亮白色，强制覆盖 */
 }
 
+/* =========================================
+   🔥 强制修复：手机端 Markdown 高亮样式
+   (让 **加粗** 和 `代码` 都显示为黄色高亮)
+   ========================================= */
+
+/* 1. 针对加粗文字 (**text**) */
+.markdown-body strong,
+.markdown-body b {
+  background-color: #fef3c7 !important; /* 强制淡黄色背景 */
+  color: #92400e !important;            /* 强制深褐色文字 (提升对比度) */
+  padding: 0 4px !important;            /* 左右留空 */
+  border-radius: 4px !important;        /* 圆角 */
+  font-weight: 700 !important;
+  border: 1px solid #fcd34d !important; /* 加个边框，让它更像“卡片” */
+  
+  /* 修复：防止被其他样式(如重置样式)覆盖 */
+  text-decoration: none !important;
+  display: inline-block; /* 保持行内块级，防止背景断裂难看 */
+  line-height: 1.4;
+  margin: 0 2px;
+}
+
+/* 2. 针对行内代码 (`text`) - 图2那种样式 */
+.markdown-body code {
+  background-color: #fef3c7 !important; 
+  color: #92400e !important;
+  padding: 0 4px !important;
+  border-radius: 4px !important;
+  font-family: inherit !important; /* 手机上不要强制用等宽字体，很难看 */
+  border: 1px solid #fcd34d !important;
+  font-size: 0.95em;
+}
+
+/* 🌙 暗黑模式适配 (Dark Mode) */
+.dark .markdown-body strong,
+.dark .markdown-body b,
+.dark .markdown-body code {
+  background-color: rgba(245, 158, 11, 0.15) !important; /* 深色下的半透明黄 */
+  color: #fbbf24 !important;            /* 亮金色文字 */
+  border-color: rgba(245, 158, 11, 0.3) !important;
+}  
 </style>
 
 
