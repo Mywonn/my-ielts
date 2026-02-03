@@ -2019,11 +2019,13 @@ const moveSelection = (step) => {
 }
 
 // ==========================================
-// 2. 搜索输入处理 (已优化排序逻辑)
+// 2. 搜索输入处理 (已升级：支持中文搜索)
 // ==========================================
 const handleSearchInput = () => {
   selectedIndex.value = -1 // 重置键盘选中状态
   
+  // 🔥 去掉 .toLowerCase() 限制，或者是保留它但搜索时也要兼顾原样
+  // 但通常中文转小写没影响，保留即可
   const q = searchQuery.value.trim().toLowerCase()
   if (!q) {
     searchResults.value = []
@@ -2035,10 +2037,12 @@ const handleSearchInput = () => {
 
   // A. 先搜自定义词典
   for (const key in customDict.value) {
-    if (key.toLowerCase().includes(q)) {
+    const zh = customDict.value[key].zh || ''
+    // 🔥 修改 1：同时匹配 英文(key) 或 中文(zh)
+    if ((key.toLowerCase().includes(q) || zh.includes(q))) {
       results.push({ 
         en: key, 
-        zh: customDict.value[key].zh, 
+        zh: zh, 
         source: '我的生词本', 
         isCustom: true 
       })
@@ -2079,8 +2083,9 @@ const handleSearchInput = () => {
           const en = extractText(rawEn)
           const lowerEn = en.toLowerCase()
 
+          // 🔥 修改 2：同时匹配 英文(lowerEn) 或 中文(zh)
           // 只要包含就加入，稍后统一排序
-          if (lowerEn.includes(q) && !addedKeys.has(en)) {
+          if ((lowerEn.includes(q) || zh.includes(q)) && !addedKeys.has(en)) {
             results.push({ 
               en, 
               zh, 
@@ -2094,33 +2099,30 @@ const handleSearchInput = () => {
         }
         currentPartCount += validCountInGroup
       }
-      if (results.length > 100) break // 稍微放宽一点限制，方便排序后筛选
+      if (results.length > 100) break 
     }
   }
 
-  // 🔥🔥🔥【核心修改】对结果进行智能排序 🔥🔥🔥
+  // 排序逻辑 (保持不变，英文匹配优先，中文匹配的会自动按长度排)
   results.sort((a, b) => {
     const valA = a.en.toLowerCase()
     const valB = b.en.toLowerCase()
 
     // 1. 👑 王者级：完全匹配的最优先
-    // (例如搜 "thesis"，那么 "thesis" 必须排第一，"photosynthesis" 靠边站)
     if (valA === q && valB !== q) return -1
     if (valB === q && valA !== q) return 1
 
     // 2. 🥈 钻石级：以搜索词开头的优先
-    // (例如搜 "the"，"theory" 应该排在 "photosynthesis" 前面)
     const startA = valA.startsWith(q)
     const startB = valB.startsWith(q)
     if (startA && !startB) return -1
     if (startB && !startA) return 1
 
-    // 3. 🥉 黄金级：单词越短越优先 (通常短词是词根)
-    // (例如搜 "the"，"them" 比 "themselves" 更靠前)
+    // 3. 🥉 黄金级：单词越短越优先
     return valA.length - valB.length
   })
 
-  // 截取前 50 个显示，避免列表过长
+  // 截取前 50 个显示
   searchResults.value = results.slice(0, 50)
 }
 
