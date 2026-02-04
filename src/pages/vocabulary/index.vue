@@ -92,7 +92,12 @@ const handleJumpNext = (e) => {
   // B. 否则 (Tab 或 Enter) -> 往下跳 (下一格)
   else {
     if (currentIdx > -1 && currentIdx < inputs.length - 1) {
+      // 如果后面还有，跳到下一个
       inputs[currentIdx + 1].focus()
+    } else {
+      // 🔥🔥🔥【新增】如果是最后一个，手动触发 blur (失焦)
+      // 这会让输入框失去焦点，从而立即触发 @change 进行校验
+      e.target.blur()
     }
   }
 }
