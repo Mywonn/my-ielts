@@ -2535,10 +2535,13 @@ const serverTime = ref('')
 const isNewVersionAvailable = ref(false)
 const isCheckingCloud = ref(false)
 
-// 5. 检测云端状态函数
+// 修改后的 checkCloudStatus
 const checkCloudStatus = async () => {
   if (!syncConfig.token || !syncConfig.gistId) return
   
+  // 安全起见，开始检测时也清除一下旧定时器
+  if (cloudMenuTimer) clearTimeout(cloudMenuTimer)
+
   isCheckingCloud.value = true
   try {
     const res = await fetch(`https://api.github.com/gists/${syncConfig.gistId}`, {
@@ -2558,31 +2561,45 @@ const checkCloudStatus = async () => {
       // 智能对比
       if (lastSyncTime.value && serverTime.value > lastSyncTime.value) {
         isNewVersionAvailable.value = true
+        
+        // 🔥 情况 A：有更新 -> 停留 10 秒，给用户时间反应去点下载
+        console.log('有更新，弹窗停留 10s')
+        cloudMenuTimer = setTimeout(() => {
+          isCloudMenuOpen.value = false
+        }, 10000)
+
       } else {
         isNewVersionAvailable.value = false
+        
+        // 🔥 情况 B：无需更新 -> 停留 2 秒，看完即走
+        console.log('无更新，弹窗停留 2s')
+        cloudMenuTimer = setTimeout(() => {
+          isCloudMenuOpen.value = false
+        }, 2000)
       }
     }
   } catch (e) {
     console.error('检测云端失败', e)
+    // 🔥 情况 C：出错 -> 停留 3 秒让用户看清错误（可选）
+    cloudMenuTimer = setTimeout(() => {
+      isCloudMenuOpen.value = false
+    }, 3000)
   } finally {
     isCheckingCloud.value = false
   }
 }
 
-// 6. 菜单切换函数 (集成检测逻辑)
+// 修改后的 toggleCloudMenu
 const toggleCloudMenu = () => {
+  // 1. 每次点击先清除可能存在的旧定时器，防止逻辑冲突
   if (cloudMenuTimer) clearTimeout(cloudMenuTimer)
 
   isCloudMenuOpen.value = !isCloudMenuOpen.value
 
   if (isCloudMenuOpen.value) {
-    // 打开时立即检测
+    // 2. 打开时立即检测
+    // 注意：这里不再设置 setTimeout，而是把控制权交给 checkCloudStatus
     checkCloudStatus()
-
-    // 5秒后自动关闭
-    cloudMenuTimer = setTimeout(() => {
-      isCloudMenuOpen.value = false
-    }, 5000)
   }
 }
   
