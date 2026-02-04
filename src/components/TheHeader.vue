@@ -36,6 +36,12 @@ const menus = reactive([
     link: '/writing',
   },
 ])
+
+// 🔥🔥🔥【新增】全局刷新函数
+const refreshPage = () => {
+  window.location.reload()
+}
+
 const showMobileMenu = ref(false)
 </script>
 
@@ -70,6 +76,7 @@ const showMobileMenu = ref(false)
             </ul>
           </div>
         </div>
+        
         <div class="flex items-center justify-between lg:order-2">
           <a
             href="https://github.com/hefengxian/my-ielts"
@@ -78,6 +85,14 @@ const showMobileMenu = ref(false)
           >
             <div i-simple-icons-github />
           </a>
+
+          <button
+            class="ml-2 rounded-lg p-2 text-gray-500 lg:hidden ...（后面保持不变）"
+            @click="refreshPage"
+          >
+            <div i-carbon-renew /> 
+          </button>
+
           <button class="ml-2 rounded-lg p-2 text-gray-500 hover:bg-gray-100 dark:text-gray-400 hover:text-gray-900 focus:ring-4 focus:ring-gray-300 dark:hover:bg-gray-700 dark:hover:text-white dark:focus:ring-gray-600" @click="toggleDark()">
             <div i-carbon-sun dark:i-carbon-moon />
           </button>
@@ -91,6 +106,7 @@ const showMobileMenu = ref(false)
             <svg class="h-6 w-6" aria-hidden="true" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M3 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM3 10a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM3 15a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clip-rule="evenodd" /></svg>
           </button>
         </div>
+
       </div>
     </nav>
     <nav 
