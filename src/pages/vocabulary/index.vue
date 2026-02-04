@@ -1752,47 +1752,47 @@ const handleModalOverlayClick = () => {
   savePomo()
 }
 
-// 9. 核心开始函数 (修复版：使用绝对时间戳，解决后台停止计时问题)
+// 9. 核心开始函数 (修复点：点击开始时，强制同步下拉框时间)
 const startTimer = () => {
   if (pomoState.value === 'running') return
   if (timer) clearInterval(timer)
-  
-  // 时间归零时的重置逻辑
+
+  // 🔥🔥🔥【修复 1】解决 "选25分，点开始变30分" 的问题
+  // 逻辑：如果是从静止状态(idle)开始专注，不要相信当前的 pomoSeconds，
+  // 而是强制重新读取用户下拉框选中的 userFocusDuration。
+  if (pomoState.value === 'idle' && !isBreak.value) {
+     pomoSeconds.value = getFocusSeconds()
+  }
+
+  // 时间归零时的兜底（例如手动暂停在 00:00 时）
   if (pomoSeconds.value <= 0) {
      pomoSeconds.value = isBreak.value ? 5 * 60 : getFocusSeconds()
   }
 
-  // 🔥🔥🔥 关键逻辑：计算出“目标结束时刻”
-  // 无论后台怎么卡，这个时间点是固定的（例如：10:05分结束）
+  // 计算结束时间
   const now = Date.now()
   pomoEndTime.value = now + (pomoSeconds.value * 1000)
 
   pomoState.value = 'running'
-  savePomo()
+  savePomo() // 保存状态
 
   timer = setInterval(() => {
     const currentNow = Date.now()
-    // 🔥 倒计时 = 目标结束时刻 - 当前时刻
     const remaining = Math.ceil((pomoEndTime.value - currentNow) / 1000)
 
     if (remaining > 0) {
-      // 只要还没到点，强制修正为剩余时间
       pomoSeconds.value = remaining
       
-      // 更新网页标题
       const icon = isBreak.value ? '☕' : '🍅'
       const statusText = isBreak.value ? '休息' : '专注'
       document.title = `${formatTime(pomoSeconds.value)} ${icon} ${statusText}`
 
-      if (!isBreak.value) {
-        // 简单统计时长（这里保持每秒+1即可，或者你可以做更复杂的差值计算）
-        updateDailyStats('duration', 1)
-      }
+      if (!isBreak.value) updateDailyStats('duration', 1) // 统计时长
       savePomo() 
     } else {
       // ⏰ 倒计时结束
       pomoSeconds.value = 0
-      stopTimer(false) 
+      stopTimer(false) // 停止计时，参数 false 代表暂不重置数字（由下面逻辑接管）
       
       const justFinishedBreak = isBreak.value 
       modalIsBreak.value = justFinishedBreak 
@@ -1801,9 +1801,11 @@ const startTimer = () => {
       showModal.value = true
       document.title = '🔔 时间到！'
 
+      // 自动切换状态：专注完 -> 进休息(5分)；休息完 -> 进专注(默认时长)
       isBreak.value = !justFinishedBreak 
       pomoSeconds.value = isBreak.value ? 5 * 60 : getFocusSeconds()
       
+      // 状态切换后，立即保存一次，防止刷新后状态丢失
       savePomo()
     }
   }, 1000)
@@ -1816,10 +1818,20 @@ const stopTimer = (reset = true) => {
     timer = null
   }
   pomoState.value = 'idle'
+  
+  // 清除缓存，防止刷新后又恢复到这个暂停点
   localStorage.removeItem('my_ielts_pomo') 
   
   if (reset) { 
-    pomoSeconds.value = isBreak.value ? 5 * 60 : getFocusSeconds()
+    // 🔥🔥🔥【修复 2】解决 "休息状态点停止变成5分钟，刷新又乱"
+    // 逻辑：如果你在休息时点了停止，通常意味着你想结束休息回到工作，
+    // 或者彻底重置。这里我们逻辑设定为：手动停止 = 回到专注准备状态。
+    if (isBreak.value) {
+       isBreak.value = false // 强制退出休息模式
+    }
+    
+    // 重置回下拉框选定的时间
+    pomoSeconds.value = getFocusSeconds()
     document.title = 'MyIELTS' 
   }
 }
@@ -1863,31 +1875,49 @@ onMounted(() => {
   if (local) {
     try {
       const data = JSON.parse(local)
-      isBreak.value = data.isBreak
       
-      if (data.state === 'paused') {
-        pomoSeconds.value = data.seconds
-        pomoState.value = 'paused'
-      } else if (data.state === 'running') {
-        // 🔥🔥🔥【新增】优先使用 endTime 恢复
-        if (data.endTime) {
-            const now = Date.now()
-            const remaining = Math.ceil((data.endTime - now) / 1000)
-            if (remaining > 0) {
-                pomoSeconds.value = remaining
-                pomoEndTime.value = data.endTime
-                startTimer() // 重新启动，startTimer 会自动复用 endTime
-            } else {
-                pomoSeconds.value = 0
-                stopTimer(false) // 时间已过，直接停止
-            }
-        } else {
-            // 旧数据兼容
-            pomoSeconds.value = data.seconds
-            startTimer()
-        }
+      // 1. 先尝试恢复结束时间
+      if (data.endTime) {
+          const now = Date.now()
+          const remaining = Math.ceil((data.endTime - now) / 1000)
+
+          if (remaining > 0) {
+              // A. 如果时间还没跑完 -> 完美恢复
+              isBreak.value = data.isBreak // 恢复休息/专注状态
+              pomoSeconds.value = remaining
+              pomoEndTime.value = data.endTime
+              
+              // 只有原来是 running 才自动跑，如果是 paused 就保持暂停
+              if (data.state === 'running') {
+                startTimer() 
+              } else {
+                pomoState.value = 'paused'
+              }
+          } else {
+              // 🔥🔥🔥【修复 3】核心：如果时间在后台已经跑完了 (remaining <= 0)
+              // 之前这里逻辑缺失，导致显示了错误的绿色30分钟
+              
+              console.log('检测到后台倒计时已过期，自动重置')
+              
+              // 强制清理旧状态
+              localStorage.removeItem('my_ielts_pomo')
+              
+              // 强制设为专注模式的初始状态 (不管之前是休息还是专注，过期了就重新开始)
+              isBreak.value = false 
+              pomoState.value = 'idle'
+              pomoSeconds.value = getFocusSeconds() // 设为 25/30 分钟
+          }
+      } else {
+          // 旧数据兼容 (没有 endTime 的情况)
+          isBreak.value = data.isBreak
+          pomoSeconds.value = data.seconds
+          // 不自动开始，防止意外
+          pomoState.value = 'paused'
       }
-    } catch (e) { console.error('番茄钟恢复失败', e) }
+    } catch (e) { 
+      console.error('番茄钟恢复失败，重置为默认', e) 
+      localStorage.removeItem('my_ielts_pomo')
+    }
   }
   window.speechSynthesis.getVoices()
 
