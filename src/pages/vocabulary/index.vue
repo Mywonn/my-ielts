@@ -1757,32 +1757,35 @@ const handleModalOverlayClick = () => {
   savePomo()
 }
 
-// 9. 核心开始函数 (修复点：点击开始时，强制同步下拉框时间)
-const startTimer = () => {
+// 9. 核心开始函数 (⚡️⚡️⚡️ 修复版：支持刷新不归零)
+// 增加 resume 参数：true 代表是从刷新/后台恢复的，不要重置时间
+const startTimer = (resume = false) => {
   if (pomoState.value === 'running') return
   if (timer) clearInterval(timer)
 
-  // 🔥🔥🔥【修复 1】解决 "选25分，点开始变30分" 的问题
-  // 逻辑：如果是从静止状态(idle)开始专注，不要相信当前的 pomoSeconds，
-  // 而是强制重新读取用户下拉框选中的 userFocusDuration。
-  if (pomoState.value === 'idle' && !isBreak.value) {
+  // A. 只有当 "不是恢复模式" 且 "是从头开始" 时，才重置时间
+  if (!resume && pomoState.value === 'idle' && !isBreak.value) {
      pomoSeconds.value = getFocusSeconds()
   }
 
-  // 时间归零时的兜底（例如手动暂停在 00:00 时）
+  // 时间归零时的兜底
   if (pomoSeconds.value <= 0) {
      pomoSeconds.value = isBreak.value ? 5 * 60 : getFocusSeconds()
   }
 
-  // 计算结束时间
-  const now = Date.now()
-  pomoEndTime.value = now + (pomoSeconds.value * 1000)
+  // B. 只有 "不是恢复模式" 时，才重新计算结束时间点
+  // 如果是 resume (恢复)，说明 pomoEndTime 已经在 onMounted 里算好了，直接用就行
+  if (!resume) {
+    const now = Date.now()
+    pomoEndTime.value = now + (pomoSeconds.value * 1000)
+  }
 
   pomoState.value = 'running'
   savePomo() // 保存状态
 
   timer = setInterval(() => {
     const currentNow = Date.now()
+    // 核心：倒计时是根据 (结束时间 - 当前时间) 算出来的，绝对准确，不怕刷新
     const remaining = Math.ceil((pomoEndTime.value - currentNow) / 1000)
 
     if (remaining > 0) {
@@ -1792,12 +1795,12 @@ const startTimer = () => {
       const statusText = isBreak.value ? '休息' : '专注'
       document.title = `${formatTime(pomoSeconds.value)} ${icon} ${statusText}`
 
-      if (!isBreak.value) updateDailyStats('duration', 1) // 统计时长
+      if (!isBreak.value) updateDailyStats('duration', 1) 
       savePomo() 
     } else {
       // ⏰ 倒计时结束
       pomoSeconds.value = 0
-      stopTimer(false) // 停止计时，参数 false 代表暂不重置数字（由下面逻辑接管）
+      stopTimer(false) 
       
       const justFinishedBreak = isBreak.value 
       modalIsBreak.value = justFinishedBreak 
@@ -1806,11 +1809,9 @@ const startTimer = () => {
       showModal.value = true
       document.title = '🔔 时间到！'
 
-      // 自动切换状态：专注完 -> 进休息(5分)；休息完 -> 进专注(默认时长)
       isBreak.value = !justFinishedBreak 
       pomoSeconds.value = isBreak.value ? 5 * 60 : getFocusSeconds()
       
-      // 状态切换后，立即保存一次，防止刷新后状态丢失
       savePomo()
     }
   }, 1000)
@@ -1875,7 +1876,7 @@ onUnmounted(() => {
   if (timer) clearInterval(timer)
 })
 onMounted(() => {
-  // 1. 番茄钟恢复逻辑 (保持不变)
+  // 1. 番茄钟恢复逻辑
   const local = localStorage.getItem('my_ielts_pomo')
   if (local) {
     try {
@@ -1888,43 +1889,38 @@ onMounted(() => {
 
           if (remaining > 0) {
               // A. 如果时间还没跑完 -> 完美恢复
-              isBreak.value = data.isBreak // 恢复休息/专注状态
+              isBreak.value = data.isBreak 
               pomoSeconds.value = remaining
-              pomoEndTime.value = data.endTime
+              pomoEndTime.value = data.endTime // 关键：把原来的结束时间设回去
               
-              // 只有原来是 running 才自动跑，如果是 paused 就保持暂停
+              // 只有原来是 running 才自动跑
               if (data.state === 'running') {
-                startTimer() 
+                // 🔥🔥🔥 关键修改：传入 true，告诉它这是恢复模式，别重置！
+                startTimer(true) 
               } else {
                 pomoState.value = 'paused'
               }
           } else {
-              // 🔥🔥🔥【修复 3】核心：如果时间在后台已经跑完了 (remaining <= 0)
-              // 之前这里逻辑缺失，导致显示了错误的绿色30分钟
-              
+              // B. 后台倒计时已过期
               console.log('检测到后台倒计时已过期，自动重置')
-              
-              // 强制清理旧状态
               localStorage.removeItem('my_ielts_pomo')
-              
-              // 强制设为专注模式的初始状态 (不管之前是休息还是专注，过期了就重新开始)
               isBreak.value = false 
               pomoState.value = 'idle'
-              pomoSeconds.value = getFocusSeconds() // 设为 25/30 分钟
+              pomoSeconds.value = getFocusSeconds() 
           }
       } else {
-          // 旧数据兼容 (没有 endTime 的情况)
+          // 旧数据兼容
           isBreak.value = data.isBreak
           pomoSeconds.value = data.seconds
-          // 不自动开始，防止意外
           pomoState.value = 'paused'
       }
     } catch (e) { 
-      console.error('番茄钟恢复失败，重置为默认', e) 
+      console.error('番茄钟恢复失败', e) 
       localStorage.removeItem('my_ielts_pomo')
     }
   }
   window.speechSynthesis.getVoices()
+  
 
   // 2. 🔥🔥🔥【IQ 200版】精准跳转逻辑
   const params = new URLSearchParams(window.location.search)
