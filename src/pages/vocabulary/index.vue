@@ -3613,6 +3613,10 @@ const downloadFromCloud = async () => {
   background: #f5f7fa; 
   
   min-height: 100vh; 
+  /* 🔥🔥🔥【核心修复】强制禁止左右滑动 🔥🔥🔥 */
+  width: 100%;           /* 锁死宽度为屏幕宽 */
+  overflow-x: hidden;    /* 裁剪掉左右溢出的部分 */
+  position: relative;    /* 确保内部绝对定位元素以它为基准，防止乱跑 */
 }
 
 /* 吸顶工具栏 */
