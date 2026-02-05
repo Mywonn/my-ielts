@@ -678,76 +678,23 @@ watch(currentChapter, () => {
   isReviewMode.value = false 
 })
 
-const currentAudio = ref(null); const playingWord = ref(null)
 // ==========================================
-// 修复后的播放函数：自动查找单词所属章节
+// 🚀 核心优化：音频播放系统 (预加载 + 超时控制 + 状态反馈)
 // ==========================================
-// ==========================================
-// 修复：函数名改为 toggleAudio，并增加“点击暂停”逻辑
-// ==========================================
-// ==========================================
-// 播放/停止 开关函数
-// ==========================================
+const currentAudio = ref(null)
+const playingWord = ref(null)
+const isLoadingAudio = ref(false) // 新增：加载中状态
+const audioCache = new Map()      // 新增：音频缓存池
 
-// ==========================================
-// 🔥🔥🔥【CDN 加速专用版】播放函数
-// ==========================================
-const toggleAudio = (word) => {
-  // -------------------------------------------------------------
-  // 🟢 已根据你的 GitHub 信息自动配置
-  // -------------------------------------------------------------
+// 1. 辅助：生成 CDN 链接 (换源 + 修复空格)
+const getCdnUrl = (word, chapter = null) => {
   const GH_USERNAME = 'Mywonn'
   const GH_REPO_NAME = 'my-ielts'
-  const GH_BRANCH = 'master'     // 你的仓库主分支是 master
-  // -------------------------------------------------------------
-
-  // 1. 记录听觉依赖
-  if (revealedZh.has(word) && !audioPeekHistory.value.includes(word)) {
-    audioPeekHistory.value.push(word)
-  }
-
-  // 2. 停止当前播放
-  if (playingWord.value === word) {
-    if (currentAudio.value) { 
-      currentAudio.value.pause()
-      currentAudio.value = null 
-    }
-    window.speechSynthesis.cancel() 
-    playingWord.value = null 
-    return 
-  }
-
-  // 3. 切歌逻辑
-  if (currentAudio.value) { 
-    currentAudio.value.pause()
-    currentAudio.value = null 
-  }
-  window.speechSynthesis.cancel()
-
-  // 4. TTS 兜底 (当 CDN 还没缓存好或文件缺失时使用)
-  const playTTS = () => {
-    playingWord.value = word 
-    const u = new SpeechSynthesisUtterance(word)
-    u.lang = 'en-US'; u.volume = 1; u.rate = 0.85
-    const voices = window.speechSynthesis.getVoices()
-    const bestVoice = voices.find(v => v.name.includes('Google US')) || voices.find(v => v.lang.includes('en-US'))
-    if (bestVoice) u.voice = bestVoice
-    
-    u.onend = () => { playingWord.value = null }
-    u.onerror = (e) => { console.error('TTS Error:', e); playingWord.value = null }
-    window.speechSynthesis.speak(u)
-  }
-
-  // 自定义词直接 TTS
-  if (customDict.value[word]) {
-     playingWord.value = word
-     playTTS()
-     return
-  }
-
-  // 5. 查找章节
-  let targetChapter = currentChapter.value
-  if (isReviewMode.value && vocabularyData) {
+  const GH_BRANCH = 'master'
+  
+  // 保持你原有的章节查找逻辑
+  let targetChapter = chapter || currentChapter.value
+  if (!chapter && vocabularyData) {
     for (const chap in vocabularyData) {
       const groups = vocabularyData[chap].words || vocabularyData[chap].list || []
       const isFound = groups.some(group => 
@@ -759,36 +706,150 @@ const toggleAudio = (word) => {
       if (isFound) { targetChapter = chap; break }
     }
   }
-
-  // -------------------------------------------------------------
-  // 🔥 CDN 链接构造 (注意这里加了 public/)
-  // -------------------------------------------------------------
-  // 解释：因为你的源码在 master 分支，MP3文件物理位置是在 public 文件夹里的
-  const cdnUrl = `https://cdn.jsdelivr.net/gh/${GH_USERNAME}/${GH_REPO_NAME}@${GH_BRANCH}/public/vocabulary/audio/${targetChapter}/${word}.mp3`
   
-  // 调试用：你可以在 F12 控制台看到这个链接，点进去应该能直接下载
-  console.log('CDN播放:', cdnUrl) 
+  // 🔥 修复重点 1：对单词进行 URL 编码，解决 "El Nino" 带空格无法播放的问题
+  const encodedWord = encodeURIComponent(word)
 
-  const audio = new Audio(cdnUrl)
-  currentAudio.value = audio
-  playingWord.value = word
+  // 🔥 修复重点 2：更换为 Statically 源 (通常比 JsDelivr 更快更稳)
+  // 备用方案 A (Statically):
+  //return `https://cdn.statically.io/gh/${GH_USERNAME}/${GH_REPO_NAME}@${GH_BRANCH}/public/vocabulary/audio/${targetChapter}/${encodedWord}.mp3`
+  
+  // 备用方案 B (JsDelivr - 你原来的，如果 A 不行可以换回 B，但保留 encodeURIComponent)
+   return `https://cdn.jsdelivr.net/gh/${GH_USERNAME}/${GH_REPO_NAME}@${GH_BRANCH}/public/vocabulary/audio/${targetChapter}/${encodedWord}.mp3`
+}
 
-  // 错误处理：CDN 加载失败自动切 TTS
-  audio.onerror = () => {
-    console.warn('CDN 资源未找到或加载失败，自动降级为 TTS')
-    currentAudio.value = null
-    playTTS()
+// 2. 核心：预加载当前页音频
+const preloadPageAudio = () => {
+  // 遍历当前显示的数据 displayData
+  displayData.value.forEach(block => {
+    if(!block.list) return
+    block.list.forEach(wordItem => {
+      const word = wordItem.en
+      // 如果缓存里没有，且不是自定义词，则进行预加载
+      if (!audioCache.has(word) && !customDict.value[word]) {
+        const url = getCdnUrl(word) 
+        const audio = new Audio()
+        audio.preload = 'auto' // 告诉浏览器偷偷下载
+        audio.src = url
+        audioCache.set(word, audio)
+      }
+    })
+  })
+}
+
+// 监听翻页动作，自动触发预加载 (延迟1秒以免卡顿)
+watch([currentChapter, chunkIndex, isReviewMode], () => {
+  setTimeout(preloadPageAudio, 1000) 
+}, { immediate: true })
+
+// 3. 核心：播放控制 (修复双重播放 + 错误处理)
+const toggleAudio = (word) => {
+  // A. 记录听觉依赖
+  if (revealedZh.has(word) && !audioPeekHistory.value.includes(word)) {
+    audioPeekHistory.value.push(word)
   }
 
+  // B. 停止当前一切播放（强行重置）
+  if (currentAudio.value) { 
+    currentAudio.value.pause()
+    currentAudio.value.currentTime = 0 
+    currentAudio.value = null // 销毁引用
+  }
+  window.speechSynthesis.cancel() 
+
+  // 如果点的是正在播的，就暂停并退出
+  if (playingWord.value === word) {
+    playingWord.value = null
+    isLoadingAudio.value = false
+    return 
+  }
+
+  // C. 准备新播放
+  playingWord.value = word
+  isLoadingAudio.value = true 
+  
+  // 定义 TTS 播放器
+  const playTTS = () => {
+    // 双重检查：如果用户已经切到别的词了，这个 TTS 就闭嘴
+    if (playingWord.value !== word) return 
+    
+    console.log('播放 TTS 兜底:', word)
+    isLoadingAudio.value = false // 停止转圈
+    
+    const u = new SpeechSynthesisUtterance(word)
+    u.lang = 'en-US'; u.rate = 0.85
+    const voices = window.speechSynthesis.getVoices()
+    const bestVoice = voices.find(v => v.name.includes('Google US')) || voices.find(v => v.lang.includes('en-US'))
+    if (bestVoice) u.voice = bestVoice
+    
+    u.onend = () => { playingWord.value = null }
+    u.onerror = () => { playingWord.value = null }
+    window.speechSynthesis.speak(u)
+  }
+
+  // 自定义词直接播 TTS
+  if (customDict.value[word]) { playTTS(); return }
+
+  // D. 尝试播放原音
+  let audio = audioCache.get(word)
+  if (!audio || audio.error) {
+     const url = getCdnUrl(word) 
+     audio = new Audio(url)
+     audioCache.set(word, audio)
+  }
+  
+  audio.currentTime = 0
+  currentAudio.value = audio
+
+  // 🔥 核心逻辑：设定 3 秒超时
+  const playTimeout = setTimeout(() => {
+    // 如果 3秒 后还在加载状态 (isLoadingAudio 为 true)
+    if (playingWord.value === word && isLoadingAudio.value) {
+      console.warn('CDN 超时，强制掐断原音，切换 TTS')
+      
+      // 🔪 关键一刀：立刻停止音频加载，防止它待会儿诈尸
+      audio.pause()
+      audio.src = "" // 清空源，彻底断绝念想
+      
+      // 然后才播 TTS
+      playTTS()
+    }
+  }, 3000) // 给 3 秒时间，够多了
+
+  // E. 成功监听
+  const abortTimeout = () => {
+    clearTimeout(playTimeout) // 只要开始播了，就取消超时计时
+    isLoadingAudio.value = false
+  }
+
+  audio.onplay = abortTimeout
+  audio.oncanplaythrough = abortTimeout
+  
   audio.onended = () => { 
     playingWord.value = null
     currentAudio.value = null 
   }
 
-  audio.play().catch(e => {
-      console.log('播放被拦截或失败，转TTS', e);
+  // F. 失败监听 (404 或 网络错误)
+  audio.onerror = (e) => {
+    console.warn('原音加载失败 (404或网络断开)', e)
+    clearTimeout(playTimeout)
+    audioCache.delete(word) // 删掉坏的缓存
+    playTTS() // 立即切 TTS
+  }
+
+  // G. 执行播放
+  const playPromise = audio.play()
+  if (playPromise !== undefined) {
+    playPromise.catch(error => {
+      // 忽略因我们手动 pause 导致的 AbortError
+      if (error.name === 'AbortError') return
+      
+      console.warn('播放被阻断:', error)
+      clearTimeout(playTimeout)
       playTTS()
-  })
+    })
+  }
 }
   
 // ★ 修改：输入框聚焦时自动播放
@@ -2976,8 +3037,15 @@ const downloadFromCloud = async () => {
                         {{ word.en }}
                       </span>
                       
-                      <span class="speaker" @click.stop="toggleAudio(word.en)" :class="{ playing: playingWord === word.en }">
-                        {{ playingWord === word.en ? '⏸️' : '🔊' }}
+                      <span class="speaker" 
+                            @click.stop="toggleAudio(word.en)" 
+                            :class="{ 
+                              playing: playingWord === word.en && !isLoadingAudio,
+                              loading: playingWord === word.en && isLoadingAudio 
+                            }">
+                        <template v-if="playingWord === word.en && isLoadingAudio">⏳</template>
+                        <template v-else-if="playingWord === word.en">⏸️</template>
+                        <template v-else>🔊</template>
                       </span>
                       <span v-if="audioPeekHistory.includes(word.en)" 
                             @click.stop="removeAudioTag(word.en)"
@@ -5557,6 +5625,19 @@ const downloadFromCloud = async () => {
   color: #fbbf24 !important;            /* 亮金色文字 */
   border-color: rgba(245, 158, 11, 0.3) !important;
 }  
+
+.speaker.loading {
+  display: inline-block;
+  animation: spin 1s linear infinite;
+  opacity: 1;
+  cursor: wait;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 </style>
 
 
