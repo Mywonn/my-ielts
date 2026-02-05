@@ -1757,14 +1757,17 @@ const handleModalOverlayClick = () => {
   savePomo()
 }
 
-// 9. 核心开始函数 (⚡️⚡️⚡️ 修复版：支持刷新不归零)
-// 增加 resume 参数：true 代表是从刷新/后台恢复的，不要重置时间
-const startTimer = (resume = false) => {
+// 9. 核心开始函数 (⚡️⚡️⚡️ 修复版：解决点击立刻结束的 Bug)
+const startTimer = (resumeVal) => {
+  // 🔥 修复点：明确判断参数是否为 true。
+  // 点击按钮时传入的是 Event 对象，这里 isResuming 会变成 false，从而正确触发时间重置。
+  const isResuming = resumeVal === true
+
   if (pomoState.value === 'running') return
   if (timer) clearInterval(timer)
 
   // A. 只有当 "不是恢复模式" 且 "是从头开始" 时，才重置时间
-  if (!resume && pomoState.value === 'idle' && !isBreak.value) {
+  if (!isResuming && pomoState.value === 'idle' && !isBreak.value) {
      pomoSeconds.value = getFocusSeconds()
   }
 
@@ -1774,8 +1777,8 @@ const startTimer = (resume = false) => {
   }
 
   // B. 只有 "不是恢复模式" 时，才重新计算结束时间点
-  // 如果是 resume (恢复)，说明 pomoEndTime 已经在 onMounted 里算好了，直接用就行
-  if (!resume) {
+  // 🔥 修复后，点击按钮时 !isResuming 为 true，这里会正确执行
+  if (!isResuming) {
     const now = Date.now()
     pomoEndTime.value = now + (pomoSeconds.value * 1000)
   }
