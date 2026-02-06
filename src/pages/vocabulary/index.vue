@@ -198,6 +198,23 @@ const saveStory = () => {
   showCustomAlert('本页所有文章已保存 💾')
 }
 
+// 🔥🔥🔥【新增】判断当前页是否真的有文章内容
+const hasStoryOnCurrentPage = computed(() => {
+  const key = getPageKey()
+  const data = pageStories.value[key]
+  
+  if (!data) return false
+
+  // 兼容新旧数据格式
+  if (Array.isArray(data)) {
+    // 新格式：只要数组里有一篇文章的内容不为空，就算有内容
+    return data.some(item => item.content && item.content.trim().length > 0)
+  } else {
+    // 旧格式
+    return data.content && data.content.trim().length > 0
+  }
+})
+
 // 6. 辅助：获取当前正在编辑/阅读的文章对象
 const currentStory = computed(() => {
   return storyList.value[currentStoryIdx.value] || { title: '', content: '' }
@@ -3221,7 +3238,13 @@ const downloadFromCloud = async () => {
         </button>
       </Transition>
       <button v-if="isReviewMode" @click="refreshReviewData" class="floating-btn refresh-btn" title="刷新数据">🔄</button>
-      <button v-if="!isReviewMode" @click="openStoryModal" class="floating-btn story-btn" title="本页助记文章/故事">📜</button>
+      <button v-if="!isReviewMode" 
+        @click="openStoryModal" 
+        class="floating-btn story-btn" 
+        :class="{ 'is-empty': !hasStoryOnCurrentPage }"
+        :title="hasStoryOnCurrentPage ? '阅读本页文章' : '点击创建文章'">
+          📜
+      </button>
       <button @click="manualAddWord" class="floating-btn add-btn" title="手动加入生词">➕</button>
       <button @click="openSearchModal" class="floating-btn search-btn" title="搜索单词/词根">🔍</button>
       <button v-show="showBackToTop" 
@@ -4861,15 +4884,47 @@ const downloadFromCloud = async () => {
   border-left: 4px solid transparent; /* 默认透明边框占位 */
   padding-left: 16px; /* 默认内边距 */
 }
+/* 🟢 替换为这段新代码 */
 
-/* 故事按钮颜色 (Amber/黄色) */
+/* 1. 默认状态 (有文章时)：深黄色 */
 .story-btn {
-  color: #d97706; /* 深黄色 */
+  color: #d97706; 
+  transition: all 0.3s ease; 
 }
-.story-btn:hover {
+
+/* 2. 空状态 (无文章时)：灰色 (加上 !important 以防万一) */
+.story-btn.is-empty {
+  color: #9ca3af !important; 
+  background-color: #f9fafb;
+  box-shadow: none !important; /* 空状态平时不要阴影，清爽一点 */
+  border-color: #e5e7eb; /* 边框也淡一点 */
+}
+
+/* 3. 有文章时的悬停效果 */
+.story-btn:not(.is-empty):hover {
   background: #fffbeb;
   transform: scale(1.15);
   box-shadow: 0 8px 16px rgba(245, 158, 11, 0.25);
+}
+
+/* 4. 空状态下的悬停效果 (提示用户可以点击) */
+.story-btn.is-empty:hover {
+  color: #d97706 !important; /* 悬停变回黄色 */
+  background: #fffbeb;
+  transform: scale(1.1);
+  border-color: #d97706;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* 5. 暗黑模式适配 */
+.dark .story-btn.is-empty {
+  color: #64748b !important; /* 深灰色 */
+  background-color: #1e293b;
+  border-color: #334155;
+}
+.dark .story-btn.is-empty:hover {
+  color: #fbbf24 !important; /* 悬停变亮黄 */
+  background-color: #334155;
 }
 
 /* 番茄钟下拉框伪装 */
@@ -5690,6 +5745,7 @@ const downloadFromCloud = async () => {
   border-color: #0891b2;
   background: #164e63;
 }
+
 
 </style>
 
