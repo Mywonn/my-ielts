@@ -1818,27 +1818,28 @@ const handleModalOverlayClick = () => {
   savePomo()
 }
 
-// 9. 核心开始函数 (⚡️⚡️⚡️ 修复版：解决点击立刻结束的 Bug)
+// 9. 核心开始函数
 const startTimer = (resumeVal) => {
-  // 🔥 修复点：明确判断参数是否为 true。
-  // 点击按钮时传入的是 Event 对象，这里 isResuming 会变成 false，从而正确触发时间重置。
+  // 判断是否是页面加载时的自动恢复
   const isResuming = resumeVal === true
 
   if (pomoState.value === 'running') return
   if (timer) clearInterval(timer)
 
-  // A. 只有当 "不是恢复模式" 且 "是从头开始" 时，才重置时间
+  // A. 如果是完全重新开始（idle状态），重置时间
   if (!isResuming && pomoState.value === 'idle' && !isBreak.value) {
      pomoSeconds.value = getFocusSeconds()
   }
 
-  // 时间归零时的兜底
+  // 兜底
   if (pomoSeconds.value <= 0) {
      pomoSeconds.value = isBreak.value ? 5 * 60 : getFocusSeconds()
   }
 
-  // B. 只有 "不是恢复模式" 时，才重新计算结束时间点
-  // 🔥 修复后，点击按钮时 !isResuming 为 true，这里会正确执行
+  // B. 🔥🔥🔥【关键逻辑】重新计算结束时间
+  // 触发条件：
+  // 1. 用户点击了播放按钮 (isResuming 为 false)
+  // 2. 无论之前是 idle 还是 paused，只要是用户点击开始，就以【当前时间 + 剩余秒数】为准
   if (!isResuming) {
     const now = Date.now()
     pomoEndTime.value = now + (pomoSeconds.value * 1000)
@@ -1849,7 +1850,7 @@ const startTimer = (resumeVal) => {
 
   timer = setInterval(() => {
     const currentNow = Date.now()
-    // 核心：倒计时是根据 (结束时间 - 当前时间) 算出来的，绝对准确，不怕刷新
+    // 核心：倒计时是根据 (结束时间 - 当前时间) 算出来的
     const remaining = Math.ceil((pomoEndTime.value - currentNow) / 1000)
 
     if (remaining > 0) {
@@ -1859,7 +1860,10 @@ const startTimer = (resumeVal) => {
       const statusText = isBreak.value ? '休息' : '专注'
       document.title = `${formatTime(pomoSeconds.value)} ${icon} ${statusText}`
 
+      // 只有非休息模式且秒数变化时才记录专注时长(这里逻辑保持你原有的即可)
+      // 注意：为了防止每秒刷 Storage 太频繁，savePomo 其实可以节流，但为了准确性暂时不动
       if (!isBreak.value) updateDailyStats('duration', 1) 
+      
       savePomo() 
     } else {
       // ⏰ 倒计时结束
@@ -1909,9 +1913,33 @@ const stopTimer = (reset = true) => {
 // 🔥🔥🔥【新增】回到顶部逻辑
 const showBackToTop = ref(false)
 
+// 🔥🔥🔥【新增】控制复制按钮的显隐变量 (默认显示，因为一开始在顶部)
+const showSmartCopyBtn = ref(true)
+
 const handleScroll = () => {
+  const scrollTop = window.scrollY
+  const winHeight = window.innerHeight
+  const docHeight = document.documentElement.scrollHeight
+
   // 当页面滚动超过 300px 时显示按钮
   showBackToTop.value = window.scrollY > 300
+
+  // 2. 🔥 修复：大幅缩小判定范围，防止“撞车”
+  
+  // 【判定A】是不是在最顶上？(只给 50px 的空间)
+  const isAtTop = scrollTop < 50
+
+  // 【判定B】是不是在最底下？(只给 20px 的空间，到底才显示)
+  // 计算距离底部的剩余距离
+  const distFromBottom = docHeight - (scrollTop + winHeight)
+  const isAtBottom = distFromBottom < 20
+  
+  // 【判定C】短页面特判 (核心修复)
+  // 如果页面内容太少，滑都没法滑，那就干脆一直显示，别闪了
+  // 逻辑：如果文档高度 < 屏幕高度的 1.2 倍，就算短页面
+  const isShortPage = docHeight < (winHeight * 1.2)
+
+  showSmartCopyBtn.value = isAtTop || isAtBottom || isShortPage
 }
 
 const scrollToTop = () => {
@@ -1940,43 +1968,44 @@ onUnmounted(() => {
   if (timer) clearInterval(timer)
 })
 onMounted(() => {
-  // 1. 番茄钟恢复逻辑
+ // 1. 番茄钟恢复逻辑 (修复版：完美区分暂停和运行)
   const local = localStorage.getItem('my_ielts_pomo')
   if (local) {
     try {
       const data = JSON.parse(local)
       
-      // 1. 先尝试恢复结束时间
-      if (data.endTime) {
+      // A. 如果保存的状态是【暂停中】，则"冻结"时间
+      if (data.state === 'paused') {
+          console.log('恢复暂停状态，时间冻结')
+          isBreak.value = data.isBreak
+          pomoSeconds.value = data.seconds // 直接用保存的秒数，不计算流逝
+          pomoState.value = 'paused'
+          // 恢复标题
+          const icon = isBreak.value ? '☕' : '🍅'
+          const statusText = isBreak.value ? '休息' : '专注'
+          document.title = `⏸ ${formatTime(pomoSeconds.value)} ${icon} ${statusText}`
+      } 
+      // B. 如果保存的状态是【运行中】，则计算流逝时间
+      else if (data.endTime) {
           const now = Date.now()
           const remaining = Math.ceil((data.endTime - now) / 1000)
 
           if (remaining > 0) {
-              // A. 如果时间还没跑完 -> 完美恢复
+              // 时间还没跑完 -> 继续跑
               isBreak.value = data.isBreak 
               pomoSeconds.value = remaining
-              pomoEndTime.value = data.endTime // 关键：把原来的结束时间设回去
+              pomoEndTime.value = data.endTime 
               
-              // 只有原来是 running 才自动跑
-              if (data.state === 'running') {
-                // 🔥🔥🔥 关键修改：传入 true，告诉它这是恢复模式，别重置！
-                startTimer(true) 
-              } else {
-                pomoState.value = 'paused'
-              }
+              // 自动启动 (传入 true 表示这是恢复模式，不需要重置时间)
+              startTimer(true) 
           } else {
-              // B. 后台倒计时已过期
+              // 时间已经跑完了
               console.log('检测到后台倒计时已过期，自动重置')
               localStorage.removeItem('my_ielts_pomo')
               isBreak.value = false 
               pomoState.value = 'idle'
               pomoSeconds.value = getFocusSeconds() 
           }
-      } else {
-          // 旧数据兼容
-          isBreak.value = data.isBreak
-          pomoSeconds.value = data.seconds
-          pomoState.value = 'paused'
       }
     } catch (e) { 
       console.error('番茄钟恢复失败', e) 
@@ -3184,6 +3213,14 @@ const downloadFromCloud = async () => {
     </div> 
     <div class="floating-action-group" :class="{ 'pos-left': isFloatBtnLeft }">
       <button v-if="isReviewMode" @click="refreshReviewData" class="floating-btn refresh-btn" title="刷新数据">🔄</button>
+      <Transition name="fade-slide">
+        <button v-show="!isReviewMode && showSmartCopyBtn" 
+                @click="copyCurrentPageWords" 
+                class="floating-btn copy-page-btn mobile-only" 
+                title="一键复制本页单词">
+          📋
+        </button>
+      </Transition>
       <button v-if="!isReviewMode" @click="openStoryModal" class="floating-btn story-btn" title="本页助记文章/故事">📜</button>
       <button @click="manualAddWord" class="floating-btn add-btn" title="手动加入生词">➕</button>
       <button @click="openSearchModal" class="floating-btn search-btn" title="搜索单词/词根">🔍</button>
@@ -4300,6 +4337,8 @@ const downloadFromCloud = async () => {
   color: #60a5fa;
   background-color: #1e293b;
 }
+
+
 /* --- 新增：搜索功能样式 --- */
 
 /* 1. 悬浮搜索按钮 (紫色) */
@@ -5636,6 +5675,17 @@ const downloadFromCloud = async () => {
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+.copy-page-btn {
+  color: #06b6d4; /* 青色文字 */
+  border-color: #a5f3fc;
+}
+/* 暗黑模式适配 */
+.dark .copy-page-btn {
+  color: #22d3ee;
+  border-color: #0891b2;
+  background: #164e63;
 }
 
 </style>
