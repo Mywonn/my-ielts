@@ -3214,12 +3214,13 @@ const downloadFromCloud = async () => {
     <div class="floating-action-group" :class="{ 'pos-left': isFloatBtnLeft }">
       <button v-if="isReviewMode" @click="refreshReviewData" class="floating-btn refresh-btn" title="刷新数据">🔄</button>
       <Transition name="fade-slide">
-        <button v-show="!isReviewMode && showSmartCopyBtn" 
+        <button v-if="!isReviewMode && showSmartCopyBtn" 
                 @click="copyCurrentPageWords" 
                 class="floating-btn copy-page-btn mobile-only" 
                 title="一键复制本页单词">
           📋
         </button>
+      </Transition>
       </Transition>
       <button v-if="!isReviewMode" @click="openStoryModal" class="floating-btn story-btn" title="本页助记文章/故事">📜</button>
       <button @click="manualAddWord" class="floating-btn add-btn" title="手动加入生词">➕</button>
