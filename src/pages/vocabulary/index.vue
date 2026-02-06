@@ -3212,7 +3212,6 @@ const downloadFromCloud = async () => {
       </div>
     </div> 
     <div class="floating-action-group" :class="{ 'pos-left': isFloatBtnLeft }">
-      <button v-if="isReviewMode" @click="refreshReviewData" class="floating-btn refresh-btn" title="刷新数据">🔄</button>
       <Transition name="fade-slide">
         <button v-if="!isReviewMode && showSmartCopyBtn" 
                 @click="copyCurrentPageWords" 
@@ -3221,7 +3220,7 @@ const downloadFromCloud = async () => {
           📋
         </button>
       </Transition>
-      </Transition>
+      <button v-if="isReviewMode" @click="refreshReviewData" class="floating-btn refresh-btn" title="刷新数据">🔄</button>
       <button v-if="!isReviewMode" @click="openStoryModal" class="floating-btn story-btn" title="本页助记文章/故事">📜</button>
       <button @click="manualAddWord" class="floating-btn add-btn" title="手动加入生词">➕</button>
       <button @click="openSearchModal" class="floating-btn search-btn" title="搜索单词/词根">🔍</button>
@@ -3233,6 +3232,7 @@ const downloadFromCloud = async () => {
           <path d="M512 64C264.512 64 64 264.576 64 512s200.512 448 448 448c247.424 0 448-200.576 448-448S759.424 64 512 64zM712.448 664.512c-11.776 0-22.784-3.072-32.448-8.384l-1.984 1.984L511.936 512l-162.112 145.472-1.344-1.344c-9.6 5.248-20.544 8.32-32.192 8.32-36.736 0-66.496-29.76-66.496-66.432 0-11.712 3.072-22.656 8.32-32.192L255.936 563.584l10.752-9.664c3.328-3.712 7.04-7.104 11.136-9.984l188.544-169.216 1.28 0C479.296 363.456 495.168 356.544 512.64 356.544s33.408 6.912 45.12 18.176l0.768 0 191.872 168.832c4.032 2.816 7.68 6.08 11.072 9.728l11.392 10.048-2.368 2.304c5.376 9.6 8.448 20.672 8.448 32.448C778.88 634.752 749.12 664.512 712.448 664.512z" fill="currentColor"></path>
         </svg>
       </button>
+      
     <div class="cloud-wrapper">
         
         <button @click="toggleCloudMenu" class="floating-btn sync-btn main-cloud-trigger" :class="{ 'active': isCloudMenuOpen }" title="云同步菜单">
@@ -3277,7 +3277,9 @@ const downloadFromCloud = async () => {
                <button @click="showSyncModal = true" class="floating-btn sync-btn sub-btn" title="配置云同步" style="font-size: 20px;">⚙️</button>
           </div>
         </Transition>
+        
       </div>
+      
       
     </div>
     <div v-if="showAddWordModal" class="modal-overlay" @click.self="showAddWordModal = false">
