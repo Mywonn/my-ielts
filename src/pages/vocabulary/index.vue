@@ -4886,47 +4886,76 @@ const downloadFromCloud = async () => {
 }
 /* 🟢 替换为这段新代码 */
 
-/* 1. 默认状态 (有文章时)：深黄色 */
+/* =========================================
+   📜 文章按钮样式 (V3.0 精致版)
+   1. 边框变细为 1px
+   2. 夜间模式空状态背景修复为白色
+========================================= */
+
+/* 1. 【基础状态 - 有文章时】 */
 .story-btn {
-  color: #d97706; 
+  color: #d97706; /* 深黄色图标 */
+  
+  /* 🔥 修改 1：边框从 2px 改为 1px，更精致 */
+  border: 1px solid #22c55e; 
+  
+  /* 🔥 修改 2：强制背景为白色 (确保夜间模式也是白底，跟其他按钮统一) */
+  background-color: #ffffff; 
+  
   transition: all 0.3s ease; 
 }
 
-/* 2. 空状态 (无文章时)：灰色 (加上 !important 以防万一) */
+/* 2. 【空状态 - 无文章时】 */
 .story-btn.is-empty {
-  color: #9ca3af !important; 
-  background-color: #f9fafb;
-  box-shadow: none !important; /* 空状态平时不要阴影，清爽一点 */
-  border-color: #e5e7eb; /* 边框也淡一点 */
+  color: #9ca3af !important; /* 灰色图标 */
+  
+  /* 红色细边框 */
+  border-color: #ef4444 !important; 
+  
+  /* 🔥 核心修复：夜间模式背景不再变黑，而是保持白色 */
+  background-color: #ffffff !important; 
+  
+  box-shadow: none !important; 
 }
 
-/* 3. 有文章时的悬停效果 */
+/* --- 鼠标悬停效果 --- */
+
+/* 3. 有文章时的悬停 */
 .story-btn:not(.is-empty):hover {
-  background: #fffbeb;
+  background: #fffbeb; /* 淡黄色背景 */
   transform: scale(1.15);
   box-shadow: 0 8px 16px rgba(245, 158, 11, 0.25);
 }
 
-/* 4. 空状态下的悬停效果 (提示用户可以点击) */
+/* 4. 空状态下的悬停 */
 .story-btn.is-empty:hover {
-  color: #d97706 !important; /* 悬停变回黄色 */
-  background: #fffbeb;
+  color: #d97706 !important; /* 图标变黄 */
+  border-color: #d97706 !important; /* 边框变黄 */
+  background: #fffbeb !important; /* 背景变淡黄 */
   transform: scale(1.1);
-  border-color: #d97706;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1) !important;
 }
 
-/* 5. 暗黑模式适配 */
-.dark .story-btn.is-empty {
-  color: #64748b !important; /* 深灰色 */
-  background-color: #1e293b;
-  border-color: #334155;
-}
-.dark .story-btn.is-empty:hover {
-  color: #fbbf24 !important; /* 悬停变亮黄 */
-  background-color: #334155;
+/* --- 暗黑模式适配 --- */
+
+/* 微调边框颜色适配深色背景，但背景保持白色圆圈 */
+.dark .story-btn {
+    border-color: #059669; /* 深一点的绿 */
 }
 
+.dark .story-btn.is-empty {
+  /* 确保图标在白底上能看清 (灰色) */
+  color: #9ca3af !important; 
+  /* 保持红色警示边框 */
+  border-color: #ef4444 !important; 
+}
+
+/* 悬停高亮 */
+.dark .story-btn.is-empty:hover {
+  color: #fbbf24 !important; 
+  border-color: #fbbf24 !important; 
+  background-color: #fffbeb !important;
+}
 /* 番茄钟下拉框伪装 */
 .pomo-select {
   appearance: none;         /* 去掉浏览器默认下拉箭头 */
