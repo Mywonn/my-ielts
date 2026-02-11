@@ -91,15 +91,30 @@ const handleJumpNext = (e) => {
       setTimeout(() => inputs[currentIdx - 1].select(), 10) 
     }
   } 
-  // B. 否则 (Tab 或 Enter) -> 往下跳 (下一格)
   else {
+    // ⬇️⬇️⬇️ 修改这里 ⬇️⬇️⬇️
     if (currentIdx > -1 && currentIdx < inputs.length - 1) {
       // 如果后面还有，跳到下一个
       inputs[currentIdx + 1].focus()
     } else {
-      // 🔥🔥🔥【新增】如果是最后一个，手动触发 blur (失焦)
-      // 这会让输入框失去焦点，从而立即触发 @change 进行校验
+      // 🔥 如果是最后一个，触发失焦 + 标记完成
       e.target.blur()
+      
+      if (isReviewMode.value && isDictation.value) {
+        // 1. 标记完成
+        isDictationFinished.value = true
+        
+        // 2. 退出听写模式 (变回输入框之前的样子)
+        isDictation.value = false
+        
+        // 3. 退出全显/字义模式 (清空已翻开的中文)
+        revealedZh.clear()
+        
+        // 4. (可选) 如果你也想顺便把“偷看”的小眼睛也关掉，加上这行：
+        peekedWords.clear()
+
+        showCustomAlert('本组听写完成！已回到浏览模式 🎉')
+      }
     }
   }
 }
@@ -112,6 +127,9 @@ const showStoryModal = ref(false)
 // 数据结构变更为: [ { title: '文章1', content: '...' }, { title: '文章2', content: '...' } ]
 const storyList = ref([]) 
 const currentStoryIdx = ref(0) // 当前选中的是第几篇
+
+// 🔥🔥🔥【新增】听写完成状态标记
+const isDictationFinished = ref(false)
 // 1. 定义“是否处于编辑模式”的开关
 const isStoryEditing = ref(false)
 
@@ -272,6 +290,7 @@ watch([currentChapter, chunkIndex, isReviewMode, isDictation], () => {
   revealedZh.clear()
   peekedWords.clear()
   revealedSource.clear() // 🔥 切换章节时重置
+  isDictationFinished.value = false
 })
 
 // 修改原有的 watch，增加 peekedWords.clear()
@@ -657,6 +676,8 @@ function refreshReviewData() {
 
   // D. 把所有单个显示的出处关掉
   revealedSource.clear()
+
+  isDictationFinished.value = false
 
   // E. 🔥 核心：清空输入框里的文字
   // (因为输入框没有绑定 v-model，Vue 不会自动清空，必需手动操作 DOM)
@@ -2899,19 +2920,24 @@ const getWordStage = (wordEn) => {
   return (item.stage || 0) + 1
 }
 
-// 🔥🔥🔥【新增】控制右侧悬浮按钮组的显示/隐藏逻辑
+// 🔥🔥🔥【修改】控制右侧悬浮按钮组容器的显隐
 const isFloatingGroupVisible = computed(() => {
-  // 1. 判定是否为手机端 (宽度小于 768px)
+  // 容器本身始终显示（只要不是极端情况），因为我们要保留“刷新”和“回到顶部”
+  return true 
+})
+
+// 🔥🔥🔥【新增】专门控制那些“非核心”按钮的显隐
+// (故事、加词、搜索、云同步)
+const showHiddenButtons = computed(() => {
   const isMobile = windowWidth.value < 768
+  // 定义“严格听写模式”：手机 + 复习 + 听写 + 全显中文
+  const isStrictDictation = isMobile && isReviewMode.value && isDictation.value && isAllRevealedComputed.value
   
-  // 2. 核心逻辑：如果在手机端 + 复习模式 + 开启听写 + 且开启了全员汉语释义
-  // 则返回 false，隐藏按钮组
-  if (isMobile && isReviewMode.value && isDictation.value && isAllRevealedComputed.value) {
-    return false
-  }
+  // 1. 如果不是严格模式，直接显示
+  if (!isStrictDictation) return true
   
-  // 3. 其他情况均显示
-  return true
+  // 2. 如果是严格模式，只有当“完成”后才显示
+  return isDictationFinished.value
 })
 
 </script>
@@ -3292,41 +3318,36 @@ const isFloatingGroupVisible = computed(() => {
     </div> 
     <div v-show="isFloatingGroupVisible" class="floating-action-group" :class="{ 'pos-left': isFloatBtnLeft }">
       <Transition name="fade-slide">
-        <button v-if="!isReviewMode && showSmartCopyBtn" 
-                @click="copyCurrentPageWords" 
-                class="floating-btn copy-page-btn mobile-only" 
-                title="一键复制本页单词">
-          📋
-        </button>
+        <button v-if="!isReviewMode && showSmartCopyBtn" @click="copyCurrentPageWords" class="floating-btn copy-page-btn mobile-only" title="一键复制本页单词">📋</button>
       </Transition>
+      
       <button v-if="isReviewMode" @click="refreshReviewData" class="floating-btn refresh-btn" title="刷新数据">🔄</button>
-      <button v-if="!isReviewMode" 
+      
+      <button v-show="showHiddenButtons" v-if="!isReviewMode" 
         @click="openStoryModal" 
         class="floating-btn story-btn" 
         :class="{ 'is-empty': !hasStoryOnCurrentPage }"
         :title="hasStoryOnCurrentPage ? '阅读本页文章' : '点击创建文章'">
           📜
       </button>
-      <button @click="manualAddWord" class="floating-btn add-btn" title="手动加入生词">➕</button>
-      <button @click="openSearchModal" class="floating-btn search-btn" title="搜索单词/词根">🔍</button>
-      <button v-show="showBackToTop" 
-              @click="scrollToTop" 
-              class="floating-btn top-btn" 
-              title="回到顶部">
+      <button v-show="showHiddenButtons" @click="manualAddWord" class="floating-btn add-btn" title="手动加入生词">➕</button>
+      
+      <button v-show="showHiddenButtons" @click="openSearchModal" class="floating-btn search-btn" title="搜索单词/词根">🔍</button>
+      
+      <button v-show="showBackToTop" @click="scrollToTop" class="floating-btn top-btn" title="回到顶部">
         <svg viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" class="svg-icon">
           <path d="M512 64C264.512 64 64 264.576 64 512s200.512 448 448 448c247.424 0 448-200.576 448-448S759.424 64 512 64zM712.448 664.512c-11.776 0-22.784-3.072-32.448-8.384l-1.984 1.984L511.936 512l-162.112 145.472-1.344-1.344c-9.6 5.248-20.544 8.32-32.192 8.32-36.736 0-66.496-29.76-66.496-66.432 0-11.712 3.072-22.656 8.32-32.192L255.936 563.584l10.752-9.664c3.328-3.712 7.04-7.104 11.136-9.984l188.544-169.216 1.28 0C479.296 363.456 495.168 356.544 512.64 356.544s33.408 6.912 45.12 18.176l0.768 0 191.872 168.832c4.032 2.816 7.68 6.08 11.072 9.728l11.392 10.048-2.368 2.304c5.376 9.6 8.448 20.672 8.448 32.448C778.88 634.752 749.12 664.512 712.448 664.512z" fill="currentColor"></path>
         </svg>
       </button>
       
-    <div class="cloud-wrapper">
-        
-        <button @click="toggleCloudMenu" class="floating-btn sync-btn main-cloud-trigger" :class="{ 'active': isCloudMenuOpen }" title="云同步菜单">
+    <div v-show="showHiddenButtons" class="cloud-wrapper">
+         <button @click="toggleCloudMenu" class="floating-btn sync-btn main-cloud-trigger" :class="{ 'active': isCloudMenuOpen }" title="云同步菜单">
            <svg v-if="isSyncing" class="animate-spin" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
            <svg v-else xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 1024 1024" fill="currentColor">
               <path d="M395.776 641.664a19.392 19.392 0 0 0-6.368-12.384l-36.672-32.416a190.496 190.496 0 0 1 87.328-70.88c47.52-19.2 99.776-18.72 146.944 1.28s83.776 57.28 103.008 104.8a31.936 31.936 0 0 0 41.632 17.696 31.936 31.936 0 0 0 17.696-41.632 254.208 254.208 0 0 0-137.312-139.776 254.56 254.56 0 0 0-195.936-1.728 253.984 253.984 0 0 0-111.552 87.616l-37.408-33.088a19.168 19.168 0 0 0-31.808 16.384l12.576 119.68a19.2 19.2 0 0 0 21.088 17.088l109.696-11.52a19.2 19.2 0 0 0 17.088-21.12zM757.92 729.088l-109.216 15.36a19.2 19.2 0 0 0-9.536 33.856l34.496 28.416a190.816 190.816 0 0 1-236.672 74.016 190.592 190.592 0 0 1-102.976-104.768 32 32 0 1 0-59.36 23.936 254.272 254.272 0 0 0 137.344 139.776 255.232 255.232 0 0 0 100 20.48 255.744 255.744 0 0 0 95.904-18.752 254.592 254.592 0 0 0 115.872-93.408l41.408 34.112a19.2 19.2 0 0 0 31.2-17.472l-16.736-119.168a19.264 19.264 0 0 0-21.728-16.384z" />
               <path d="M808.192 262.592a320.16 320.16 0 0 0-592.352 0A238.592 238.592 0 0 0 32 496a240.32 240.32 0 0 0 130.976 213.888 32 32 0 1 0 29.12-57.024A176.192 176.192 0 0 1 96 496a175.04 175.04 0 0 1 148.48-173.888l19.04-2.976 6.24-18.24C305.248 197.472 402.592 128 512 128a256 256 0 0 1 242.208 172.896l6.272 18.24 19.04 2.976A175.04 175.04 0 0 1 928 496a176.128 176.128 0 0 1-96.128 156.896 32.064 32.064 0 0 0 29.12 57.024A240.416 240.416 0 0 0 992 496a238.592 238.592 0 0 0-183.808-233.408z" />
            </svg>
-        </button>
+         </button>
         
         <Transition name="cloud-pop">
           <div v-if="isCloudMenuOpen" class="cloud-sub-menu">
