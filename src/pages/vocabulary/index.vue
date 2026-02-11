@@ -3143,17 +3143,17 @@ const showHiddenButtons = computed(() => {
      :id="'word-row-' + word.en.replace(/\s+/g, '_')">
               
              <div class="col-idx text-center index-num desktop-only">
-  {{ isReviewMode ? word.id : word._id }}
-  
-  <span v-if="(word._isMastered || word._isKilled) && !isReviewMode" 
-        class="status-icon"
-        :style="{ 
-          color: word._isKilled ? '#a855f7' : '#10b981', 
-          fontWeight: 'bold'
-        }">
-    ✔
-  </span>
-</div>
+                {{ isReviewMode ? word.id : word._id }}
+                
+                <span v-if="(word._isMastered || word._isKilled) && !isReviewMode" 
+                      class="status-icon"
+                      :style="{ 
+                        color: word._isKilled ? '#a855f7' : '#10b981', 
+                        fontWeight: 'bold'
+                      }">
+                  
+                </span>
+              </div>
               
               <div class="col-word">
                 <div class="word-wrapper">
