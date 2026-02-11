@@ -1082,10 +1082,10 @@ function doExport() {
     r: reviewList.value, 
     c: completedParts.value, 
     m: masteredList.value,
-    d: customDict.value, // 保存你的生词本
-    s: statsHistory.value, // <--- 🔥 加这一行 (s 代表 stats)
-    // 🔥🔥🔥【新增】导出笔记
-    n: groupNotes.value
+    d: customDict.value, 
+    s: statsHistory.value, 
+    n: groupNotes.
+    f: globalFailHistory.value
   }
   const blob = new Blob([JSON.stringify(data)], { type: 'application/json' })
   const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; 
@@ -1127,10 +1127,10 @@ function onFileChange(e) {
         if(d.r) reviewList.value = d.r; 
         if(d.c) completedParts.value = d.c; 
         if(d.m) masteredList.value = d.m; 
-        if(d.d) customDict.value = d.d; // 恢复生词本
-        if(d.s) statsHistory.value = d.s; // <--- 🔥 加这一行
-        // 🔥🔥🔥【新增】导入笔记
+        if(d.d) customDict.value = d.d; 
+        if(d.s) statsHistory.value = d.s; 
         if(d.n) groupNotes.value = d.n;
+        if(d.f) globalFailHistory.value = d.f;
         alert('同步成功'); location.reload() 
       }
     } catch(e){ alert('文件格式错误') } 
@@ -2804,6 +2804,7 @@ const uploadToCloud = async () => {
       st: pageStories.value, 
       // 新增：听觉依赖
       ap: audioPeekHistory.value 
+      f: globalFailHistory.value
     }
     const content = JSON.stringify(data)
 
@@ -2878,6 +2879,7 @@ const downloadFromCloud = async () => {
     // 恢复新增字段
     if(d.st) pageStories.value = d.st;
     if(d.ap) audioPeekHistory.value = d.ap;
+    if(d.f) globalFailHistory.value = d.f;
     updateSyncTime() // 🔥【新增】下载成功更新时间
     alert('☁️ 同步成功！本地进度已更新。')
     location.reload() // 刷新页面确保状态正确
