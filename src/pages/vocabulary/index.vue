@@ -3151,7 +3151,7 @@ const showHiddenButtons = computed(() => {
                         color: word._isKilled ? '#a855f7' : '#10b981', 
                         fontWeight: 'bold'
                       }">
-                  
+                  ✔
                 </span>
               </div>
               
