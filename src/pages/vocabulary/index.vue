@@ -53,6 +53,7 @@ const audioPeekHistory = useMyStorage('my_ielts_audio_peek_history', [])
 // 结构: { "Chapter1_0": { title: "标题", content: "详细辨析内容..." }, ... }
 const groupNotes = useMyStorage('my_ielts_group_notes', {})
 const isDictation = ref(false) 
+const refreshKey = ref(0)
 const isReviewMode = ref(false)
 const chunkIndex = ref(0)
 const statusMap = reactive({}) 
@@ -654,44 +655,25 @@ const displayData = computed(() => {
 function refreshReviewData() {
   if (!isReviewMode.value) return
   
-  // 1. 强制重新计算需要复习的单词 (原有逻辑)
+  // 1. 强制重新计算需要复习的单词
   const dueWords = reviewList.value.filter(item => item.time <= Date.now())
-  // 赋值给 staticList，触发界面更新
   reviewStaticList.value = JSON.parse(JSON.stringify(dueWords))
 
-  // 2. 🔥🔥🔥【新增】像 F5 一样重置所有状态
-  
-  // A. 清空红绿判断 (statusMap)
-  // 注意：因为 statusMap 是 reactive 对象，不能直接赋空，要一个个删属性
-  for (const key in statusMap) {
-    delete statusMap[key]
-  }
-
-  // B. 把翻开的中文释义盖回去
-  revealedZh.clear()
-
-  // C. 把偷看的小眼睛关掉
-  peekedWords.clear()
-
-
-  // D. 把所有单个显示的出处关掉
-  revealedSource.clear()
-
+  // 2. 重置所有状态变量
+  for (const key in statusMap) delete statusMap[key] // 清空红绿状态
+  revealedZh.clear()       // 清空中文
+  peekedWords.clear()      // 清空偷看
+  revealedSource.clear()   // 清空出处
   isDictationFinished.value = false
 
-  // E. 🔥 核心：清空输入框里的文字
-  // (因为输入框没有绑定 v-model，Vue 不会自动清空，必需手动操作 DOM)
-  nextTick(() => {
-    const inputs = document.querySelectorAll('.dictation-input')
-    inputs.forEach(el => {
-      el.value = '' // 强制清空值
-      // 移除可能残留的 class (虽然删了 statusMap 会自动移除，但双重保险)
-      el.classList.remove('correct', 'error') 
-    })
-  })
-
+  // 3. 🔥🔥🔥【核心大招】🔥 
+  // 只要让 key +1，Vue 就会自动销毁旧的 input 并创建新的，
+  // 根本不需要 document.querySelectorAll 去手动清空 value！
+  refreshKey.value++ 
   
+  //showCustomAlert('状态已重置，请重新听写 ⚡️')
 }
+  
 
 watch(isReviewMode, (val) => {
   if (val) {
@@ -3134,13 +3116,13 @@ const showHiddenButtons = computed(() => {
 
         <div v-show="!collapsedStages[block.title]">
             <div v-for="(word) in block.list" 
-     :key="word.en" 
-     class="grid-layout row-item" 
-     :class="{ 
-       'mastered-row': word._isMastered && !word._isKilled && !isReviewMode,
-       'killed-row': word._isKilled && !isReviewMode 
-     }"
-     :id="'word-row-' + word.en.replace(/\s+/g, '_')">
+              :key="word.en + '_' + refreshKey" 
+              class="grid-layout row-item" 
+              :class="{ 
+                'mastered-row': word._isMastered && !word._isKilled && !isReviewMode,
+                'killed-row': word._isKilled && !isReviewMode 
+              }"
+              :id="'word-row-' + word.en.replace(/\s+/g, '_')">
               
              <div class="col-idx text-center index-num desktop-only">
                 {{ isReviewMode ? word.id : word._id }}
