@@ -45,6 +45,8 @@ const killedList = useMyStorage('my_ielts_killed', [])
 const masteredList = useMyStorage('my_ielts_mastered', []) 
 const completedParts = useMyStorage('my_ielts_completed_parts', {})
 const customDict = useMyStorage('my_ielts_custom_dict', {})
+// 🔥🔥🔥【新增】永久记录每个单词的错误次数 (Key: 单词, Value: 次数)
+const globalFailHistory = useMyStorage('my_ielts_fail_history', {})
 // 🔥🔥🔥【新增】永久记录“听觉依赖”的单词 (存入 LocalStorage)
 const audioPeekHistory = useMyStorage('my_ielts_audio_peek_history', [])
 // 🔥🔥🔥【新增】分组笔记存储
@@ -672,9 +674,16 @@ function refreshReviewData() {
 
 watch(isReviewMode, (val) => {
   if (val) {
+    // 进入复习模式：加载待复习单词
     const dueWords = reviewList.value.filter(item => item.time <= Date.now())
     reviewStaticList.value = JSON.parse(JSON.stringify(dueWords))
-  } else { reviewStaticList.value = [] }
+  } else { 
+    // 🔥 从复习返回学习模式：
+    reviewStaticList.value = [] 
+    
+    // 【核心新增】自动关闭听写模式，回到浏览/背诵状态
+    isDictation.value = false 
+  }
 }, { immediate: true })
 
 watch(reviewList, (val) => {
@@ -934,15 +943,16 @@ const playSentence = (text) => {
     console.log('正在播放:', text, '使用语音:', bestVoice ? bestVoice.name : '系统默认')
   }, 10)
 }
+
 // ==========================================
-// 🔴 修改：checkInput (集成了斩杀数统计逻辑)
+// 🔴 核心修复：checkInput (解决了语法报错并优化了记录逻辑)
 // ==========================================
 function checkInput(word, e) {
   // 1. 获取输入值和正确答案
   let val = e.target.value.trim().toLowerCase()
   let answer = word.en.toLowerCase()
 
-  // 2. 清洗数据
+  // 2. 清洗数据：统一引号格式并去除多余空格
   const normalize = (str) => {
     return str
       .replace(/[\u2018\u2019`]/g, "'") 
@@ -951,22 +961,21 @@ function checkInput(word, e) {
 
   const isCorrect = normalize(val) === normalize(answer)
   
+  // 更新红绿状态映射
   statusMap[word.en] = isCorrect ? 'correct' : 'error'
   
   if (isCorrect) {
-    // 答对了：显示中文
+    // --- 答对了 ---
     if (!revealedZh.has(word.en)) revealedZh.add(word.en)
-
+    
     // --- A. 学习模式 (第一次学) ---
     if (!isReviewMode.value) {
-      updateDailyStats('learn', 1) 
+      updateDailyStats('learn', 1)
       
       // 如果这个词之前没掌握，现在掌握了 -> 记入斩杀数(攻克数)
       if (!masteredList.value.includes(word.en)) {
         masteredList.value.push(word.en)
-        
-        // 🔥🔥🔥【新增 1】第一次学习变绿(掌握) -> 算作斩杀+1
-        updateDailyStats('kill', 1) 
+        updateDailyStats('kill', 1) // 第一次学习变绿算作斩杀+1
       }
       
       const idx = reviewList.value.findIndex(i => i.w === word.en)
@@ -977,56 +986,65 @@ function checkInput(word, e) {
     // --- B. 复习模式 ---
     const idx = reviewList.value.findIndex(i => i.w === word.en)
     if (idx > -1) {
-      updateDailyStats('review', 1) 
-      const item = reviewList.value[idx]; item.stage += 1
+      updateDailyStats('review', 1)
+      const item = reviewList.value[idx]
+      item.stage += 1
       
-      // 如果达到了最大阶段 (6次艾宾浩斯完成)
+      // 如果达到了最大阶段 (完成所有艾宾浩斯周期)
       if (item.stage >= INTERVALS.length) {
         reviewList.value.splice(idx, 1) 
-        
         if (!killedList.value.includes(word.en)) {
           killedList.value.push(word.en)
-          
-          // 🔥🔥🔥【新增 2】复习通关变紫(斩杀) -> 算作斩杀+1
-          updateDailyStats('kill', 1) 
+          updateDailyStats('kill', 1) // 复习通关变紫算作斩杀+1
         }
       } else { 
-        item.time = Date.now() + INTERVALS[item.stage] * 60000; 
+        item.time = Date.now() + INTERVALS[item.stage] * 60000 
         reviewList.value = [...reviewList.value] 
       }
     }
   } else {
-    // 答错了
+    // --- 答错了 ---
     if (!revealedZh.has(word.en)) revealedZh.add(word.en)
     
+    // 🔥【修复代码】记录永久错误案底
+    const oldFailCount = globalFailHistory.value[word.en] || 0
+    globalFailHistory.value = {
+      ...globalFailHistory.value,
+      [word.en]: oldFailCount + 1
+    }
+
     if (!isReviewMode.value) {
-        // 学习模式答错
-        if (masteredList.value.includes(word.en)) masteredList.value = masteredList.value.filter(w => w !== word.en)
+        // 学习模式答错：从已掌握中移除，并加入/更新复习列表
+        if (masteredList.value.includes(word.en)) {
+          masteredList.value = masteredList.value.filter(w => w !== word.en)
+        }
         
         const existing = reviewList.value.find(i => i.w === word.en)
         if (!existing) {
-           // 🔥 新增：failCount: 1
-           reviewList.value.push({ w: word.en, stage: 0, time: Date.now() + INTERVALS[0] * 60000, failCount: 1 })
+           reviewList.value.push({ 
+             w: word.en, 
+             stage: 0, 
+             time: Date.now() + INTERVALS[0] * 60000, 
+             failCount: 1 
+           })
         } else {
-           // 🔥 新增：如果有记录，次数 +1
            existing.failCount = (existing.failCount || 0) + 1
-           // 更新时间逻辑不变
            existing.stage = 0
            existing.time = Date.now() + INTERVALS[0] * 60000
         }
     } else {
-        // 复习模式答错
+        // 复习模式答错：重置阶段并更新错误计数
         const idx = reviewList.value.findIndex(i => i.w === word.en)
         if (idx > -1) { 
-          reviewList.value[idx].stage = 0; 
+          reviewList.value[idx].stage = 0 
           reviewList.value[idx].time = Date.now() + INTERVALS[0] * 60000 
-          
-          // 🔥 新增：错误次数 +1
           reviewList.value[idx].failCount = (reviewList.value[idx].failCount || 0) + 1
         }
     }
   }
- } 
+}
+
+
 // ==========================================
 // ⚔️ 智能斩杀/恢复逻辑 (Handle Kill/Restore)
 // ==========================================
@@ -1670,31 +1688,41 @@ const MISTAKE_PAGE_SIZE = 20
 const showConquered = ref(false)
 
 // 1. 计算易错榜单 (核心修改：根据开关分流)
+// 1. 计算易错榜单 (修复版：从永久记录读取)
 const sortedMistakeList = computed(() => {
-  // A. 基础过滤：必须是错过的词 (failCount > 0)
-  const baseList = reviewList.value.filter(item => (item.failCount || 0) > 0)
-  
-  // B. 状态分流
-  const filteredList = baseList.filter(item => {
-    // 检查该词是否在斩杀表(killed) 或 掌握表(mastered) 中
-    // 注意：这里要防一手，有些词改名了或者数据同步问题，最好两个表都查
+  // 1. 取出所有有过错误记录的单词
+  // 格式转换：从 { apple: 5, banana: 2 } 转为数组
+  const allMistakes = Object.keys(globalFailHistory.value).map(word => {
+    return {
+      w: word,
+      count: globalFailHistory.value[word]
+    }
+  }).filter(item => item.count > 0) // 再次确保大于0
+
+  // 2. 状态分流
+  const filteredList = allMistakes.filter(item => {
+    // 核心判断：是否在“已完成”列表 (斩杀 或 掌握)
     const isFinished = killedList.value.includes(item.w) || masteredList.value.includes(item.w)
     
+    // 如果该词既不在复习列表，也不在斩杀/掌握列表，说明可能是刚加入但还没学的，或者数据异常，
+    // 为了严谨，如果 showConquered = false (攻坚)，我们通常只显示“正在复习列表里”的词。
+    // 但为了不漏掉，我们定义：
+    // 已攻克 = 在 killedList 或 masteredList
+    // 正在攻坚 = 不在上述列表 (通常意味着在 reviewList 或 正在学习)
+    
     if (showConquered.value) {
-      // 🏆 榜中榜模式：只显示已攻克(已斩杀/已掌握)的
       return isFinished
     } else {
-      // 💥 攻坚模式：只显示还活着的(未斩杀且未掌握)
       return !isFinished
     }
   })
 
-  // C. 组装数据 & 排序 (按错误次数从高到低)
+  // 3. 组装数据 & 排序
   return filteredList.map(item => {
       const info = findWordDetail(item.w)
       return {
         en: item.w,
-        count: item.failCount, 
+        count: item.count, // 🔥 这里用的是永久记录的 count
         zh: info.zh,           
         source: info.source,
         rawInfo: info
@@ -1984,7 +2012,10 @@ onUnmounted(() => {
 onUnmounted(() => {
   if (timer) clearInterval(timer)
 })
+
 onMounted(() => {
+  
+
  // 1. 番茄钟恢复逻辑 (修复版：完美区分暂停和运行)
   const local = localStorage.getItem('my_ielts_pomo')
   if (local) {
@@ -2858,7 +2889,29 @@ const downloadFromCloud = async () => {
     isSyncing.value = false
   }
 }
+  // 🔥🔥🔥【新增】获取单词当前复习阶段 (返回 1-6，无则返回 null)
+const getWordStage = (wordEn) => {
+  const item = reviewList.value.find(i => i.w === wordEn)
+  if (!item) return null
+  // 代码内部 stage 是 0-5，UI 显示需要 +1
+  return (item.stage || 0) + 1
+}
+
+// 🔥🔥🔥【新增】控制右侧悬浮按钮组的显示/隐藏逻辑
+const isFloatingGroupVisible = computed(() => {
+  // 1. 判定是否为手机端 (宽度小于 768px)
+  const isMobile = windowWidth.value < 768
   
+  // 2. 核心逻辑：如果在手机端 + 复习模式 + 开启听写 + 且开启了全员汉语释义
+  // 则返回 false，隐藏按钮组
+  if (isMobile && isReviewMode.value && isDictation.value && isAllRevealedComputed.value) {
+    return false
+  }
+  
+  // 3. 其他情况均显示
+  return true
+})
+
 </script>
 
 <template>
@@ -3079,8 +3132,15 @@ const downloadFromCloud = async () => {
                   <div v-if="!isDictation" class="word-cell-container">
                     
                     <div class="word-row-top">
-                      <span class="en-text" @click.stop="toggleAudio(word.en)" style="cursor: pointer;" title="点击发音">
+                      <span class="en-text" @click.stop="toggleAudio(word.en)">
                         {{ word.en }}
+                      </span>
+
+                      <span v-if="getWordStage(word.en) && !isReviewMode" 
+                            class="review-stage-tag"
+                            :style="{ backgroundColor: STAGE_COLORS[getWordStage(word.en) - 1] }"
+                            :title="'当前处于复习阶段 ' + getWordStage(word.en)">
+                        {{ getWordStage(word.en) }}
                       </span>
                       
                       <span class="speaker" 
@@ -3228,7 +3288,7 @@ const downloadFromCloud = async () => {
         <button class="pad-btn-clear" @click="clearPad">🗑️ (Space)</button>
       </div>
     </div> 
-    <div class="floating-action-group" :class="{ 'pos-left': isFloatBtnLeft }">
+    <div v-show="isFloatingGroupVisible" class="floating-action-group" :class="{ 'pos-left': isFloatBtnLeft }">
       <Transition name="fade-slide">
         <button v-if="!isReviewMode && showSmartCopyBtn" 
                 @click="copyCurrentPageWords" 
@@ -5775,6 +5835,29 @@ const downloadFromCloud = async () => {
   background: #164e63;
 }
 
+/* 🔥🔥🔥 复习阶段角标样式 */
+.review-stage-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px; /* 圆角胶囊感 */
+  color: white;
+  font-size: 10px;
+  font-weight: bold;
+  margin-left: 4px;
+  vertical-align: super; /* 稍微上浮，像角标一样 */
+  cursor: help;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+  line-height: 1;
+}
+
+/* 暗黑模式下可以微调亮度 */
+.dark .review-stage-tag {
+  box-shadow: 0 0 4px rgba(0,0,0,0.3);
+}
 
 </style>
 
