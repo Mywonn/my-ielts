@@ -2014,28 +2014,7 @@ onUnmounted(() => {
 })
 
 onMounted(() => {
-  // 👇👇👇【这里是补丁代码，粘贴在 onMounted 的第一行】👇👇👇
-  // --- 🛠️ 一次性数据迁移补丁 (开始) ---
-  if (reviewList.value && reviewList.value.length > 0) {
-    const newHistory = { ...globalFailHistory.value }
-    let count = 0
-    reviewList.value.forEach(item => {
-      if (item.failCount && item.failCount > 0) {
-        const oldVal = newHistory[item.w] || 0
-        if (item.failCount > oldVal) {
-          newHistory[item.w] = item.failCount
-          count++
-        }
-      }
-    })
-    if (count > 0) {
-      globalFailHistory.value = newHistory
-      // 这里的 alert 是为了告诉你迁移成功，看到后即可删除这段补丁
-      alert(`🎉 成功迁移了 ${count} 个单词的错误记录！\n现在你可以去代码里把这段补丁删掉了。`)
-    }
-  }
-  // --- 🛠️ 一次性数据迁移补丁 (结束) ---
-  // 👆👆👆【补丁结束】👆👆👆
+  
 
  // 1. 番茄钟恢复逻辑 (修复版：完美区分暂停和运行)
   const local = localStorage.getItem('my_ielts_pomo')
