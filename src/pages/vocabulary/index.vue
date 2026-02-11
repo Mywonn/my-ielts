@@ -1084,7 +1084,7 @@ function doExport() {
     m: masteredList.value,
     d: customDict.value, 
     s: statsHistory.value, 
-    n: groupNotes.
+    n: groupNotes,
     f: globalFailHistory.value
   }
   const blob = new Blob([JSON.stringify(data)], { type: 'application/json' })
@@ -2803,7 +2803,7 @@ const uploadToCloud = async () => {
       // 新增：故事列表
       st: pageStories.value, 
       // 新增：听觉依赖
-      ap: audioPeekHistory.value 
+      ap: audioPeekHistory.value ,
       f: globalFailHistory.value
     }
     const content = JSON.stringify(data)
