@@ -671,7 +671,7 @@ function refreshReviewData() {
   // 根本不需要 document.querySelectorAll 去手动清空 value！
   refreshKey.value++ 
   
-  //showCustomAlert('状态已重置，请重新听写 ⚡️')
+  showCustomAlert('状态已重置，请重新听写 ⚡️')
 }
   
 
@@ -1412,7 +1412,7 @@ function finalizeAdd(word) {
 function showCustomAlert(msg) {
   msgContent.value = msg
   showMsgModal.value = true
-  setTimeout(() => { showMsgModal.value = false }, 1500)
+  setTimeout(() => { showMsgModal.value = false }, 800)
 }
 // ==========================================
 // ★ 新增：修改单词功能 (修复手滑)
