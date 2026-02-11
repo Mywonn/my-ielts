@@ -4205,10 +4205,11 @@ const showHiddenButtons = computed(() => {
 .refresh-btn {
   color: #3b82f6; /* 蓝色 */
 }
-.refresh-btn:hover {
-  background: #eff6ff;
-  transform: scale(1.15) rotate(180deg);
-  box-shadow: 0 8px 16px rgba(59, 130, 246, 0.25);
+/* 🔥🔥🔥【修复】点击时强制缩小，覆盖 hover 的放大效果 */
+.refresh-btn:active {
+  transform: scale(0.9) rotate(180deg) !important; /* 保持旋转但缩小，加 !important 确保覆盖 */
+  box-shadow: 0 2px 5px rgba(59, 130, 246, 0.2); /* 阴影也变小 */
+  transition: transform 0.1s; /* 点击反馈要快 */
 }
 
 /* 添加按钮特定样式 */
