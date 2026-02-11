@@ -7,8 +7,8 @@ import { marked } from 'https://cdn.jsdelivr.net/npm/marked/lib/marked.esm.js'
 // ==========================================
 // 0. 音频配置
 // ==========================================
-const TIMEOUT_SOUND = '/timeout.mp3'
-const DO_SOUND = '/do.mp3'
+const TIMEOUT_SOUND = '/my-ielts/timeout.mp3'
+const DO_SOUND = '/my-ielts/do.mp3'
 
 const playSound = (url) => {
   const audio = new Audio(url)
@@ -45,6 +45,8 @@ const killedList = useMyStorage('my_ielts_killed', [])
 const masteredList = useMyStorage('my_ielts_mastered', []) 
 const completedParts = useMyStorage('my_ielts_completed_parts', {})
 const customDict = useMyStorage('my_ielts_custom_dict', {})
+// 🔥🔥🔥【新增】永久记录每个单词的错误次数 (Key: 单词, Value: 次数)
+const globalFailHistory = useMyStorage('my_ielts_fail_history', {})
 // 🔥🔥🔥【新增】永久记录“听觉依赖”的单词 (存入 LocalStorage)
 const audioPeekHistory = useMyStorage('my_ielts_audio_peek_history', [])
 // 🔥🔥🔥【新增】分组笔记存储
@@ -89,12 +91,48 @@ const handleJumpNext = (e) => {
       setTimeout(() => inputs[currentIdx - 1].select(), 10) 
     }
   } 
-  // B. 否则 (Tab 或 Enter) -> 往下跳 (下一格)
   else {
+    // ⬇️⬇️⬇️ 修改这里 ⬇️⬇️⬇️
     if (currentIdx > -1 && currentIdx < inputs.length - 1) {
+      // 如果后面还有，跳到下一个
       inputs[currentIdx + 1].focus()
+    } else {
+      // 🔥 如果是最后一个，触发失焦 + 标记完成
+      e.target.blur()
+      
+      if (isReviewMode.value && isDictation.value) {
+        // 1. 标记完成
+        isDictationFinished.value = true
+        
+        // 2. 退出听写模式 (变回输入框之前的样子)
+        isDictation.value = false
+        
+        // 3. 退出全显/字义模式 (清空已翻开的中文)
+        revealedZh.clear()
+        
+        // 4. (可选) 如果你也想顺便把“偷看”的小眼睛也关掉，加上这行：
+        peekedWords.clear()
+
+        showCustomAlert('本组听写完成！已回到浏览模式 🎉')
+      }
     }
   }
+}
+
+// 🔥🔥🔥【新增】控制自定义下拉菜单的开关
+const showChapMenu = ref(false)
+const showPartMenu = ref(false)
+
+// 选择章节
+const onSelectChapter = (val) => {
+  currentChapter.value = val
+  showChapMenu.value = false
+}
+
+// 选择 Part
+const onSelectPart = (idx) => {
+  chunkIndex.value = idx
+  showPartMenu.value = false
 }
 
 // 🔥🔥🔥【新增】页面故事/文章存储
@@ -105,6 +143,9 @@ const showStoryModal = ref(false)
 // 数据结构变更为: [ { title: '文章1', content: '...' }, { title: '文章2', content: '...' } ]
 const storyList = ref([]) 
 const currentStoryIdx = ref(0) // 当前选中的是第几篇
+
+// 🔥🔥🔥【新增】听写完成状态标记
+const isDictationFinished = ref(false)
 // 1. 定义“是否处于编辑模式”的开关
 const isStoryEditing = ref(false)
 
@@ -193,6 +234,23 @@ const saveStory = () => {
   showCustomAlert('本页所有文章已保存 💾')
 }
 
+// 🔥🔥🔥【新增】判断当前页是否真的有文章内容
+const hasStoryOnCurrentPage = computed(() => {
+  const key = getPageKey()
+  const data = pageStories.value[key]
+  
+  if (!data) return false
+
+  // 兼容新旧数据格式
+  if (Array.isArray(data)) {
+    // 新格式：只要数组里有一篇文章的内容不为空，就算有内容
+    return data.some(item => item.content && item.content.trim().length > 0)
+  } else {
+    // 旧格式
+    return data.content && data.content.trim().length > 0
+  }
+})
+
 // 6. 辅助：获取当前正在编辑/阅读的文章对象
 const currentStory = computed(() => {
   return storyList.value[currentStoryIdx.value] || { title: '', content: '' }
@@ -248,6 +306,7 @@ watch([currentChapter, chunkIndex, isReviewMode, isDictation], () => {
   revealedZh.clear()
   peekedWords.clear()
   revealedSource.clear() // 🔥 切换章节时重置
+  isDictationFinished.value = false
 })
 
 // 修改原有的 watch，增加 peekedWords.clear()
@@ -552,7 +611,9 @@ const chapterOptions = computed(() => {
 
 const displayData = computed(() => {
   if (isReviewMode.value) {
-    const sourceList = reviewStaticList.value.length > 0 ? reviewStaticList.value : reviewList.value
+    // 🔥 修复 Bug：去掉 : reviewList.value 的后备逻辑
+    // 原因：当 reviewStaticList 为空（代表当前没复习任务）时，原逻辑会错误地显示 reviewList 里所有“未来才到期”的单词，导致“背完又出现”的假象。
+    const sourceList = reviewStaticList.value
     const groups = { 5:[], 4:[], 3:[], 2:[], 1:[], 0:[] }
     sourceList.forEach((item, i) => {
       const stage = item.stage >= 6 ? 5 : (item.stage || 0)
@@ -632,6 +693,8 @@ function refreshReviewData() {
   // D. 把所有单个显示的出处关掉
   revealedSource.clear()
 
+  isDictationFinished.value = false
+
   // E. 🔥 核心：清空输入框里的文字
   // (因为输入框没有绑定 v-model，Vue 不会自动清空，必需手动操作 DOM)
   nextTick(() => {
@@ -648,9 +711,16 @@ function refreshReviewData() {
 
 watch(isReviewMode, (val) => {
   if (val) {
+    // 进入复习模式：加载待复习单词
     const dueWords = reviewList.value.filter(item => item.time <= Date.now())
     reviewStaticList.value = JSON.parse(JSON.stringify(dueWords))
-  } else { reviewStaticList.value = [] }
+  } else { 
+    // 🔥 从复习返回学习模式：
+    reviewStaticList.value = [] 
+    
+    // 【核心新增】自动关闭听写模式，回到浏览/背诵状态
+    isDictation.value = false 
+  }
 }, { immediate: true })
 
 watch(reviewList, (val) => {
@@ -671,45 +741,23 @@ watch(currentChapter, () => {
   isReviewMode.value = false 
 })
 
-const currentAudio = ref(null); const playingWord = ref(null)
 // ==========================================
-// 修复后的播放函数：自动查找单词所属章节
+// 🚀 核心优化：音频播放系统 (预加载 + 超时控制 + 状态反馈)
 // ==========================================
-// ==========================================
-// 修复：函数名改为 toggleAudio，并增加“点击暂停”逻辑
-// ==========================================
-// ==========================================
-// 播放/停止 开关函数
-// ==========================================
+const currentAudio = ref(null)
+const playingWord = ref(null)
+const isLoadingAudio = ref(false) // 新增：加载中状态
+const audioCache = new Map()      // 新增：音频缓存池
 
-const toggleAudio = (word) => {
-  // 1. 记录听觉依赖
-  if (revealedZh.has(word) && !audioPeekHistory.value.includes(word)) {
-    audioPeekHistory.value.push(word)
-  }
-
-  // 2. 如果点击的是【正在播】的词 -> 执行“停止”
-  if (playingWord.value === word) {
-    if (currentAudio.value) { 
-      currentAudio.value.pause()
-      currentAudio.value.currentTime = 0 
-      currentAudio.value = null // 关键：清空引用
-    }
-    window.speechSynthesis.cancel() 
-    playingWord.value = null 
-    return 
-  }
-
-  // 3. 如果点击的是【其他】词 -> 先强制关掉之前的声音
-  if (currentAudio.value) { 
-    currentAudio.value.pause()
-    currentAudio.value = null 
-  }
-  window.speechSynthesis.cancel()
-
-  // 4. 查找章节 (逻辑保持不变)
-  let targetChapter = currentChapter.value
-  if (isReviewMode.value && vocabularyData) {
+// 1. 辅助：生成 CDN 链接 (换源 + 修复空格)
+const getCdnUrl = (word, chapter = null) => {
+  const GH_USERNAME = 'Mywonn'
+  const GH_REPO_NAME = 'my-ielts'
+  const GH_BRANCH = 'master'
+  
+  // 保持你原有的章节查找逻辑
+  let targetChapter = chapter || currentChapter.value
+  if (!chapter && vocabularyData) {
     for (const chap in vocabularyData) {
       const groups = vocabularyData[chap].words || vocabularyData[chap].list || []
       const isFound = groups.some(group => 
@@ -721,33 +769,150 @@ const toggleAudio = (word) => {
       if (isFound) { targetChapter = chap; break }
     }
   }
-
-  // 5. 播放 MP3
-  const audio = new Audio(`vocabulary/audio/${targetChapter}/${word}.mp3`)
   
-  // 🔥🔥🔥【核心修复】必须赋值给全局变量，否则第二次点击停不下来
-  currentAudio.value = audio 
+  // 🔥 修复重点 1：对单词进行 URL 编码，解决 "El Nino" 带空格无法播放的问题
+  const encodedWord = encodeURIComponent(word)
 
+  // 🔥 修复重点 2：更换为 Statically 源 (通常比 JsDelivr 更快更稳)
+  // 备用方案 A (Statically):
+  //return `https://cdn.statically.io/gh/${GH_USERNAME}/${GH_REPO_NAME}@${GH_BRANCH}/public/vocabulary/audio/${targetChapter}/${encodedWord}.mp3`
+  
+  // 备用方案 B (JsDelivr - 你原来的，如果 A 不行可以换回 B，但保留 encodeURIComponent)
+   return `https://cdn.jsdelivr.net/gh/${GH_USERNAME}/${GH_REPO_NAME}@${GH_BRANCH}/public/vocabulary/audio/${targetChapter}/${encodedWord}.mp3`
+}
+
+// 2. 核心：预加载当前页音频
+const preloadPageAudio = () => {
+  // 遍历当前显示的数据 displayData
+  displayData.value.forEach(block => {
+    if(!block.list) return
+    block.list.forEach(wordItem => {
+      const word = wordItem.en
+      // 如果缓存里没有，且不是自定义词，则进行预加载
+      if (!audioCache.has(word) && !customDict.value[word]) {
+        const url = getCdnUrl(word) 
+        const audio = new Audio()
+        audio.preload = 'auto' // 告诉浏览器偷偷下载
+        audio.src = url
+        audioCache.set(word, audio)
+      }
+    })
+  })
+}
+
+// 监听翻页动作，自动触发预加载 (延迟1秒以免卡顿)
+watch([currentChapter, chunkIndex, isReviewMode], () => {
+  setTimeout(preloadPageAudio, 1000) 
+}, { immediate: true })
+
+// 3. 核心：播放控制 (修复双重播放 + 错误处理)
+const toggleAudio = (word) => {
+  // A. 记录听觉依赖
+  if (revealedZh.has(word) && !audioPeekHistory.value.includes(word)) {
+    audioPeekHistory.value.push(word)
+  }
+
+  // B. 停止当前一切播放（强行重置）
+  if (currentAudio.value) { 
+    currentAudio.value.pause()
+    currentAudio.value.currentTime = 0 
+    currentAudio.value = null // 销毁引用
+  }
+  window.speechSynthesis.cancel() 
+
+  // 如果点的是正在播的，就暂停并退出
+  if (playingWord.value === word) {
+    playingWord.value = null
+    isLoadingAudio.value = false
+    return 
+  }
+
+  // C. 准备新播放
+  playingWord.value = word
+  isLoadingAudio.value = true 
+  
+  // 定义 TTS 播放器
+  const playTTS = () => {
+    // 双重检查：如果用户已经切到别的词了，这个 TTS 就闭嘴
+    if (playingWord.value !== word) return 
+    
+    console.log('播放 TTS 兜底:', word)
+    isLoadingAudio.value = false // 停止转圈
+    
+    const u = new SpeechSynthesisUtterance(word)
+    u.lang = 'en-US'; u.rate = 0.85
+    const voices = window.speechSynthesis.getVoices()
+    const bestVoice = voices.find(v => v.name.includes('Google US')) || voices.find(v => v.lang.includes('en-US'))
+    if (bestVoice) u.voice = bestVoice
+    
+    u.onend = () => { playingWord.value = null }
+    u.onerror = () => { playingWord.value = null }
+    window.speechSynthesis.speak(u)
+  }
+
+  // 自定义词直接播 TTS
+  if (customDict.value[word]) { playTTS(); return }
+
+  // D. 尝试播放原音
+  let audio = audioCache.get(word)
+  if (!audio || audio.error) {
+     const url = getCdnUrl(word) 
+     audio = new Audio(url)
+     audioCache.set(word, audio)
+  }
+  
+  audio.currentTime = 0
+  currentAudio.value = audio
+
+  // 🔥 核心逻辑：设定 3 秒超时
+  const playTimeout = setTimeout(() => {
+    // 如果 3秒 后还在加载状态 (isLoadingAudio 为 true)
+    if (playingWord.value === word && isLoadingAudio.value) {
+      console.warn('CDN 超时，强制掐断原音，切换 TTS')
+      
+      // 🔪 关键一刀：立刻停止音频加载，防止它待会儿诈尸
+      audio.pause()
+      audio.src = "" // 清空源，彻底断绝念想
+      
+      // 然后才播 TTS
+      playTTS()
+    }
+  }, 3000) // 给 3 秒时间，够多了
+
+  // E. 成功监听
+  const abortTimeout = () => {
+    clearTimeout(playTimeout) // 只要开始播了，就取消超时计时
+    isLoadingAudio.value = false
+  }
+
+  audio.onplay = abortTimeout
+  audio.oncanplaythrough = abortTimeout
+  
   audio.onended = () => { 
     playingWord.value = null
     currentAudio.value = null 
   }
-  
-  audio.onerror = () => {
-    // MP3 失败，尝试 TTS 机械音
-    currentAudio.value = null 
-    const u = new SpeechSynthesisUtterance(word)
-    u.lang = 'en-US'; u.volume = 1; u.rate = 0.85
-    const voices = window.speechSynthesis.getVoices()
-    const bestVoice = voices.find(v => v.name.includes('Google US')) || voices.find(v => v.lang.includes('en-US'))
-    if (bestVoice) u.voice = bestVoice
-    window._temp_tts = u
-    u.onend = () => { playingWord.value = null }
-    window.speechSynthesis.speak(u)
+
+  // F. 失败监听 (404 或 网络错误)
+  audio.onerror = (e) => {
+    console.warn('原音加载失败 (404或网络断开)', e)
+    clearTimeout(playTimeout)
+    audioCache.delete(word) // 删掉坏的缓存
+    playTTS() // 立即切 TTS
   }
 
-  audio.play().catch(e => console.log('MP3播放受阻'))
-  playingWord.value = word
+  // G. 执行播放
+  const playPromise = audio.play()
+  if (playPromise !== undefined) {
+    playPromise.catch(error => {
+      // 忽略因我们手动 pause 导致的 AbortError
+      if (error.name === 'AbortError') return
+      
+      console.warn('播放被阻断:', error)
+      clearTimeout(playTimeout)
+      playTTS()
+    })
+  }
 }
   
 // ★ 修改：输入框聚焦时自动播放
@@ -815,15 +980,16 @@ const playSentence = (text) => {
     console.log('正在播放:', text, '使用语音:', bestVoice ? bestVoice.name : '系统默认')
   }, 10)
 }
+
 // ==========================================
-// 🔴 修改：checkInput (集成了斩杀数统计逻辑)
+// 🔴 核心修复：checkInput (解决了语法报错并优化了记录逻辑)
 // ==========================================
 function checkInput(word, e) {
   // 1. 获取输入值和正确答案
   let val = e.target.value.trim().toLowerCase()
   let answer = word.en.toLowerCase()
 
-  // 2. 清洗数据
+  // 2. 清洗数据：统一引号格式并去除多余空格
   const normalize = (str) => {
     return str
       .replace(/[\u2018\u2019`]/g, "'") 
@@ -832,22 +998,21 @@ function checkInput(word, e) {
 
   const isCorrect = normalize(val) === normalize(answer)
   
+  // 更新红绿状态映射
   statusMap[word.en] = isCorrect ? 'correct' : 'error'
   
   if (isCorrect) {
-    // 答对了：显示中文
+    // --- 答对了 ---
     if (!revealedZh.has(word.en)) revealedZh.add(word.en)
-
+    
     // --- A. 学习模式 (第一次学) ---
     if (!isReviewMode.value) {
-      updateDailyStats('learn', 1) 
+      updateDailyStats('learn', 1)
       
       // 如果这个词之前没掌握，现在掌握了 -> 记入斩杀数(攻克数)
       if (!masteredList.value.includes(word.en)) {
         masteredList.value.push(word.en)
-        
-        // 🔥🔥🔥【新增 1】第一次学习变绿(掌握) -> 算作斩杀+1
-        updateDailyStats('kill', 1) 
+        updateDailyStats('kill', 1) // 第一次学习变绿算作斩杀+1
       }
       
       const idx = reviewList.value.findIndex(i => i.w === word.en)
@@ -858,38 +1023,65 @@ function checkInput(word, e) {
     // --- B. 复习模式 ---
     const idx = reviewList.value.findIndex(i => i.w === word.en)
     if (idx > -1) {
-      updateDailyStats('review', 1) 
-      const item = reviewList.value[idx]; item.stage += 1
+      updateDailyStats('review', 1)
+      const item = reviewList.value[idx]
+      item.stage += 1
       
-      // 如果达到了最大阶段 (6次艾宾浩斯完成)
+      // 如果达到了最大阶段 (完成所有艾宾浩斯周期)
       if (item.stage >= INTERVALS.length) {
         reviewList.value.splice(idx, 1) 
-        
         if (!killedList.value.includes(word.en)) {
           killedList.value.push(word.en)
-          
-          // 🔥🔥🔥【新增 2】复习通关变紫(斩杀) -> 算作斩杀+1
-          updateDailyStats('kill', 1) 
+          updateDailyStats('kill', 1) // 复习通关变紫算作斩杀+1
         }
       } else { 
-        item.time = Date.now() + INTERVALS[item.stage] * 60000; 
+        item.time = Date.now() + INTERVALS[item.stage] * 60000 
         reviewList.value = [...reviewList.value] 
       }
     }
   } else {
-    // 答错了
+    // --- 答错了 ---
     if (!revealedZh.has(word.en)) revealedZh.add(word.en)
     
+    // 🔥【修复代码】记录永久错误案底
+    const oldFailCount = globalFailHistory.value[word.en] || 0
+    globalFailHistory.value = {
+      ...globalFailHistory.value,
+      [word.en]: oldFailCount + 1
+    }
+
     if (!isReviewMode.value) {
-        if (masteredList.value.includes(word.en)) masteredList.value = masteredList.value.filter(w => w !== word.en)
+        // 学习模式答错：从已掌握中移除，并加入/更新复习列表
+        if (masteredList.value.includes(word.en)) {
+          masteredList.value = masteredList.value.filter(w => w !== word.en)
+        }
+        
         const existing = reviewList.value.find(i => i.w === word.en)
-        if (!existing) reviewList.value.push({ w: word.en, stage: 0, time: Date.now() + INTERVALS[0] * 60000 })
+        if (!existing) {
+           reviewList.value.push({ 
+             w: word.en, 
+             stage: 0, 
+             time: Date.now() + INTERVALS[0] * 60000, 
+             failCount: 1 
+           })
+        } else {
+           existing.failCount = (existing.failCount || 0) + 1
+           existing.stage = 0
+           existing.time = Date.now() + INTERVALS[0] * 60000
+        }
     } else {
+        // 复习模式答错：重置阶段并更新错误计数
         const idx = reviewList.value.findIndex(i => i.w === word.en)
-        if (idx > -1) { reviewList.value[idx].stage = 0; reviewList.value[idx].time = Date.now() + INTERVALS[0] * 60000 }
+        if (idx > -1) { 
+          reviewList.value[idx].stage = 0 
+          reviewList.value[idx].time = Date.now() + INTERVALS[0] * 60000 
+          reviewList.value[idx].failCount = (reviewList.value[idx].failCount || 0) + 1
+        }
     }
   }
 }
+
+
 // ==========================================
 // ⚔️ 智能斩杀/恢复逻辑 (Handle Kill/Restore)
 // ==========================================
@@ -927,10 +1119,10 @@ function doExport() {
     r: reviewList.value, 
     c: completedParts.value, 
     m: masteredList.value,
-    d: customDict.value, // 保存你的生词本
-    s: statsHistory.value, // <--- 🔥 加这一行 (s 代表 stats)
-    // 🔥🔥🔥【新增】导出笔记
-    n: groupNotes.value
+    d: customDict.value, 
+    s: statsHistory.value, 
+    n: groupNotes,
+    f: globalFailHistory.value
   }
   const blob = new Blob([JSON.stringify(data)], { type: 'application/json' })
   const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; 
@@ -972,10 +1164,10 @@ function onFileChange(e) {
         if(d.r) reviewList.value = d.r; 
         if(d.c) completedParts.value = d.c; 
         if(d.m) masteredList.value = d.m; 
-        if(d.d) customDict.value = d.d; // 恢复生词本
-        if(d.s) statsHistory.value = d.s; // <--- 🔥 加这一行
-        // 🔥🔥🔥【新增】导入笔记
+        if(d.d) customDict.value = d.d; 
+        if(d.s) statsHistory.value = d.s; 
         if(d.n) groupNotes.value = d.n;
+        if(d.f) globalFailHistory.value = d.f;
         alert('同步成功'); location.reload() 
       }
     } catch(e){ alert('文件格式错误') } 
@@ -1521,20 +1713,89 @@ const handleSpaceKey = (e) => {
     e.preventDefault(); clearPad()
   }
 }
-// ... 剩下的代码 (exportMistakes 等)
-function exportMistakes() {
-  if (reviewList.value.length === 0) { alert('当前没有错题记录'); return }
-  let content = "My IELTS Mistakes\n\n"; const list = [...reviewList.value].sort((a, b) => a.time - b.time)
-  list.forEach((item, index) => {
-    const info = findWordDetail(item.w)
-    content += `${index+1}. ${info.en} ${info.pos}\n   [义] ${info.zh}\n`
-    if(info.example) content += `   [例] ${info.example}\n`
-    if(info.notation) content += `   [注] ${info.notation}\n`
-    content += `\n`
+
+// ==========================================
+// 📊 新功能：易错单词排行榜 (Mistake Rank)
+// ==========================================
+const showMistakeModal = ref(false)
+const mistakePage = ref(1) 
+const MISTAKE_PAGE_SIZE = 20 
+
+// 🔥🔥🔥【新增 1】控制显示模式的开关 (false=正在攻坚, true=已攻克)
+const showConquered = ref(false)
+
+// 1. 计算易错榜单 (核心修改：根据开关分流)
+// 1. 计算易错榜单 (修复版：从永久记录读取)
+const sortedMistakeList = computed(() => {
+  // 1. 取出所有有过错误记录的单词
+  // 格式转换：从 { apple: 5, banana: 2 } 转为数组
+  const allMistakes = Object.keys(globalFailHistory.value).map(word => {
+    return {
+      w: word,
+      count: globalFailHistory.value[word]
+    }
+  }).filter(item => item.count > 0) // 再次确保大于0
+
+  // 2. 状态分流
+  const filteredList = allMistakes.filter(item => {
+    // 核心判断：是否在“已完成”列表 (斩杀 或 掌握)
+    const isFinished = killedList.value.includes(item.w) || masteredList.value.includes(item.w)
+    
+    // 如果该词既不在复习列表，也不在斩杀/掌握列表，说明可能是刚加入但还没学的，或者数据异常，
+    // 为了严谨，如果 showConquered = false (攻坚)，我们通常只显示“正在复习列表里”的词。
+    // 但为了不漏掉，我们定义：
+    // 已攻克 = 在 killedList 或 masteredList
+    // 正在攻坚 = 不在上述列表 (通常意味着在 reviewList 或 正在学习)
+    
+    if (showConquered.value) {
+      return isFinished
+    } else {
+      return !isFinished
+    }
   })
-  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
-  const url = URL.createObjectURL(blob); const a = document.createElement('a')
-  a.href = url; a.download = `mistakes.txt`; a.click(); URL.revokeObjectURL(url)
+
+  // 3. 组装数据 & 排序
+  return filteredList.map(item => {
+      const info = findWordDetail(item.w)
+      return {
+        en: item.w,
+        count: item.count, // 🔥 这里用的是永久记录的 count
+        zh: info.zh,           
+        source: info.source,
+        rawInfo: info
+      }
+    })
+    .sort((a, b) => b.count - a.count) 
+})
+
+// 2. 当前页的数据 (保持不变)
+const currentMistakePageData = computed(() => {
+  const start = (mistakePage.value - 1) * MISTAKE_PAGE_SIZE
+  const end = start + MISTAKE_PAGE_SIZE
+  return sortedMistakeList.value.slice(start, end)
+})
+
+// 3. 总页数 (保持不变)
+const totalMistakePages = computed(() => {
+  return Math.ceil(sortedMistakeList.value.length / MISTAKE_PAGE_SIZE) || 1
+})
+
+// 4. 打开弹窗 (保持不变，默认重置为第一页，默认看攻坚榜)
+const openMistakeModal = () => {
+  mistakePage.value = 1 
+  showConquered.value = false // 每次打开默认看“未完成”的，想看战利品自己点
+  showMistakeModal.value = true
+}
+
+// 5. 跳转 (保持不变)
+const jumpToWordNewTab = (item) => {
+  const url = getSourceUrl(item.rawInfo)
+  if (!url || url === '#') {
+    alert('该单词来自自定义生词本，暂无固定章节位置')
+    return
+  }
+  const fullUrl = window.location.origin + url
+  window.open(fullUrl, '_blank')
 }
 
 const isCurrentPartCompleted = computed(() => {
@@ -1579,6 +1840,7 @@ const modalIsBreak = ref(false)   // 弹窗显示的是"休息结束"还是"专�
 const pomoSeconds = ref(getFocusSeconds())
 const pomoState = ref('idle')     // idle, running, paused
 const isBreak = ref(false)        // 当前是否在休息模式
+const pomoEndTime = ref(0)        // 🔥🔥🔥【新增】记录绝对结束时间戳
 let timer = null
 
 // 🔥🔥🔥【补全 2】丢失的格式化函数
@@ -1588,10 +1850,10 @@ const formatTime = (seconds) => {
   return `${m < 10 ? '0' + m : m}:${s < 10 ? '0' + s : s}`
 }
 
-// 🔥🔥🔥【补全 3】丢失的保存函数
 const savePomo = () => {
   localStorage.setItem('my_ielts_pomo', JSON.stringify({
     seconds: pomoSeconds.value,
+    endTime: pomoEndTime.value, // 🔥🔥🔥【新增】保存结束时间
     isBreak: isBreak.value,
     state: pomoState.value,
     timestamp: Date.now()
@@ -1638,46 +1900,65 @@ const handleModalOverlayClick = () => {
   savePomo()
 }
 
-// 9. 核心开始函数 (修复状态翻转逻辑)
-const startTimer = () => {
+// 9. 核心开始函数
+const startTimer = (resumeVal) => {
+  // 判断是否是页面加载时的自动恢复
+  const isResuming = resumeVal === true
+
   if (pomoState.value === 'running') return
   if (timer) clearInterval(timer)
-  
-  // 时间归零时的重置逻辑
+
+  // A. 如果是完全重新开始（idle状态），重置时间
+  if (!isResuming && pomoState.value === 'idle' && !isBreak.value) {
+     pomoSeconds.value = getFocusSeconds()
+  }
+
+  // 兜底
   if (pomoSeconds.value <= 0) {
      pomoSeconds.value = isBreak.value ? 5 * 60 : getFocusSeconds()
   }
 
+  // B. 🔥🔥🔥【关键逻辑】重新计算结束时间
+  // 触发条件：
+  // 1. 用户点击了播放按钮 (isResuming 为 false)
+  // 2. 无论之前是 idle 还是 paused，只要是用户点击开始，就以【当前时间 + 剩余秒数】为准
+  if (!isResuming) {
+    const now = Date.now()
+    pomoEndTime.value = now + (pomoSeconds.value * 1000)
+  }
+
   pomoState.value = 'running'
-  savePomo()
+  savePomo() // 保存状态
 
   timer = setInterval(() => {
-    if (pomoSeconds.value > 0) {
-      pomoSeconds.value--
+    const currentNow = Date.now()
+    // 核心：倒计时是根据 (结束时间 - 当前时间) 算出来的
+    const remaining = Math.ceil((pomoEndTime.value - currentNow) / 1000)
+
+    if (remaining > 0) {
+      pomoSeconds.value = remaining
       
-      // 更新网页标题
       const icon = isBreak.value ? '☕' : '🍅'
       const statusText = isBreak.value ? '休息' : '专注'
       document.title = `${formatTime(pomoSeconds.value)} ${icon} ${statusText}`
 
-      if (!isBreak.value) {
-        updateDailyStats('duration', 1)
-      }
+      // 只有非休息模式且秒数变化时才记录专注时长(这里逻辑保持你原有的即可)
+      // 注意：为了防止每秒刷 Storage 太频繁，savePomo 其实可以节流，但为了准确性暂时不动
+      if (!isBreak.value) updateDailyStats('duration', 1) 
+      
       savePomo() 
     } else {
       // ⏰ 倒计时结束
+      pomoSeconds.value = 0
       stopTimer(false) 
       
-      // 1. 记录刚才结束的状态
       const justFinishedBreak = isBreak.value 
       modalIsBreak.value = justFinishedBreak 
 
-      // 2. 播放声音 & 弹窗
       playSound(justFinishedBreak ? DO_SOUND : TIMEOUT_SOUND)
       showModal.value = true
       document.title = '🔔 时间到！'
 
-      // 3. 翻转状态：为下一轮做准备
       isBreak.value = !justFinishedBreak 
       pomoSeconds.value = isBreak.value ? 5 * 60 : getFocusSeconds()
       
@@ -1693,62 +1974,214 @@ const stopTimer = (reset = true) => {
     timer = null
   }
   pomoState.value = 'idle'
+  
+  // 清除缓存，防止刷新后又恢复到这个暂停点
   localStorage.removeItem('my_ielts_pomo') 
   
   if (reset) { 
-    pomoSeconds.value = isBreak.value ? 5 * 60 : getFocusSeconds()
+    // 🔥🔥🔥【修复 2】解决 "休息状态点停止变成5分钟，刷新又乱"
+    // 逻辑：如果你在休息时点了停止，通常意味着你想结束休息回到工作，
+    // 或者彻底重置。这里我们逻辑设定为：手动停止 = 回到专注准备状态。
+    if (isBreak.value) {
+       isBreak.value = false // 强制退出休息模式
+    }
+    
+    // 重置回下拉框选定的时间
+    pomoSeconds.value = getFocusSeconds()
     document.title = 'MyIELTS' 
   }
 }
+  
+// 🔥🔥🔥【新增】回到顶部逻辑
+const showBackToTop = ref(false)
 
+// 🔥🔥🔥【新增】控制复制按钮的显隐变量 (默认显示，因为一开始在顶部)
+const showSmartCopyBtn = ref(true)
+
+const handleScroll = () => {
+  const scrollTop = window.scrollY
+  const winHeight = window.innerHeight
+  const docHeight = document.documentElement.scrollHeight
+
+  // 当页面滚动超过 300px 时显示按钮
+  showBackToTop.value = window.scrollY > 300
+
+  // 2. 🔥 修复：大幅缩小判定范围，防止“撞车”
+  
+  // 【判定A】是不是在最顶上？(只给 50px 的空间)
+  const isAtTop = scrollTop < 50
+
+  // 【判定B】是不是在最底下？(只给 20px 的空间，到底才显示)
+  // 计算距离底部的剩余距离
+  const distFromBottom = docHeight - (scrollTop + winHeight)
+  const isAtBottom = distFromBottom < 20
+  
+  // 【判定C】短页面特判 (核心修复)
+  // 如果页面内容太少，滑都没法滑，那就干脆一直显示，别闪了
+  // 逻辑：如果文档高度 < 屏幕高度的 1.2 倍，就算短页面
+  const isShortPage = docHeight < (winHeight * 1.2)
+
+  showSmartCopyBtn.value = isAtTop || isAtBottom || isShortPage
+}
+
+const scrollToTop = () => {
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+// 修改 onMounted，添加滚动监听
+onMounted(() => {
+  window.addEventListener('resize', updateWidth) // 原有的
+  window.addEventListener('scroll', handleScroll) // 🔥 新增
+  
+  // ... 原有的其他代码 ...
+})
+
+// 修改 onUnmounted，记得销毁监听
+onUnmounted(() => {
+  if (timer) clearInterval(timer) // 原有的
+  if (cloudMenuTimer) clearTimeout(cloudMenuTimer) // 原有的
+  
+  window.removeEventListener('resize', updateWidth)
+  window.removeEventListener('scroll', handleScroll) // 🔥 新增
+})
+  
 // 🔥🔥🔥【新增】组件销毁/刷新时，自动清理定时器
 onUnmounted(() => {
   if (timer) clearInterval(timer)
 })
 
-
 onMounted(() => {
+  
+
+ // 1. 番茄钟恢复逻辑 (修复版：完美区分暂停和运行)
   const local = localStorage.getItem('my_ielts_pomo')
   if (local) {
     try {
       const data = JSON.parse(local)
-      // 1. 恢复模式（是休息还是专注）
-      isBreak.value = data.isBreak
       
-      // 2. 如果之前是【暂停】状态，直接恢复数字即可
+      // A. 如果保存的状态是【暂停中】，则"冻结"时间
       if (data.state === 'paused') {
-        pomoSeconds.value = data.seconds
-        pomoState.value = 'paused'
+          console.log('恢复暂停状态，时间冻结')
+          isBreak.value = data.isBreak
+          pomoSeconds.value = data.seconds // 直接用保存的秒数，不计算流逝
+          pomoState.value = 'paused'
+          // 恢复标题
+          const icon = isBreak.value ? '☕' : '🍅'
+          const statusText = isBreak.value ? '休息' : '专注'
+          document.title = `⏸ ${formatTime(pomoSeconds.value)} ${icon} ${statusText}`
       } 
-      // 3. 如果之前是【运行】状态，需要扣除掉“刷新页面期间流逝的时间”
-      else if (data.state === 'running') {
-        const now = Date.now()
-        const elapsed = Math.floor((now - data.timestamp) / 1000) // 刚才过去了多少秒
-        const remaining = data.seconds - elapsed // 剩余时间
+      // B. 如果保存的状态是【运行中】，则计算流逝时间
+      else if (data.endTime) {
+          const now = Date.now()
+          const remaining = Math.ceil((data.endTime - now) / 1000)
 
-        if (remaining > 0) {
-          // 还有剩余时间，继续跑
-          pomoSeconds.value = remaining
-          startTimer() 
-        } else {
-          // 离开期间时间已经走完了
-          pomoSeconds.value = 0
-          stopTimer(false) // 标记为结束
-          // 可选：是否要在进来时直接弹窗？为了不吓到人，这里暂不弹窗，只归零
-        }
+          if (remaining > 0) {
+              // 时间还没跑完 -> 继续跑
+              isBreak.value = data.isBreak 
+              pomoSeconds.value = remaining
+              pomoEndTime.value = data.endTime 
+              
+              // 自动启动 (传入 true 表示这是恢复模式，不需要重置时间)
+              startTimer(true) 
+          } else {
+              // 时间已经跑完了
+              console.log('检测到后台倒计时已过期，自动重置')
+              localStorage.removeItem('my_ielts_pomo')
+              isBreak.value = false 
+              pomoState.value = 'idle'
+              pomoSeconds.value = getFocusSeconds() 
+          }
       }
-    } catch (e) {
-      console.error('番茄钟恢复失败', e)
+    } catch (e) { 
+      console.error('番茄钟恢复失败', e) 
+      localStorage.removeItem('my_ielts_pomo')
     }
   }
-  // ★ 新增：预热语音引擎（这行代码能解决 80% 的没声音问题）
   window.speechSynthesis.getVoices()
+  
+
+  // 2. 🔥🔥🔥【IQ 200版】精准跳转逻辑
+  const params = new URLSearchParams(window.location.search)
+  const targetChap = params.get('chap')
+  const targetPart = params.get('part')
+  const targetAnchor = params.get('anchor') // 获取目标单词
+  
+  if (targetChap && targetPart) {
+    isSearchJumping = true // 🔒 锁定，防止 watch 重置页码
+
+    // A. 切换数据
+    isReviewMode.value = false
+    currentChapter.value = decodeURIComponent(targetChap)
+    chunkIndex.value = parseInt(targetPart)
+    
+    // B. 解锁
+    nextTick(() => { isSearchJumping = false })
+    
+    // C. 滚动定位 (增加延时确保渲染)
+    setTimeout(() => {
+      let targetEl = null
+      
+      // 优先策略：如果有具体单词，找单词的 ID
+      if (targetAnchor) {
+        const decodedWord = decodeURIComponent(targetAnchor)
+        // ID 规则必须和模板里的一致: word-row-单词名(空格转下划线)
+        const elementId = 'word-row-' + decodedWord.replace(/\s+/g, '_')
+        targetEl = document.getElementById(elementId)
+      }
+      
+      // 兜底策略：如果没找到具体单词（比如单词改名了），就找本页第一个词
+      if (!targetEl) {
+        targetEl = document.querySelector('.row-item')
+      }
+
+      // 执行滚动和高亮
+      if (targetEl) {
+        targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        targetEl.classList.add('highlight-flash') // 闪烁特效
+        setTimeout(() => targetEl.classList.remove('highlight-flash'), 2500)
+      }
+    }, 600) // 600ms 等待 Vue 渲染列表
+  }
 })
 
-// 监听 tab 可见性变化（防止手机熄屏或长时间后台运行导致的计时器休眠偏差）
+// 🔥🔥🔥【核心修复】手机后台运行校准逻辑 🔥🔥🔥
+// 监听 tab 可见性变化（防止手机熄屏或切换App导致的计时器暂停）
 document.addEventListener('visibilitychange', () => {
+  // 只有当 1. 页面重新变得可见  2. 番茄钟理论上正在运行 时才执行
   if (document.visibilityState === 'visible' && pomoState.value === 'running') {
-     // 重新读取一次校准（可选优化，目前用上面的 localStorage 逻辑基本够用）
+     const local = localStorage.getItem('my_ielts_pomo')
+     
+     if (local) {
+       try {
+         const data = JSON.parse(local)
+         // 获取当前时间
+         const now = Date.now()
+         
+         // 计算：(现在的时间 - 上次保存的时间) = 离开了多久(秒)
+         // 注意：data.timestamp 是上次 setInterval 跑的时候存的
+         const elapsed = Math.floor((now - data.timestamp) / 1000)
+         
+         // 如果离开时间很短（比如小于1秒），忽略不计，防止闪烁
+         if (elapsed > 1) {
+           console.log(`后台运行了 ${elapsed} 秒，正在校准...`)
+           
+           // 计算剩余时间
+           const remaining = data.seconds - elapsed
+           
+           if (remaining > 0) {
+             // 如果还有时间，直接修正进度条
+             pomoSeconds.value = remaining
+           } else {
+             // 如果时间在后台已经跑完了
+             pomoSeconds.value = 0
+             // 这里不需要手动调用 stopTimer，
+             // 因为 setInterval 里的下一次检测会自动触发“时间到”的逻辑
+           }
+         }
+       } catch (e) {
+         console.error('校准时间失败', e)
+       }
+     }
   }
 })
 
@@ -1795,11 +2228,13 @@ const moveSelection = (step) => {
 }
 
 // ==========================================
-// 2. 搜索输入处理 (已优化排序逻辑)
+// 2. 搜索输入处理 (已升级：支持中文搜索)
 // ==========================================
 const handleSearchInput = () => {
   selectedIndex.value = -1 // 重置键盘选中状态
   
+  // 🔥 去掉 .toLowerCase() 限制，或者是保留它但搜索时也要兼顾原样
+  // 但通常中文转小写没影响，保留即可
   const q = searchQuery.value.trim().toLowerCase()
   if (!q) {
     searchResults.value = []
@@ -1811,10 +2246,12 @@ const handleSearchInput = () => {
 
   // A. 先搜自定义词典
   for (const key in customDict.value) {
-    if (key.toLowerCase().includes(q)) {
+    const zh = customDict.value[key].zh || ''
+    // 🔥 修改 1：同时匹配 英文(key) 或 中文(zh)
+    if ((key.toLowerCase().includes(q) || zh.includes(q))) {
       results.push({ 
         en: key, 
-        zh: customDict.value[key].zh, 
+        zh: zh, 
         source: '我的生词本', 
         isCustom: true 
       })
@@ -1855,8 +2292,9 @@ const handleSearchInput = () => {
           const en = extractText(rawEn)
           const lowerEn = en.toLowerCase()
 
+          // 🔥 修改 2：同时匹配 英文(lowerEn) 或 中文(zh)
           // 只要包含就加入，稍后统一排序
-          if (lowerEn.includes(q) && !addedKeys.has(en)) {
+          if ((lowerEn.includes(q) || zh.includes(q)) && !addedKeys.has(en)) {
             results.push({ 
               en, 
               zh, 
@@ -1870,33 +2308,30 @@ const handleSearchInput = () => {
         }
         currentPartCount += validCountInGroup
       }
-      if (results.length > 100) break // 稍微放宽一点限制，方便排序后筛选
+      if (results.length > 100) break 
     }
   }
 
-  // 🔥🔥🔥【核心修改】对结果进行智能排序 🔥🔥🔥
+  // 排序逻辑 (保持不变，英文匹配优先，中文匹配的会自动按长度排)
   results.sort((a, b) => {
     const valA = a.en.toLowerCase()
     const valB = b.en.toLowerCase()
 
     // 1. 👑 王者级：完全匹配的最优先
-    // (例如搜 "thesis"，那么 "thesis" 必须排第一，"photosynthesis" 靠边站)
     if (valA === q && valB !== q) return -1
     if (valB === q && valA !== q) return 1
 
     // 2. 🥈 钻石级：以搜索词开头的优先
-    // (例如搜 "the"，"theory" 应该排在 "photosynthesis" 前面)
     const startA = valA.startsWith(q)
     const startB = valB.startsWith(q)
     if (startA && !startB) return -1
     if (startB && !startA) return 1
 
-    // 3. 🥉 黄金级：单词越短越优先 (通常短词是词根)
-    // (例如搜 "the"，"them" 比 "themselves" 更靠前)
+    // 3. 🥉 黄金级：单词越短越优先
     return valA.length - valB.length
   })
 
-  // 截取前 50 个显示，避免列表过长
+  // 截取前 50 个显示
   searchResults.value = results.slice(0, 50)
 }
 
@@ -2000,6 +2435,35 @@ const goToWord = (item) => {
   }, 400) 
 }
 
+// 🔥🔥🔥【IQ 200版】生成跳转链接 (带锚点参数)
+const getSourceUrl = (wordItem) => {
+  // 兼容性处理：如果传入的是字符串(旧代码)，防止报错
+  const sourceStr = typeof wordItem === 'string' ? wordItem : wordItem.source
+  const wordEn = typeof wordItem === 'string' ? '' : wordItem.en
+  
+  if (!sourceStr || sourceStr === '生词本' || sourceStr === '未知') return '#'
+  
+  const separator = ' Part '
+  const lastIndex = sourceStr.lastIndexOf(separator)
+  if (lastIndex === -1) return '#'
+
+  const targetChapter = sourceStr.substring(0, lastIndex)
+  const partStr = sourceStr.substring(lastIndex + separator.length)
+  const targetPartIdx = parseInt(partStr) - 1
+  
+  // 1. 构造 Query 参数 (新增 &anchor=单词)
+  let query = `?chap=${encodeURIComponent(targetChapter)}&part=${targetPartIdx}`
+  if (wordEn) {
+    query += `&anchor=${encodeURIComponent(wordEn)}`
+  }
+  
+  // 2. 获取 Hash，防止跳回首页
+  const currentHash = window.location.hash
+  
+  // 3. 完整拼接
+  return `${window.location.pathname}${query}${currentHash}`
+}
+  
 // ==========================================
 // 🔥 新增：复习阶段折叠控制
 // ==========================================
@@ -2114,125 +2578,384 @@ const isFloatBtnLeft = computed(() => {
 })
 
 // ==========================================
-// 🔥🔥🔥【新增】分组笔记/辨析功能逻辑
+// 🔥🔥🔥【升级版】分组笔记/辨析功能逻辑 (修复版)
 // ==========================================
 const showNoteModal = ref(false)
-const currentNoteKey = ref('') // 存当前正在编辑的 Key (如 Chapter1_5)
-const noteForm = reactive({ title: '', content: '' })
+const currentNoteKey = ref('') 
+// 新增：笔记列表数据
+const noteList = ref([]) 
+const currentNoteIdx = ref(0) 
+const isNoteEditing = ref(false) 
 
 // 1. 生成唯一 Key
 const getGroupKey = (groupId) => {
   return `${currentChapter.value}_${groupId}`
 }
 
-// 2. 打开窗口
-const openNoteModal = (groupId) => {
+// 升级版：使用 marked 解析 Markdown (保留此函数)
+const renderMarkdown = (text) => {
+  if (!text) return ''
+  try { return marked.parse(text) } catch (e) { return text }
+}
+
+// 2. 打开笔记窗口 (智能合并：阅读/编辑合二为一)
+const openNoteModal = (groupId, mode = 'read') => {
   const key = getGroupKey(groupId)
   currentNoteKey.value = key
-  const note = groupNotes.value[key] || { title: '', content: '' }
-  
-  noteForm.title = note.title
-  noteForm.content = note.content
+  const savedData = groupNotes.value[key]
+
+  // 数据初始化与迁移
+  if (!savedData) {
+    noteList.value = [{ title: '辨析点 1', content: '' }]
+    mode = 'edit' 
+  } else if (savedData.content !== undefined && !Array.isArray(savedData)) {
+    // 旧数据迁移
+    noteList.value = [{ title: savedData.title || '辨析点 1', content: savedData.content }]
+  } else if (Array.isArray(savedData)) {
+    noteList.value = JSON.parse(JSON.stringify(savedData))
+  } else {
+    noteList.value = [{ title: '辨析点 1', content: '' }]
+  }
+
+  // 重置状态
+  currentNoteIdx.value = 0
+  isNoteEditing.value = (mode === 'edit')
   showNoteModal.value = true
 }
 
-// ==========================================
-// 🔥🔥🔥【新增】阅读模式逻辑
-// ==========================================
-const showReadModal = ref(false)
-const readNoteData = reactive({ title: '', content: '', groupId: -1 })
-
-// 升级版：使用 marked 解析 Markdown (支持表格、引用、代码块等)
-const renderMarkdown = (text) => {
-  if (!text) return ''
-  try {
-    // marked.parse 会把 markdown 文本变成标准的 HTML
-    return marked.parse(text)
-  } catch (e) {
-    return text // 如果解析失败，兜底显示纯文本
-  }
+// 3. 切换当前的辨析点
+const switchNote = (index) => {
+  currentNoteIdx.value = index
+  isNoteEditing.value = !noteList.value[index].content 
 }
 
-// 打开阅读窗
-const openReadModal = (groupId) => {
-  const key = getGroupKey(groupId)
-  const note = groupNotes.value[key]
+// 4. 添加新的辨析点
+const addNewNote = () => {
+  const newIdx = noteList.value.length
+  noteList.value.push({ title: `辨析点 ${newIdx + 1}`, content: '' })
+  switchNote(newIdx) 
+  isNoteEditing.value = true 
+}
 
-  // 如果没内容，去编辑
-  if (!note || (!note.title && !note.content)) {
-    openNoteModal(groupId)
+// 5. 删除当前辨析点
+const deleteCurrentNote = () => {
+  if (noteList.value.length <= 1) {
+    noteList.value[0].content = ''
+    noteList.value[0].title = '辨析点 1'
     return
   }
-
-  // 🔥🔥🔥【修改】如果标题为空，默认显示 "词义辨析"
-  readNoteData.title = note.title || '词义辨析' 
-
-  readNoteData.content = note.content
-  readNoteData.groupId = groupId
-  showReadModal.value = true
+  if (!confirm('确定要删除这条辨析吗？')) return
+  noteList.value.splice(currentNoteIdx.value, 1)
+  if (currentNoteIdx.value >= noteList.value.length) {
+    currentNoteIdx.value = noteList.value.length - 1
+  }
 }
 
-// 从阅读模式跳转到编辑模式
-const switchToEdit = () => {
-  showReadModal.value = false
-  openNoteModal(readNoteData.groupId)
-}
-
-// 3. 保存笔记
+// 6. 保存笔记
 const saveNote = () => {
-  if (!noteForm.title.trim() && !noteForm.content.trim()) {
-    // 如果全空，就是删除
+  const validNotes = noteList.value.filter(n => n.title.trim() || n.content.trim())
+  if (validNotes.length === 0) {
     const newNotes = { ...groupNotes.value }
     delete newNotes[currentNoteKey.value]
     groupNotes.value = newNotes
   } else {
-    // 保存
-    groupNotes.value = {
-      ...groupNotes.value,
-      [currentNoteKey.value]: { 
-        title: noteForm.title.trim(), 
-        content: noteForm.content 
-      }
-    }
+    groupNotes.value = { ...groupNotes.value, [currentNoteKey.value]: validNotes }
   }
-  showNoteModal.value = false
+  isNoteEditing.value = false
 }
 
-// 4. 获取当前显示的标题 (用于模板显示)
-const getGroupTitle = (groupId) => {
-  const key = getGroupKey(groupId)
-  const title = groupNotes.value[key]?.title || ''
-  // 🔥 修复：如果只有空格，也算没标题
-  return title.trim()
-}
+// 7. 辅助计算
+const currentNote = computed(() => {
+  return noteList.value[currentNoteIdx.value] || { title: '', content: '' }
+})
 
-// 🔥 新增：判断该组是否有笔记数据（无论是有标题，还是有内容，都算有）
-const hasNoteData = (groupId) => {
-  const key = getGroupKey(groupId)
-  const note = groupNotes.value[key]
-  // 只要对象存在，且 (标题不为空 OR 内容不为空)，就返回 true
-  return note && ( (note.title && note.title.trim()) || (note.content && note.content.trim()) )
-}
-
-// 🔥 修改：为了防止标题为空时界面塌陷，如果没有标题但有内容，返回默认文案
+// 8. 界面显示标题
 const getDisplayTitle = (groupId) => {
   const key = getGroupKey(groupId)
-  const note = groupNotes.value[key]
-  if (!note) return ''
-  
-  // 优先返回用户写的标题
-  if (note.title && note.title.trim()) return note.title.trim()
-  
-  // 如果没标题但有内容，返回默认占位符
-  if (note.content && note.content.trim()) return '📝 词义辨析'
-  
+  const data = groupNotes.value[key]
+  if (!data) return ''
+  if (!Array.isArray(data)) {
+    if (data.title && data.title.trim()) return data.title.trim()
+    if (data.content) return '📝 词义辨析'
+    return ''
+  }
+  if (data.length > 0) {
+    const first = data[0]
+    if (first.title && first.title !== '辨析点 1') return first.title
+    return `📝 词义辨析 (${data.length})`
+  }
   return ''
 }
-const removeAudioTag = (word) => {
-  if (confirm(`确认移除 "${word}" 的听觉依赖标记吗？`)) {
-    audioPeekHistory.value = audioPeekHistory.value.filter(w => w !== word)
+
+// 9. 判断是否有笔记
+const hasNoteData = (groupId) => {
+  const key = getGroupKey(groupId)
+  const data = groupNotes.value[key]
+  if (!data) return false
+  if (!Array.isArray(data)) return (data.title && data.title.trim()) || (data.content && data.content.trim())
+  return data.length > 0
+}
+
+
+// ==========================================
+// ☁️ 云同步功能
+// ==========================================
+const showSyncModal = ref(false)
+const syncConfig = reactive({
+  token: localStorage.getItem('my_ielts_gh_token') || '',
+  gistId: localStorage.getItem('my_ielts_gh_gist_id') || ''
+})
+const isSyncing = ref(false) // loading 状态
+// 🔥🔥🔥【新增】判断下载按钮是否应该禁用
+const isDownloadDisabled = computed(() => {
+  // 1. 如果正在同步中，禁用
+  if (isSyncing.value) return true
+  // 2. 如果还没检测到云端时间，为了安全先禁用 (除非你确定要覆盖)
+  if (!serverTime.value) return true
+  // 3. 如果本地时间存在，且本地时间 >= 云端时间，说明本地是最新的，禁用下载
+  if (lastSyncTime.value && lastSyncTime.value >= serverTime.value) {
+    return true
+  }
+  return false
+})
+// 🔥 新增：控制云同步菜单的展开/收起
+const isCloudMenuOpen = ref(false)
+
+// 🔥🔥🔥【云同步核心逻辑 - 完整修复版】🔥🔥🔥
+
+// 1. 定义定时器
+let cloudMenuTimer = null
+
+// 2. 上次同步时间
+const lastSyncTime = useMyStorage('my_ielts_last_sync_time', '')
+
+// 3. 更新时间的工具函数
+const updateSyncTime = () => {
+  const now = new Date()
+  const m = String(now.getMonth() + 1).padStart(2, '0')
+  const d = String(now.getDate()).padStart(2, '0')
+  const h = String(now.getHours()).padStart(2, '0')
+  const min = String(now.getMinutes()).padStart(2, '0')
+  lastSyncTime.value = `${m}/${d} ${h}:${min}`
+}
+
+// 4. 云端版本检测变量
+const serverTime = ref('')
+const isNewVersionAvailable = ref(false)
+const isCheckingCloud = ref(false)
+
+// 修改后的 checkCloudStatus
+const checkCloudStatus = async () => {
+  if (!syncConfig.token || !syncConfig.gistId) return
+  
+  // 安全起见，开始检测时也清除一下旧定时器
+  if (cloudMenuTimer) clearTimeout(cloudMenuTimer)
+
+  isCheckingCloud.value = true
+  try {
+    const res = await fetch(`https://api.github.com/gists/${syncConfig.gistId}`, {
+      headers: { 'Authorization': `token ${syncConfig.token}` }
+    })
+    
+    if (res.ok) {
+      const data = await res.json()
+      const serverDate = new Date(data.updated_at)
+      
+      const m = String(serverDate.getMonth() + 1).padStart(2, '0')
+      const d = String(serverDate.getDate()).padStart(2, '0')
+      const h = String(serverDate.getHours()).padStart(2, '0')
+      const min = String(serverDate.getMinutes()).padStart(2, '0')
+      serverTime.value = `${m}/${d} ${h}:${min}`
+
+      // 智能对比
+      if (lastSyncTime.value && serverTime.value > lastSyncTime.value) {
+        isNewVersionAvailable.value = true
+        
+        // 🔥 情况 A：有更新 -> 停留 10 秒，给用户时间反应去点下载
+        console.log('有更新，弹窗停留 10s')
+        cloudMenuTimer = setTimeout(() => {
+          isCloudMenuOpen.value = false
+        }, 10000)
+
+      } else {
+        isNewVersionAvailable.value = false
+        
+        // 🔥 情况 B：无需更新 -> 停留 2 秒，看完即走
+        console.log('无更新，弹窗停留 2s')
+        cloudMenuTimer = setTimeout(() => {
+          isCloudMenuOpen.value = false
+        }, 2000)
+      }
+    }
+  } catch (e) {
+    console.error('检测云端失败', e)
+    // 🔥 情况 C：出错 -> 停留 3 秒让用户看清错误（可选）
+    cloudMenuTimer = setTimeout(() => {
+      isCloudMenuOpen.value = false
+    }, 3000)
+  } finally {
+    isCheckingCloud.value = false
   }
 }
+
+// 修改后的 toggleCloudMenu
+const toggleCloudMenu = () => {
+  // 1. 每次点击先清除可能存在的旧定时器，防止逻辑冲突
+  if (cloudMenuTimer) clearTimeout(cloudMenuTimer)
+
+  isCloudMenuOpen.value = !isCloudMenuOpen.value
+
+  if (isCloudMenuOpen.value) {
+    // 2. 打开时立即检测
+    // 注意：这里不再设置 setTimeout，而是把控制权交给 checkCloudStatus
+    checkCloudStatus()
+  }
+}
+  
+// 保存配置
+const saveSyncConfig = () => {
+  localStorage.setItem('my_ielts_gh_token', syncConfig.token.trim())
+  localStorage.setItem('my_ielts_gh_gist_id', syncConfig.gistId.trim())
+  alert('配置已保存！✅')
+  showSyncModal.value = false
+}
+
+// 🔥 上传到云端 (Backup)
+const uploadToCloud = async () => {
+  if (!syncConfig.token || !syncConfig.gistId) return alert('请先点击 ⚙️ 配置 GitHub Token 和 Gist ID')
+  
+  if (!confirm('确定要覆盖云端数据吗？(云端旧数据将丢失)')) return
+
+  isSyncing.value = true
+  try {
+    // 1. 准备数据 (复用你之前的导出逻辑)
+    const data = { 
+      k: killedList.value, 
+      r: reviewList.value, 
+      c: completedParts.value, 
+      m: masteredList.value,
+      d: customDict.value, 
+      s: statsHistory.value, 
+      n: groupNotes.value,
+      // 新增：故事列表
+      st: pageStories.value, 
+      // 新增：听觉依赖
+      ap: audioPeekHistory.value ,
+      f: globalFailHistory.value
+    }
+    const content = JSON.stringify(data)
+
+    // 2. 调用 GitHub API
+    const url = `https://api.github.com/gists/${syncConfig.gistId}`
+    const res = await fetch(url, {
+      method: 'PATCH', // Gist 更新用 PATCH
+      headers: {
+        'Authorization': `token ${syncConfig.token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        files: {
+          'data.json': { content: content } // 必须对应你Gist里的文件名
+        }
+      })
+    })
+
+    if (res.ok) {
+      updateSyncTime() // 更新本地时间
+      
+      // 🔥🔥🔥【新增】上传成功后，手动更新界面上的云端时间状态
+      // 让系统知道现在“云端”和“本地”已经一样新了
+      serverTime.value = lastSyncTime.value 
+      isNewVersionAvailable.value = false
+      
+      alert('☁️ 上传成功！数据已安全保存到 Gist。')
+    } else {
+      throw new Error(res.statusText)
+    }
+  } catch (e) {
+    alert('上传失败，请检查 Token 或网络: ' + e.message)
+    console.error(e)
+  } finally {
+    isSyncing.value = false
+  }
+}
+
+
+  
+// 🔥 从云端下载 (Restore)
+const downloadFromCloud = async () => {
+  if (!syncConfig.token || !syncConfig.gistId) return alert('请先点击 ⚙️ 配置 GitHub Token 和 Gist ID')
+  
+  if (!confirm('⚠️ 警告：这将用云端数据覆盖当前本地进度！确定吗？')) return
+
+  isSyncing.value = true
+  try {
+    const url = `https://api.github.com/gists/${syncConfig.gistId}`
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Authorization': `token ${syncConfig.token}`
+      }
+    })
+    
+    if (!res.ok) throw new Error(res.statusText)
+    
+    const json = await res.json()
+    // 获取文件内容
+    const fileContent = json.files['data.json'].content
+    const d = JSON.parse(fileContent)
+
+    // 恢复数据 (复用你之前的导入逻辑)
+    if(d.k) killedList.value = d.k; 
+    if(d.r) reviewList.value = d.r; 
+    if(d.c) completedParts.value = d.c; 
+    if(d.m) masteredList.value = d.m; 
+    if(d.d) customDict.value = d.d; 
+    if(d.s) statsHistory.value = d.s; 
+    if(d.n) groupNotes.value = d.n;
+    // 恢复新增字段
+    if(d.st) pageStories.value = d.st;
+    if(d.ap) audioPeekHistory.value = d.ap;
+    if(d.f) globalFailHistory.value = d.f;
+    updateSyncTime() // 🔥【新增】下载成功更新时间
+    alert('☁️ 同步成功！本地进度已更新。')
+    location.reload() // 刷新页面确保状态正确
+
+  } catch (e) {
+    alert('下载失败: ' + e.message)
+    console.error(e)
+  } finally {
+    isSyncing.value = false
+  }
+}
+  // 🔥🔥🔥【新增】获取单词当前复习阶段 (返回 1-6，无则返回 null)
+const getWordStage = (wordEn) => {
+  const item = reviewList.value.find(i => i.w === wordEn)
+  if (!item) return null
+  // 代码内部 stage 是 0-5，UI 显示需要 +1
+  return (item.stage || 0) + 1
+}
+
+// 🔥🔥🔥【修改】控制右侧悬浮按钮组容器的显隐
+const isFloatingGroupVisible = computed(() => {
+  // 容器本身始终显示（只要不是极端情况），因为我们要保留“刷新”和“回到顶部”
+  return true 
+})
+
+// 🔥🔥🔥【新增】专门控制那些“非核心”按钮的显隐
+// (故事、加词、搜索、云同步)
+const showHiddenButtons = computed(() => {
+  const isMobile = windowWidth.value < 768
+  // 定义“严格听写模式”：手机 + 复习 + 听写 + 全显中文
+  const isStrictDictation = isMobile && isReviewMode.value && isDictation.value && isAllRevealedComputed.value
+  
+  // 1. 如果不是严格模式，直接显示
+  if (!isStrictDictation) return true
+  
+  // 2. 如果是严格模式，只有当“完成”后才显示
+  return isDictationFinished.value
+})
+
 </script>
 
 <template>
@@ -2262,13 +2985,46 @@ const removeAudioTag = (word) => {
 
         <div class="middle-tools">
           <div class="selectors" v-if="!isReviewMode">
-            <select v-model="currentChapter" class="sel-chap">
-              <option v-for="item in chapterOptions" :key="item.value" :value="item.value">
-                {{ item.label }}{{ item.isDone ? '✅' : '' }}
-              </option>
-            </select>
-            <select v-model="chunkIndex" class="sel-part"><option v-for="(name, i) in chunkOptions" :key="i" :value="i">{{ name }}</option></select>
-          </div>
+  
+  <div class="custom-select" :class="{ active: showChapMenu }">
+    <div class="select-trigger" @click="showChapMenu = !showChapMenu; showPartMenu = false">
+      <span>{{ currentChapter }}</span>
+      <span class="arrow">▼</span>
+    </div>
+    <div class="select-options" v-show="showChapMenu">
+      <div 
+        v-for="item in chapterOptions" 
+        :key="item.value" 
+        class="option-item"
+        :class="{ selected: currentChapter === item.value }"
+        @click="onSelectChapter(item.value)"
+      >
+        {{ item.label }} {{ item.isDone ? '✅' : '' }}
+      </div>
+    </div>
+  </div>
+
+  <div class="custom-select" :class="{ active: showPartMenu }">
+    <div class="select-trigger" @click="showPartMenu = !showPartMenu; showChapMenu = false">
+      <span>{{ chunkOptions[chunkIndex] ? chunkOptions[chunkIndex].split(' ')[0] + ' ' + chunkOptions[chunkIndex].split(' ')[1] : 'Part 1' }}</span>
+      <span class="arrow">▼</span>
+    </div>
+    <div class="select-optionsPart" v-show="showPartMenu">
+      <div 
+        v-for="(name, i) in chunkOptions" 
+        :key="i" 
+        class="option-item"
+        :class="{ selected: chunkIndex === i }"
+        @click="onSelectPart(i)"
+      >
+        {{ name }}
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div v-if="showChapMenu || showPartMenu" class="menu-overlay" @click="showChapMenu = false; showPartMenu = false"></div>
           
           <div class="stats-bar" :class="{ 'compact-mode': !isReviewMode }">
              <span v-if="isReviewMode" title="全书总词汇量">📚 {{ globalStats.total }}</span>
@@ -2281,9 +3037,21 @@ const removeAudioTag = (word) => {
         <div class="right-tools">
             <button v-if="isReviewMode" @click="showStatsModal = true" class="btn action-btn" title="学习统计">📊</button>
             <button @click="toggleScratchpad" class="btn action-btn desktop-only" :class="{ 'active-pad': showScratchpad }" title="打开/关闭草稿板">🖊️</button>
-            <button v-if="isReviewMode" @click="exportMistakes" class="btn action-btn special-btn desktop-only" title="导出错题文本 (TXT)">📥 </button>
-            <button @click="doExport" class="btn action-btn" title="导出/备份进度 (JSON)">⬇️ </button>
-            <button @click="doImport" class="btn action-btn" style="margin-left: 8px;" title="导入/恢复进度">⬆️ </button>
+            <button v-if="isReviewMode" @click="openMistakeModal" class="btn action-btn" title="易错单词排行榜" 
+              style="
+                width: 46px; 
+                height: 46px; 
+                padding: 0; 
+                display: inline-flex; 
+                align-items: center; 
+                justify-content: center;
+              ">
+              <svg viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" style="width: 20px; height: 20px; fill: currentColor;">
+                <path d="M821.339582 0H202.660418C138.073033 0 85.483304 52.589729 85.483304 117.377075v789.24585c0 64.787346 52.589729 117.377075 117.377075 117.377075h618.479203c64.787346 0 117.377075-52.589729 117.377075-117.377075V117.377075C938.516696 52.589729 885.926967 0 821.339582 0zM182.064441 449.512205l105.579379-105.579379L182.064441 238.553408 244.652216 175.965632l105.579379 105.579379L455.611013 175.965632l62.587776 62.587776-105.579379 105.579379 105.579379 105.579379-62.587776 62.587775-105.579379-105.579379-105.579379 105.579379L182.064441 449.512205zM791.945323 781.847295H216.057801c-18.99629 0-34.593244-14.397188-34.593243-31.993751s15.396993-31.993751 34.593243-31.993751h575.887522c18.99629 0 34.593244 14.397188 34.593244 31.993751s-15.396993 31.993751-34.593244 31.993751z m0-127.975004H216.057801c-18.99629 0-34.593244-14.397188-34.593243-31.993752s15.396993-31.993751 34.593243-31.993751h575.887522c18.99629 0 34.593244 14.397188 34.593244 31.993751s-15.396993 31.993751-34.593244 31.993752z m2.599492-127.975005h-149.370826c-17.596563 0-31.993751-14.397188-31.993751-31.993752s14.397188-31.993751 31.993751-31.993751h149.370826c17.596563 0 31.993751 14.397188 31.993752 31.993751s-14.197227 31.993751-31.993752 31.993752z m0-117.377075h-149.370826c-17.596563 0-31.993751-14.397188-31.993751-31.993751s14.397188-31.993751 31.993751-31.993752h149.370826c17.596563 0 31.993751 14.397188 31.993752 31.993752 0 17.796524-14.197227 31.993751-31.993752 31.993751z m0-117.177114h-149.370826c-17.596563 0-31.993751-14.397188-31.993751-31.993751s14.397188-31.993751 31.993751-31.993751h149.370826c17.596563 0 31.993751 14.397188 31.993752 31.993751s-14.197227 31.993751-31.993752 31.993751zM791.945323 923.819566H216.057801c-18.99629 0-34.593244-14.397188-34.593243-31.993751s15.396993-31.993751 34.593243-31.993751h575.887522c18.99629 0 34.593244 14.397188 34.593244 31.993751s-15.396993 31.993751-34.593244 31.993751z" p-id="1775"></path>
+              </svg>
+            </button>
+            <button @click="doExport" class="btn action-btn" :class="{ 'desktop-only': isReviewMode }" title="导出/备份进度 (JSON)">⬇️</button>
+            <button @click="doImport" class="btn action-btn" :class="{ 'desktop-only': isReviewMode }" title="导入/恢复进度">⬆️</button>
             <input type="file" id="fileInput" hidden @change="onFileChange">
 
             <div class="pomo-compact" :class="{ 'break-mode': isBreak }">
@@ -2368,7 +3136,7 @@ const removeAudioTag = (word) => {
        borderBottom: hasNoteData(block.groupId) ? ('1px solid ' + block.color + '20') : 'none'
      }">
   
-  <div class="note-title" @click="openReadModal(block.groupId)">
+  <div class="note-title" @click="openNoteModal(block.groupId, 'read')">
     <span v-if="hasNoteData(block.groupId)" class="note-exist-text" :style="{ color: block.color }">
        <span style="font-weight:800; margin-right:4px;">P.</span> {{ getDisplayTitle(block.groupId) }}
     </span>
@@ -2383,7 +3151,7 @@ const removeAudioTag = (word) => {
       📋
     </button>
     
-    <button class="note-action-btn" @click.stop="openNoteModal(block.groupId)" title="编辑笔记">
+    <button class="note-action-btn" @click.stop="openNoteModal(block.groupId, 'edit')" title="编辑笔记">
       ⚙️
     </button>
   </div>
@@ -2424,29 +3192,43 @@ const removeAudioTag = (word) => {
      :id="'word-row-' + word.en.replace(/\s+/g, '_')">
               
              <div class="col-idx text-center index-num desktop-only">
-  {{ isReviewMode ? word.id : word._id }}
-  
-  <span v-if="(word._isMastered || word._isKilled) && !isReviewMode" 
-        class="status-icon"
-        :style="{ 
-          color: word._isKilled ? '#a855f7' : '#10b981', 
-          fontWeight: 'bold'
-        }">
-    ✔
-  </span>
-</div>
+                {{ isReviewMode ? word.id : word._id }}
+                
+                <span v-if="(word._isMastered || word._isKilled) && !isReviewMode" 
+                      class="status-icon"
+                      :style="{ 
+                        color: word._isKilled ? '#a855f7' : '#10b981', 
+                        fontWeight: 'bold'
+                      }">
+                  ✔
+                </span>
+              </div>
               
               <div class="col-word">
                 <div class="word-wrapper">
                   <div v-if="!isDictation" class="word-cell-container">
                     
                     <div class="word-row-top">
-                      <span class="en-text" @click.stop="toggleAudio(word.en)" style="cursor: pointer;" title="点击发音">
+                      <span class="en-text" @click.stop="toggleAudio(word.en)">
                         {{ word.en }}
                       </span>
+
+                      <span v-if="getWordStage(word.en) && !isReviewMode" 
+                            class="review-stage-tag"
+                            :style="{ backgroundColor: STAGE_COLORS[getWordStage(word.en) - 1] }"
+                            :title="'当前处于复习阶段 ' + getWordStage(word.en)">
+                        {{ getWordStage(word.en) }}
+                      </span>
                       
-                      <span class="speaker" @click.stop="toggleAudio(word.en)" :class="{ playing: playingWord === word.en }">
-                        {{ playingWord === word.en ? '⏸️' : '🔊' }}
+                      <span class="speaker" 
+                            @click.stop="toggleAudio(word.en)" 
+                            :class="{ 
+                              playing: playingWord === word.en && !isLoadingAudio,
+                              loading: playingWord === word.en && isLoadingAudio 
+                            }">
+                        <template v-if="playingWord === word.en && isLoadingAudio">⏳</template>
+                        <template v-else-if="playingWord === word.en">⏸️</template>
+                        <template v-else>🔊</template>
                       </span>
                       <span v-if="audioPeekHistory.includes(word.en)" 
                             @click.stop="removeAudioTag(word.en)"
@@ -2462,12 +3244,23 @@ const removeAudioTag = (word) => {
                       </button>
                     </div>
 
-                    <div v-if="isShowSource || revealedSource.has(word.en)" 
-                        class="word-source-row clickable-source"
-                        @click.stop="handleJumpToSource(word)"
-                        title="点击跳转到原文位置 🚀">
-                      📍 {{ word.source }} ➜
-                    </div>
+                    <div v-if="isShowSource || revealedSource.has(word.en)" class="source-container">
+  
+                        <a :href="getSourceUrl(word)"
+                           class="word-source-row clickable-source"
+                           @click.prevent="handleJumpToSource(word)"
+                           title="点击在当前页跳转">
+                          📍 {{ word.source }}
+                        </a>
+                      
+                        <a :href="getSourceUrl(word)"
+                           class="word-source-row icon-only"
+                           target="_blank"
+                           title="新标签页打开并自动切换 🚀">
+                          🚀
+                        </a>
+                      
+                      </div>
 
                     <div v-if="isReviewMode && word._review" class="review-meta desktop-only">
                       <span v-if="word._review.time < Date.now()" class="tag-due">待复习</span>
@@ -2499,7 +3292,11 @@ const removeAudioTag = (word) => {
                   </div>
                 </div>
                 <div class="mobile-only mobile-pos">{{ word.pos }}</div>
-                <button class="mobile-only mobile-kill" @click="handleKill(word.en)">✕</button>
+                <button class="mobile-only mobile-kill" 
+                        @click="handleKill(word.en)"
+                        :style="isDictation ? { top: 'auto', bottom: '10px', right: '10px', background: '#fff', border: '1px solid #eee', borderRadius: '50%', width:'30px', height:'30px' } : {}">
+                  {{ word._isKilled ? '↺' : '✕' }}
+                </button>
               </div>
               
               <div class="col-pos text-center italic desktop-only">{{ word.pos }}</div>
@@ -2568,11 +3365,76 @@ const removeAudioTag = (word) => {
         <button class="pad-btn-clear" @click="clearPad">🗑️ (Space)</button>
       </div>
     </div> 
-    <div class="floating-action-group" :class="{ 'pos-left': isFloatBtnLeft }">
+    <div v-show="isFloatingGroupVisible" class="floating-action-group" :class="{ 'pos-left': isFloatBtnLeft }">
+      <Transition name="fade-slide">
+        <button v-if="!isReviewMode && showSmartCopyBtn" @click="copyCurrentPageWords" class="floating-btn copy-page-btn mobile-only" title="一键复制本页单词">📋</button>
+      </Transition>
+      
       <button v-if="isReviewMode" @click="refreshReviewData" class="floating-btn refresh-btn" title="刷新数据">🔄</button>
-      <button v-if="!isReviewMode" @click="openStoryModal" class="floating-btn story-btn" title="本页助记文章/故事">📜</button>
-      <button @click="manualAddWord" class="floating-btn add-btn" title="手动加入生词">➕</button>
-      <button @click="openSearchModal" class="floating-btn search-btn" title="搜索单词/词根">🔍</button>
+      
+      <button v-show="showHiddenButtons" v-if="!isReviewMode" 
+        @click="openStoryModal" 
+        class="floating-btn story-btn" 
+        :class="{ 'is-empty': !hasStoryOnCurrentPage }"
+        :title="hasStoryOnCurrentPage ? '阅读本页文章' : '点击创建文章'">
+          📜
+      </button>
+      <button v-show="showHiddenButtons" @click="manualAddWord" class="floating-btn add-btn" title="手动加入生词">➕</button>
+      
+      <button v-show="showHiddenButtons" @click="openSearchModal" class="floating-btn search-btn" title="搜索单词/词根">🔍</button>
+      
+      <button v-show="showBackToTop" @click="scrollToTop" class="floating-btn top-btn" title="回到顶部">
+        <svg viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" class="svg-icon">
+          <path d="M512 64C264.512 64 64 264.576 64 512s200.512 448 448 448c247.424 0 448-200.576 448-448S759.424 64 512 64zM712.448 664.512c-11.776 0-22.784-3.072-32.448-8.384l-1.984 1.984L511.936 512l-162.112 145.472-1.344-1.344c-9.6 5.248-20.544 8.32-32.192 8.32-36.736 0-66.496-29.76-66.496-66.432 0-11.712 3.072-22.656 8.32-32.192L255.936 563.584l10.752-9.664c3.328-3.712 7.04-7.104 11.136-9.984l188.544-169.216 1.28 0C479.296 363.456 495.168 356.544 512.64 356.544s33.408 6.912 45.12 18.176l0.768 0 191.872 168.832c4.032 2.816 7.68 6.08 11.072 9.728l11.392 10.048-2.368 2.304c5.376 9.6 8.448 20.672 8.448 32.448C778.88 634.752 749.12 664.512 712.448 664.512z" fill="currentColor"></path>
+        </svg>
+      </button>
+      
+    <div v-show="showHiddenButtons" class="cloud-wrapper">
+         <button @click="toggleCloudMenu" class="floating-btn sync-btn main-cloud-trigger" :class="{ 'active': isCloudMenuOpen }" title="云同步菜单">
+           <svg v-if="isSyncing" class="animate-spin" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+           <svg v-else xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 1024 1024" fill="currentColor">
+              <path d="M395.776 641.664a19.392 19.392 0 0 0-6.368-12.384l-36.672-32.416a190.496 190.496 0 0 1 87.328-70.88c47.52-19.2 99.776-18.72 146.944 1.28s83.776 57.28 103.008 104.8a31.936 31.936 0 0 0 41.632 17.696 31.936 31.936 0 0 0 17.696-41.632 254.208 254.208 0 0 0-137.312-139.776 254.56 254.56 0 0 0-195.936-1.728 253.984 253.984 0 0 0-111.552 87.616l-37.408-33.088a19.168 19.168 0 0 0-31.808 16.384l12.576 119.68a19.2 19.2 0 0 0 21.088 17.088l109.696-11.52a19.2 19.2 0 0 0 17.088-21.12zM757.92 729.088l-109.216 15.36a19.2 19.2 0 0 0-9.536 33.856l34.496 28.416a190.816 190.816 0 0 1-236.672 74.016 190.592 190.592 0 0 1-102.976-104.768 32 32 0 1 0-59.36 23.936 254.272 254.272 0 0 0 137.344 139.776 255.232 255.232 0 0 0 100 20.48 255.744 255.744 0 0 0 95.904-18.752 254.592 254.592 0 0 0 115.872-93.408l41.408 34.112a19.2 19.2 0 0 0 31.2-17.472l-16.736-119.168a19.264 19.264 0 0 0-21.728-16.384z" />
+              <path d="M808.192 262.592a320.16 320.16 0 0 0-592.352 0A238.592 238.592 0 0 0 32 496a240.32 240.32 0 0 0 130.976 213.888 32 32 0 1 0 29.12-57.024A176.192 176.192 0 0 1 96 496a175.04 175.04 0 0 1 148.48-173.888l19.04-2.976 6.24-18.24C305.248 197.472 402.592 128 512 128a256 256 0 0 1 242.208 172.896l6.272 18.24 19.04 2.976A175.04 175.04 0 0 1 928 496a176.128 176.128 0 0 1-96.128 156.896 32.064 32.064 0 0 0 29.12 57.024A240.416 240.416 0 0 0 992 496a238.592 238.592 0 0 0-183.808-233.408z" />
+           </svg>
+         </button>
+        
+        <Transition name="cloud-pop">
+          <div v-if="isCloudMenuOpen" class="cloud-sub-menu">
+               <div class="sync-dashboard" :class="{ 'has-update': isNewVersionAvailable }">
+                  <div class="dash-header">
+                    <span class="dash-title">数据同步状态</span>
+                    <span v-if="isCheckingCloud" class="dash-loading">
+                      <svg class="animate-spin" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+                      检测中...
+                    </span>
+                  </div>
+                  <div class="dash-grid">
+                    <div class="dash-item local"><div class="item-label">💻 本地版本</div><div class="item-time">{{ lastSyncTime || '--/-- --:--' }}</div></div>
+                    <div class="dash-connector"><div v-if="isNewVersionAvailable" class="icon-update">⬅️</div><div v-else class="icon-idle">☁️</div></div>
+                    <div class="dash-item cloud" :class="{ 'highlight': isNewVersionAvailable }"><div class="item-label">Github Gist</div><div class="item-time">{{ serverTime || '待检测' }}</div></div>
+                  </div>
+                  <div v-if="isNewVersionAvailable" class="dash-footer update-mode">✨ 云端有新进度，建议下载</div>
+                  <div v-else-if="serverTime" class="dash-footer safe-mode">✅ 当前已是最新</div>
+               </div>
+               
+               <button @click="uploadToCloud" class="floating-btn sync-btn svg-icon-btn sub-btn" title="上传进度到云端" :disabled="isSyncing">
+                   <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/></svg>
+               </button>
+               <button @click="downloadFromCloud" 
+                        class="floating-btn sync-btn svg-icon-btn sub-btn" 
+                        :title="isDownloadDisabled ? '本地已是最新版本 (无需下载)' : '从云端下载进度'" 
+                        :disabled="isDownloadDisabled"
+                        :style="isDownloadDisabled ? { opacity: 0.3, cursor: 'not-allowed', filter: 'grayscale(1)' } : {}">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM12 17l-5-5h3V8h4v4h3l-5 5z"/>
+                    </svg>
+                </button>
+               <button @click="showSyncModal = true" class="floating-btn sync-btn sub-btn" title="配置云同步" style="font-size: 20px;">⚙️</button>
+          </div>
+        </Transition>
+        
+      </div>
+      
       
     </div>
     <div v-if="showAddWordModal" class="modal-overlay" @click.self="showAddWordModal = false">
@@ -2719,44 +3581,82 @@ const removeAudioTag = (word) => {
         </div>
       </div>
     </div>
+
 <div v-if="showNoteModal" class="modal-overlay" @click.self="showNoteModal = false">
-      <div class="modal-box" style="max-width: 600px; text-align: left; height: 80vh; display: flex; flex-direction: column;">
-        <h3 class="modal-title">📝 分组辨析笔记</h3>
-        
-        <div style="margin-bottom: 10px;">
-          <label style="font-size:12px; color:#666; font-weight:bold;">标题 (显示在列表上方)</label>
-          <input type="text" v-model="noteForm.title" class="modal-input-field" placeholder="例如：Discover vs Invent 区别..." autocomplete="off">
-        </div>
-
-        <div style="flex: 1; display: flex; flex-direction: column; margin-bottom: 15px; min-height: 0;">
-          <label style="font-size:12px; color:#666; font-weight:bold; margin-bottom: 5px;">详细内容 (支持换行/简单Markdown)</label>
-          <textarea v-model="noteForm.content" 
-                    class="modal-input-field" 
-                    style="flex: 1; resize: none; line-height: 1.6; font-family: sans-serif;" 
-                    placeholder="在这里记录详细的词义辨析、场景用法等..."></textarea>
-        </div>
-
-        <div class="modal-actions">
-          <button @click="showNoteModal = false" class="modal-btn" style="background:#f3f4f6; color:#6b7280;">取消</button>
-          <button @click="saveNote" class="modal-btn" style="background:#8b5cf6; color:white;">💾 保存笔记</button>
-        </div>
-      </div>
-    </div>
-    <div v-if="showReadModal" class="modal-overlay" @click.self="showReadModal = false">
-  <div class="modal-box read-card-modal">
+  <div class="modal-box read-card-modal" style="height: 80vh; display:flex; flex-direction:column; padding:0;">
     
     <div class="read-header">
       <h3 class="read-title">
-        {{ readNoteData.title || '无标题笔记' }}
+        {{ isNoteEditing ? '✏️ 编辑辨析笔记' : '📖 词义辨析' }}
       </h3>
+      
       <div class="read-actions">
-        <button class="icon-btn edit-switch-btn" @click="switchToEdit" title="修改内容">✎</button>
-        <button class="icon-btn close-btn" @click="showReadModal = false">✕</button>
+        <button v-if="!isNoteEditing" class="icon-btn edit-switch-btn" @click="isNoteEditing = true" title="编辑">
+          ✎ 编辑
+        </button>
+        <button v-else class="icon-btn" @click="isNoteEditing = false" title="预览">
+          👁️ 预览
+        </button>
+        <button class="icon-btn close-btn" @click="showNoteModal = false">✕</button>
       </div>
     </div>
 
-    <div class="read-content markdown-body" v-html="renderMarkdown(readNoteData.content)"></div>
-    
+    <div style="flex: 1; display: flex; overflow: hidden;">
+      
+      <div class="story-sidebar">
+        <div class="sidebar-header">辨析分组</div>
+        <div class="sidebar-list">
+           <div v-for="(item, idx) in noteList" :key="idx" 
+                class="sidebar-item" 
+                :class="{ active: currentNoteIdx === idx }"
+                @click="switchNote(idx)">
+              <span class="item-icon">{{ item.content ? '📝' : '⚪' }}</span>
+              <span class="item-title">{{ item.title || '无标题' }}</span>
+           </div>
+        </div>
+        <button class="sidebar-add-btn" @click="addNewNote">
+           + 新增分组
+        </button>
+      </div>
+
+      <div class="story-content-area">
+        <div v-if="!isNoteEditing" class="markdown-body story-reader">
+             <h2 style="margin-top:0; border-bottom:1px solid #eee; padding-bottom:10px;">
+               {{ currentNote.title }}
+             </h2>
+             <div v-if="currentNote.content" v-html="renderMarkdown(currentNote.content)"></div>
+             <div v-else class="empty-story-tip">
+               <div style="font-size: 40px;">💡</div>
+               <div>此分组暂无内容<br>点击右上角 <b>"✎ 编辑"</b> 开始记录</div>
+             </div>
+        </div>
+
+        <div v-else class="story-editor-layout">
+          <div style="margin-bottom: 10px;">
+             <label style="font-size:12px; color:#666; font-weight:bold;">分组标题</label>
+             <input type="text" v-model="currentNote.title" class="modal-input-field" placeholder="例如：merchant vs businessman..." style="font-weight:bold;">
+          </div>
+          <div style="flex: 1; display: flex; gap: 15px; min-height: 0;">
+             <div style="flex: 1; display: flex; flex-direction: column;">
+                 <div class="editor-toolbar">
+                    <span>Markdown 内容</span>
+                    <button class="tiny-btn delete-btn" @click="deleteCurrentNote">🗑️ 删除此组</button>
+                 </div>
+                 <textarea v-model="currentNote.content" class="modal-input-field" style="flex: 1; resize: none; margin-bottom: 0; line-height: 1.6;" placeholder="在此记录详细辨析..."></textarea>
+             </div>
+             <div class="desktop-only preview-pane">
+                  <div class="editor-toolbar">实时预览</div>
+                  <div class="markdown-body" style="padding:10px; overflow-y:auto; height:100%;" v-html="renderMarkdown(currentNote.content)"></div>
+             </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="isNoteEditing" class="modal-actions" style="padding: 10px 20px; border-top: 1px solid #eee; margin:0;">
+      <button @click="isNoteEditing = false" class="modal-btn" style="background:#f3f4f6; color:#6b7280;">取消</button>
+      <button @click="saveNote" class="modal-btn" style="background:#8b5cf6; color:white;">💾 保存全部更改</button>
+    </div>
   </div>
 </div>
 
@@ -2846,6 +3746,123 @@ const removeAudioTag = (word) => {
   </div>
 </div>
 
+<div v-if="showSyncModal" class="modal-overlay" @click.self="showSyncModal = false">
+  <div class="modal-box" style="max-width: 400px; text-align: left;">
+    <h3 class="modal-title">☁️ GitHub 云同步配置</h3>
+    <p style="font-size:12px; color:#666; margin-bottom:15px; line-height:1.5;">
+      利用 GitHub Gist 实现免费私有云同步。<br>
+      数据存储在您自己的 GitHub 账号中，安全可控。
+    </p>
+    
+    <div style="margin-bottom: 15px;">
+      <label style="display:block; font-size:12px; font-weight:bold; margin-bottom:5px;">GitHub Token (勾选 gist 权限)</label>
+      <input type="password" v-model="syncConfig.token" class="modal-input-field" placeholder="ghp_xxxxxxxxxxxx...">
+    </div>
+
+    <div style="margin-bottom: 20px;">
+      <label style="display:block; font-size:12px; font-weight:bold; margin-bottom:5px;">Gist ID (浏览器地址栏最后一段)</label>
+      <input type="text" v-model="syncConfig.gistId" class="modal-input-field" placeholder="例如: e5a3c...">
+    </div>
+
+    <div class="modal-actions">
+      <button @click="showSyncModal = false" class="modal-btn" style="background:#f3f4f6; color:#6b7280;">取消</button>
+      <button @click="saveSyncConfig" class="modal-btn" style="background:#a855f7; color:white;">💾 保存配置</button>
+    </div>
+    
+    <div style="margin-top:15px; font-size:12px; color:#999; text-align:center;">
+      配置保存在本地浏览器，不会上传到任何服务器。
+    </div>
+  </div>
+</div>  
+
+<div v-if="showMistakeModal" class="modal-overlay" @click.self="showMistakeModal = false">
+  <div class="modal-box" style="max-width: 600px; height: 80vh; padding: 0; display: flex; flex-direction: column;">
+    
+    <div class="mistake-header">
+      <div style="display:flex; align-items:center; gap: 10px;">
+        <h3 class="mistake-modal-title">
+          {{ showConquered ? '🏆 荣誉殿堂' : '📉 易错攻坚榜' }}
+        </h3>
+      </div>
+      
+      <div style="display: flex; align-items: center; gap: 15px;">
+        <div class="toggle-pill-group">
+          <button 
+            class="pill-btn" 
+            :class="{ active: !showConquered }" 
+            @click="showConquered = false; mistakePage = 1"
+            title="显示还在背诵队列中的错词">
+            正在攻坚
+          </button>
+          <button 
+            class="pill-btn" 
+            :class="{ active: showConquered }" 
+            @click="showConquered = true; mistakePage = 1"
+            title="显示已斩杀/已掌握的历史错词">
+            已攻克
+          </button>
+        </div>
+
+        <button class="modal-close-icon static-pos" @click="showMistakeModal = false">✕</button>
+      </div>
+    </div>
+
+    <div style="flex: 1; overflow-y: auto; padding: 0;">
+      <table class="mistake-table">
+        <thead class="mistake-thead">
+          <tr>
+            <th style="width: 45%;">单词 / 释义</th>
+            <th style="width: 25%; text-align: center;">累计错误</th>
+            <th style="width: 30%; text-align: right;">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="item in currentMistakePageData" :key="item.en" :class="{ 'conquered-tr': showConquered }">
+            <td>
+              <div class="mistake-word" 
+                   :class="{ 'is-conquered': showConquered }">
+                {{ item.en }}
+              </div>
+              <div style="font-size: 12px; color: #6b7280; margin-top: 2px;">{{ item.zh }}</div>
+            </td>
+            <td style="text-align: center;">
+              <span class="count-badge" :class="{ 'purple-badge': showConquered }">{{ item.count }}</span>
+            </td>
+            <td style="text-align: right;">
+              <button class="jump-link-btn" @click="jumpToWordNewTab(item)">
+                跳转 🚀
+              </button>
+            </td>
+          </tr>
+          
+          <tr v-if="sortedMistakeList.length === 0">
+            <td colspan="3" style="text-align: center; padding: 60px 20px; color: #9ca3af;">
+              <div style="font-size: 40px; margin-bottom: 10px;">
+                {{ showConquered ? '🏺' : '🎉' }}
+              </div>
+              <div v-if="!showConquered">
+                太棒了！当前队列中暂无易错词<br>
+                <span style="font-size: 12px;">(快去看看“已攻克”里有没有你的战利品)</span>
+              </div>
+              <div v-else>
+                空空如也<br>
+                <span style="font-size: 12px;">(加油，把那些错词都“斩杀”掉！)</span>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="mistake-footer">
+      <button class="page-nav-btn" :disabled="mistakePage === 1" @click="mistakePage--">上一页</button>
+      <span style="font-size: 14px; color: #374151; font-weight: bold;" :class="{'dark-text-white': true}">{{ mistakePage }} / {{ totalMistakePages }}</span>
+      <button class="page-nav-btn" :disabled="mistakePage >= totalMistakePages" @click="mistakePage++">下一页</button>
+    </div>
+
+  </div>
+</div>
+
 </template>
 
 <style scoped>
@@ -2858,25 +3875,42 @@ const removeAudioTag = (word) => {
   background: #f5f7fa; 
   
   min-height: 100vh; 
+  /* 🔥🔥🔥【核心修复】强制禁止左右滑动 🔥🔥🔥 */
+  width: 100%;           /* 锁死宽度为屏幕宽 */
+  overflow-x: hidden;    /* 裁剪掉左右溢出的部分 */
+  position: relative;    /* 确保内部绝对定位元素以它为基准，防止乱跑 */
 }
 
-/* 吸顶工具栏 - 增大尺寸 */
+/* 吸顶工具栏 */
 .tools-bar { 
-  /* ⚡️关键：改成纯白，对应你的要求“标题栏是白的，外面也是白的” */
+  /* 1. 确保背景色是纯白，防止下移后透出底下的内容 */
   background: #ffffff; 
   
-  /* 确保宽度占满屏幕 */
-  width: 100%; 
+  /* 2. 适配灵动岛/刘海屏的核心代码 */
+  /* 让工具栏的顶部内边距自动增加，把内容顶下来 */
+  padding-top: env(safe-area-inset-top); 
   
-  /* 底部加一条浅灰线区分 */
+  /* 3. 保持原有样式 */
+  width: 100%; 
   border-bottom: 1px solid #e5e7eb; 
   
-  padding: 15px 0; 
+  /* 4. 关键：不要用 top: env(...)，而是用 padding 撑开 */
+  /* 这样背景色会自动填充整个刘海区域，不会变成透明 */
+  padding-bottom: 15px; /* 保持原有的底部内边距 */
+  
+  /* 5. 确保吸顶 */
   position: sticky; 
   top: 0; 
   z-index: 1000; 
   box-shadow: 0 4px 6px rgba(0,0,0,0.02); 
 }
+
+.dark .tools-bar {
+  /* 确保这里也是实心颜色，不是 transparent */
+  background-color: #1e293b !important;
+  border-bottom: 1px solid #334155 !important;
+  color: #cbd5e1 !important;
+}  
 .bar-inner { max-width: 1200px; margin: 0 auto; padding: 0 16px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; }
 .left-tools { display: flex; gap: 15px; align-items: center; }
 .right-tools { display: flex; align-items: center; gap: 10px; }
@@ -3011,36 +4045,37 @@ const removeAudioTag = (word) => {
 .finish-btn:hover { background: #f3f4f6; }
 .finish-btn.done { background: #ecfdf5; color: #059669; border-color: #065f46; font-weight: bold; }
 
-.mobile-only { display: none; }
+.mobile-only { display: none !important; }
 .desktop-only { display: block; }
 .mobile-hide { display: inline; }
 
 @media (max-width: 768px) {
   .mobile-hide { display: none; }
   .desktop-only { display: none !important; }
-  .mobile-only { display: block; }
+  .mobile-only { display: block !important; }
   .grid-layout { display: block; } 
   .row-item { position: relative; padding: 12px; }
   .word-wrapper { margin-bottom: 6px; }
   .en-text { font-size: 18px; }
   .speaker { font-size: 18px; padding: 5px; }
-  .mobile-pos { font-size: 12px; color: #6b7280; background: #f3f4f6; padding: 2px 6px; border-radius: 4px; display: inline-block; font-family: serif; font-style: italic; }
+    /* 🔥 修改后的代码：去掉了背景块，只保留精致的斜体灰字 */
+  .mobile-pos { 
+    font-size: 14px;      /* 稍微加大一点点，易读 */
+    color: #9ca3af;       /* 使用更柔和的灰色 */
+    background: none;     /* ❌ 移除灰色背景 */
+    padding: 0;           /* ❌ 移除内边距 */
+    border: none;         
+    display: inline-block; 
+    font-family: serif; 
+    font-style: italic; 
+    margin-left: 4px;     /* 与单词保持一点距离 */
+  }
   .mobile-kill { position: absolute; top: 10px; right: 10px; font-size: 20px; color: #d1d5db; background: none; border: none; padding: 5px; }
   .review-badge-m { font-size: 12px; margin-right: 5px; }
   .bar-inner { gap: 10px; justify-content: center; }
   .middle-tools { width: 100%; order: 3; justify-content: center; margin-top: 10px; }
   .selectors { width: 100%; justify-content: space-between; }
-  
-  /*.sel-chap { flex: 2; } .sel-part { flex: 1; }*/
-  /* ✅ 修改为：降低左边的权重，或者让两者等宽 */
-  .sel-chap { 
-    flex: 1.2; /* 改小一点 (原来是2)，稍微比右边宽一点点即可 */
-    min-width: 0; /* 防止内容过长撑破布局 */
-  } 
-  .sel-part { 
-    flex: 1;   /* 保持不变 */
-    min-width: 0;
-  }
+  .sel-chap { flex: 2; } .sel-part { flex: 1; }
   .stats-bar { width: 100%; justify-content: center; flex-wrap: nowrap; margin-bottom: 5px; }
   
   .example-cell {
@@ -3443,6 +4478,9 @@ const removeAudioTag = (word) => {
   cursor: pointer;
   transition: all 0.2s ease;
   display: inline-block; /* 让hover效果包裹得更紧凑 */
+  /* 🔥🔥🔥 新增这两行，去掉链接默认的下划线 */
+  text-decoration: none !important;
+  border-bottom: none;
 }
 
 .clickable-source:hover {
@@ -3457,6 +4495,8 @@ const removeAudioTag = (word) => {
   color: #60a5fa;
   background-color: #1e293b;
 }
+
+
 /* --- 新增：搜索功能样式 --- */
 
 /* 1. 悬浮搜索按钮 (紫色) */
@@ -3740,6 +4780,8 @@ const removeAudioTag = (word) => {
   display: flex;
   flex-direction: column;
   background: #ffffff;
+  /* 🔥🔥🔥 加上这一行，强制左对齐，覆盖掉默认的居中 🔥🔥🔥 */
+  text-align: left !important;
 }
 
 /* 顶部栏 */
@@ -3854,6 +4896,7 @@ const removeAudioTag = (word) => {
   /* 假设第三列是形象比喻，通常有emoji */
   font-size: 15px; 
 }
+
 
 /* 暗黑模式适配 */
 .dark .markdown-body table { box-shadow: 0 0 0 1px #374151; }
@@ -3973,17 +5016,78 @@ const removeAudioTag = (word) => {
   border-left: 4px solid transparent; /* 默认透明边框占位 */
   padding-left: 16px; /* 默认内边距 */
 }
+/* 🟢 替换为这段新代码 */
 
-/* 故事按钮颜色 (Amber/黄色) */
+/* =========================================
+   📜 文章按钮样式 (V3.0 精致版)
+   1. 边框变细为 1px
+   2. 夜间模式空状态背景修复为白色
+========================================= */
+
+/* 1. 【基础状态 - 有文章时】 */
 .story-btn {
-  color: #d97706; /* 深黄色 */
+  color: #d97706; /* 深黄色图标 */
+  
+  /* 🔥 修改 1：边框从 2px 改为 1px，更精致 */
+  border: 1px solid #22c55e; 
+  
+  /* 🔥 修改 2：强制背景为白色 (确保夜间模式也是白底，跟其他按钮统一) */
+  background-color: #ffffff; 
+  
+  transition: all 0.3s ease; 
 }
-.story-btn:hover {
-  background: #fffbeb;
+
+/* 2. 【空状态 - 无文章时】 */
+.story-btn.is-empty {
+  color: #9ca3af !important; /* 灰色图标 */
+  
+  /* 红色细边框 */
+  border-color: #ef4444 !important; 
+  
+  /* 🔥 核心修复：夜间模式背景不再变黑，而是保持白色 */
+  background-color: #ffffff !important; 
+  
+  box-shadow: none !important; 
+}
+
+/* --- 鼠标悬停效果 --- */
+
+/* 3. 有文章时的悬停 */
+.story-btn:not(.is-empty):hover {
+  background: #fffbeb; /* 淡黄色背景 */
   transform: scale(1.15);
   box-shadow: 0 8px 16px rgba(245, 158, 11, 0.25);
 }
 
+/* 4. 空状态下的悬停 */
+.story-btn.is-empty:hover {
+  color: #d97706 !important; /* 图标变黄 */
+  border-color: #d97706 !important; /* 边框变黄 */
+  background: #fffbeb !important; /* 背景变淡黄 */
+  transform: scale(1.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* --- 暗黑模式适配 --- */
+
+/* 微调边框颜色适配深色背景，但背景保持白色圆圈 */
+.dark .story-btn {
+    border-color: #059669; /* 深一点的绿 */
+}
+
+.dark .story-btn.is-empty {
+  /* 确保图标在白底上能看清 (灰色) */
+  color: #9ca3af !important; 
+  /* 保持红色警示边框 */
+  border-color: #ef4444 !important; 
+}
+
+/* 悬停高亮 */
+.dark .story-btn.is-empty:hover {
+  color: #fbbf24 !important; 
+  border-color: #fbbf24 !important; 
+  background-color: #fffbeb !important;
+}
 /* 番茄钟下拉框伪装 */
 .pomo-select {
   appearance: none;         /* 去掉浏览器默认下拉箭头 */
@@ -4044,6 +5148,888 @@ const removeAudioTag = (word) => {
 .tool-btn-simple:active {
   transform: scale(0.9);
 }
+/* 1. 强化侧边栏标题和未激活项的可见度 */
+.dark .sidebar-header {
+  color: #94a3b8 !important; /* 从原本的 9ca3af 调亮一点点，或者用 #64748b */
+  border-bottom: 1px solid #334155;
+}
+
+.dark .sidebar-item {
+  color: #94a3b8 !important; /* 默认未选中的文字调亮 */
+}
+
+.dark .sidebar-item:hover {
+  color: #f1f5f9 !important; /* 悬停时文字变亮白 */
+}
+
+/* 2. 补全 Markdown 的深层标题颜色 (h4/h5/h6) */
+.dark .markdown-body h4,
+.dark .markdown-body h5,
+.dark .markdown-body h6 {
+  color: #f1f5f9 !important; /* 强制所有层级标题在夜间都保持高亮 */
+  border-left: 3px solid #3b82f6; /* 给小标题加个蓝色前缀，增加辨识度 */
+  padding-left: 8px;
+}
+
+/* 3. 优化正文和列表的对比度 */
+.dark .markdown-body {
+  color: #e2e8f0 !important; /* 将默认灰改成更亮的 Slate-200 */
+}
+
+.dark .markdown-body p, 
+.dark .markdown-body li {
+  color: #cbd5e1 !important; /* 段落和列表文字微调 */
+}
+
+/* 4. 优化橙色高亮块 (重点词汇) 在夜间的显示 */
+/* 截图里的橙色背景太重，文字容易糊掉，我们换成更透亮的组合 */
+.dark .markdown-body strong, 
+.dark .markdown-body b {
+  background-color: rgba(245, 158, 11, 0.2) !important; /* 琥珀色半透明背景 */
+  color: #fbbf24 !important; /* 亮金色文字 */
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  padding: 1px 4px;
+}
+
+/* 5. 修复引用块 (blockquote) 的颜色，让例句更清晰 */
+.dark .markdown-body blockquote {
+  background: #0f172a !important; /* 纯黑底色 */
+  border-left-color: #3b82f6 !important; /* 亮蓝竖线 */
+  color: #94a3b8 !important;
+}
+
+/* 🔥🔥🔥【重构】云同步折叠菜单样式 */
+
+/* 1. 通用云同步按钮样式 (继承之前的紫色风格) */
+.sync-btn {
+  color: #a855f7;
+  border-color: #d8b4fe;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 0;
+  transition: all 0.3s cubic-bezier(0.4, 0.0, 0.2, 1); /* 优化过渡曲线 */
+}
+
+/* 2. 主触发按钮 (那朵大云) */
+.main-cloud-trigger {
+    z-index: 10; /* 确保在最上层 */
+}
+/* 当菜单打开时，主按钮变成深紫色背景，白色图标，突出显示状态 */
+.main-cloud-trigger.active {
+    background: #a855f7;
+    color: white;
+    border-color: #a855f7;
+    box-shadow: 0 4px 12px rgba(168, 85, 247, 0.4);
+}
+
+/* 3. 子菜单按钮 (三个小按钮) */
+.sub-btn {
+    width: 40px;  /* 稍微比主按钮小一点，更有层次感 */
+    height: 40px;
+    font-size: 18px;
+    /* 稍微淡一点的背景，区分层级 */
+    background: #faf5ff; 
+}
+.sub-btn:hover {
+     background: #f3e8ff;
+     transform: scale(1.05);
+}
+.svg-icon-btn.sub-btn svg {
+    width: 20px;
+    height: 20px;
+}
+
+/* 4. 🔥核心动画：菜单弹出/收起效果 (向下弹出) */
+/* 进入和离开的激活状态 */
+.cloud-pop-enter-active,
+.cloud-pop-leave-active {
+  transition: all 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
+  max-height: 200px; /* 设置一个足够大的最大高度用于动画 */
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+/* 进入起始状态 和 离开结束状态 */
+.cloud-pop-enter-from,
+.cloud-pop-leave-to {
+  opacity: 0;
+  /* 向向上位移并缩小，造成从主按钮里“弹出来”的视觉差 */
+  transform: translateY(-20px) scale(0.8); 
+  max-height: 0; /* 高度收缩 */
+  margin-top: 0 !important; /* 消除间距，确保完全收起 */
+}
+
+/* 🔥🔥🔥【新增】包裹器，用于定位 */
+.cloud-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 🔥🔥🔥【核心容器】子菜单容器 */
+.cloud-sub-menu {
+    position: absolute;
+    /* 让按钮组出现在主按钮的正下方 */
+    top: 60px;  /* 50px按钮高度 + 10px间距 */
+    right: 0;   /* 对齐父容器右侧 */
+    
+    /* 垂直排列按钮 */
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    align-items: center;
+    
+    /* 🔥关键：必须允许内容溢出，这样Dashboard才能飞到左边去 */
+    overflow: visible !important; 
+    z-index: 100;
+    
+    width: 50px; /* 和主按钮同宽 */
+    margin-top: 0 !important;
+}
+
+/* 🔥🔥🔥【修改】把宽度加大，防止文字挤下去 */
+.sync-dashboard {
+    position: absolute;
+    
+    /* 位于容器左侧 */
+    right: 100%; 
+    margin-right: 15px; 
+    
+    /* 顶部对齐主按钮 */
+    top: -60px; 
+    
+    /* 🔴 改动在这里：从 240px 改为 320px (或者 auto) */
+    width: 240px; 
+    
+    background: #ffffff;
+    border-radius: 12px;
+    padding: 12px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+    border: 1px solid #f3f4f6;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    z-index: 101; 
+}
+
+/* 🔥🔥🔥【新增】强制时间文字不换行 */
+.item-time {
+  font-size: 13px;
+  font-weight: 700;
+  color: #374151;
+  font-family: monospace;
+  letter-spacing: -0.5px;
+  
+  /* 🔴 核心修复：强制不换行 */
+  white-space: nowrap; 
+}
+
+/* 🔥🔥🔥【动画优化】整体向下弹出 */
+.cloud-pop-enter-active,
+.cloud-pop-leave-active {
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.cloud-pop-enter-from,
+.cloud-pop-leave-to {
+  opacity: 0;
+  /* 产生从主按钮“掉下来”的视觉效果 */
+  transform: translateY(-20px) scale(0.8); 
+}
+
+/* 5. 其他通用样式 (保持不变) */
+.sync-btn:disabled { /* ...略... */ }
+.animate-spin { /* ...略... */ }
+.dark .sync-btn { /* ...略... */ }
+/* ...暗黑模式适配需同步修改主按钮激活状态... */
+.dark .main-cloud-trigger.active {
+    background: #9333ea;
+    border-color: #9333ea;
+}
+.dark .sub-btn {
+    background: #1e293b;
+    border-color: #4c1d95;
+}
+
+/* 🔥 容器：让文字和火箭横向排列 */
+.source-container {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+/* 文字链接样式 */
+.clickable-source {
+  cursor: pointer;
+  text-decoration: none !important;
+  border-bottom: none;
+  display: inline-block;
+  transition: all 0.2s ease;
+  white-space: nowrap; 
+}
+
+/* 🚀 火箭按钮样式 */
+.icon-only {
+  cursor: pointer;
+  text-decoration: none !important;
+  border-bottom: none;
+  display: inline-block;
+  transition: all 0.2s ease;
+  
+  font-size: 12px;
+  background: #f0fdf4; /* 浅绿背景 */
+  color: #15803d;      /* 深绿图标 */
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid #dcfce7;
+  line-height: 1.5;
+}
+
+.icon-only:hover {
+  transform: scale(1.15);
+  background: #22c55e;
+  color: white;
+  border-color: #22c55e;
+}
+
+/* 暗黑模式适配 */
+.dark .icon-only {
+  background: #064e3b;
+  color: #86efac;
+  border-color: #065f46;
+}
+.dark .icon-only:hover {
+  background: #22c55e;
+  color: white;
+}
+  
+/* =========================================
+   📱 移动端适配 (Mobile Responsiveness)
+========================================= */
+
+/* 核心规则：当屏幕宽度小于 768px 时（常见的手机竖屏和窄屏平板），应用此规则 */
+@media (max-width: 767.98px) {
+  
+  /* 隐藏火箭图标 */
+  .icon-only {
+    display: none !important;
+  }
+
+  /* (可选优化) 因为火箭没了，容器可以不需要间距了，让文字靠边对齐更好看 */
+  .source-container {
+    gap: 0;
+  }
+}  
+
+/* 🔥🔥🔥【新增】同步时间小标签样式 */
+.sync-time-tag {
+  font-size: 11px;
+  color: #6b7280;
+  background: #f3f4f6;
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid #e5e7eb;
+  white-space: nowrap;
+  margin-bottom: 2px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
+
+/* 暗黑模式适配 */
+.dark .sync-time-tag {
+  background: #1e293b;
+  color: #94a3b8;
+  border-color: #334155;
+} 
+
+/* =========================================
+   🎨 颜值升级：同步仪表盘 (Sync Dashboard)
+   ========================================= */
+
+/* 当有更新时，边框变紫，且有微光背景 */
+.sync-dashboard.has-update {
+  border-color: #d8b4fe;
+  background: linear-gradient(to bottom right, #fff, #faf5ff);
+  box-shadow: 0 4px 15px rgba(168, 85, 247, 0.15);
+}
+
+/* 1. 标题栏 */
+.dash-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 10px;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 700;
+  border-bottom: 1px solid #f3f4f6;
+  padding-bottom: 6px;
+  margin-bottom: 4px;
+}
+
+.dash-loading {
+  color: #3b82f6;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* 2. 数据网格 (左右布局) */
+.dash-grid {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.dash-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.dash-item.cloud {
+  text-align: right;
+  align-items: flex-end;
+}
+
+.item-label {
+  font-size: 10px;
+  color: #6b7280;
+  margin-bottom: 2px;
+}
+
+/* 云端有更新时，时间变色 */
+.dash-item.cloud.highlight .item-time {
+  color: #a855f7;
+}
+
+/* 3. 中间连接图标 */
+.dash-connector {
+  font-size: 14px;
+  opacity: 0.5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+}
+
+.icon-update {
+  animation: bounce-left 1s infinite;
+  color: #a855f7;
+  opacity: 1;
+}
+
+/* 4. 底部状态条 */
+.dash-footer {
+  font-size: 11px;
+  text-align: center;
+  padding: 4px;
+  border-radius: 6px;
+  font-weight: 600;
+  margin-top: 2px;
+}
+
+.update-mode {
+  background: #a855f7;
+  color: white;
+  box-shadow: 0 2px 5px rgba(168, 85, 247, 0.3);
+  animation: pulse-badge 2s infinite;
+}
+
+.safe-mode {
+  background: #ecfdf5;
+  color: #059669;
+  border: 1px solid #d1fae5;
+}
+
+/* 动画定义 */
+@keyframes bounce-left {
+  0%, 100% { transform: translateX(0); }
+  50% { transform: translateX(-3px); }
+}
+
+@keyframes pulse-badge {
+  0% { opacity: 0.9; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.02); }
+  100% { opacity: 0.9; transform: scale(1); }
+}
+
+/* 🔥 暗黑模式适配 (Dark Mode) */
+.dark .sync-dashboard {
+  background: #1e293b;
+  border-color: #334155;
+  box-shadow: none;
+}
+.dark .sync-dashboard.has-update {
+  background: linear-gradient(to bottom right, #1e293b, #3b0764);
+  border-color: #7e22ce;
+}
+.dark .dash-header { border-bottom-color: #334155; }
+.dark .item-label { color: #94a3b8; }
+.dark .item-time { color: #f1f5f9; }
+.dark .safe-mode { background: #064e3b; color: #6ee7b7; border-color: #065f46; }
+
+ /* 🔥🔥🔥【新增】回到顶部按钮样式 */
+.top-btn {
+  background: #374151; /* 深灰色 */
+  color: white;
+  border-color: #4b5563;
+  z-index: 1400; /* 略低于云同步菜单 */
+}
+.top-btn:hover {
+  background: #111827;
+  transform: translateY(-3px); /* 悬停时稍微上浮 */
+  box-shadow: 0 6px 12px rgba(0,0,0,0.3);
+}
+
+/* 暗黑模式适配 */
+.dark .top-btn {
+  background: #475569;
+  border-color: #64748b;
+}
+.dark .top-btn:hover {
+  background: #334155;
+}
+
+/* 🔥🔥🔥【新增】平滑显隐动画 */
+.fade-slide-enter-active,
+.fade-slide-leave-active {
+  transition: all 0.3s ease;
+}
+
+.fade-slide-enter-from,
+.fade-slide-leave-to {
+  opacity: 0;
+  transform: translateY(10px) scale(0.8); /* 从下方淡出 */
+}
+
+/* 🔥🔥🔥【新增】SVG 图标通用样式 */
+.floating-btn .svg-icon {
+  width: 22px;  /* 设置一个合适的大小 */
+  height: 22px;
+  fill: currentColor; /* 让图标颜色跟随按钮文字颜色 */
+  display: block; /* 修复对齐问题 */
+}
+
+/* 确保按钮是个弹性容器，让 SVG 完美居中 */
+/* (现有的 .floating-btn 应该已经有了 flex 属性，如果没有可以加上下面这两行) */
+/* .floating-btn {
+     display: flex;
+     justify-content: center;
+     align-items: center;
+} */
+
+/* 易错表格样式 */
+.mistake-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.mistake-table th {
+  text-align: left;
+  padding: 12px 15px;
+  font-size: 13px;
+  color: #6b7280;
+  border-bottom: 2px solid #f3f4f6;
+  font-weight: 600;
+}
+.mistake-table td {
+  padding: 10px 15px;
+  border-bottom: 1px solid #f3f4f6;
+  vertical-align: middle;
+  /* 🔥 新增这一行：强制左对齐，覆盖弹窗的默认居中 */
+  text-align: left;
+}
+.mistake-table tr:hover {
+  background-color: #f9fafb;
+}
+
+/* 错误次数徽章 */
+.count-badge {
+  background: #fee2e2;
+  color: #ef4444;
+  font-weight: bold;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+/* 跳转按钮 */
+.jump-link-btn {
+  background: white;
+  border: 1px solid #d1d5db;
+  color: #374151;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.jump-link-btn:hover {
+  border-color: #3b82f6;
+  color: #3b82f6;
+  background: #eff6ff;
+}
+
+/* 翻页按钮 */
+.page-nav-btn {
+  background: white;
+  border: 1px solid #e5e7eb;
+  padding: 6px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: #374151;
+  font-size: 13px;
+}
+.page-nav-btn:hover:not(:disabled) {
+  background: #f3f4f6;
+}
+.page-nav-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 暗黑模式适配 */
+.dark .mistake-table th { background: #1e293b; color: #94a3b8; border-bottom-color: #334155; }
+.dark .mistake-table td { border-bottom-color: #334155; color: #e2e8f0; }
+.dark .mistake-table tr:hover { background-color: #334155; }
+.dark .count-badge { background: #7f1d1d; color: #fca5a5; }
+.dark .jump-link-btn { background: #1e293b; border-color: #4b5563; color: #cbd5e1; }
+.dark .jump-link-btn:hover { border-color: #60a5fa; color: #60a5fa; }
+.dark .page-nav-btn { background: #1e293b; border-color: #4b5563; color: #e2e8f0; }
+
+/* 弹窗头部布局 */
+.mistake-header {
+  padding: 15px 20px; 
+  border-bottom: 1px solid #e5e7eb; 
+  display: flex; 
+  justify-content: space-between; 
+  align-items: center; 
+  background: #f9fafb;
+}
+
+/* 🔥🔥🔥 胶囊切换按钮组 */
+.toggle-pill-group {
+  display: flex;
+  background: #e5e7eb;
+  padding: 3px;
+  border-radius: 20px; /* 胶囊圆角 */
+  gap: 2px;
+}
+
+.pill-btn {
+  border: none;
+  background: transparent;
+  padding: 4px 12px;
+  border-radius: 16px;
+  font-size: 12px;
+  font-weight: bold;
+  color: #6b7280;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+/* 激活状态：变成白色卡片 */
+.pill-btn.active {
+  background: white;
+  color: #3b82f6; /* 默认蓝色 */
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+/* 当切换到“已攻克”时，激活颜色变成紫色，区分度更高 */
+.pill-btn:last-child.active {
+  color: #a855f7; 
+}
+
+/* 攻克榜的特殊样式 */
+.conquered-tr:hover {
+  background-color: #f3e8ff !important; /* 悬停变成淡紫色 */
+}
+
+/* 紫色徽章 (用于已攻克列表) */
+.purple-badge {
+  background: #f3e8ff;
+  color: #a855f7;
+}
+
+/* 暗黑模式适配 */
+.dark .mistake-header { background: #1e293b; border-bottom-color: #334155; }
+.dark .toggle-pill-group { background: #334155; }
+.dark .pill-btn { color: #94a3b8; }
+.dark .pill-btn.active { background: #1e293b; color: #60a5fa; }
+.dark .pill-btn:last-child.active { color: #c084fc; }
+.dark .conquered-tr:hover { background-color: #3b0764 !important; }
+.dark .purple-badge { background: #581c87; color: #e9d5ff; }
+
+/* =========================================
+   🔥 修复：易错榜单夜间模式适配
+   ========================================= */
+
+/* 1. 表头固定与背景 */
+.mistake-thead {
+  position: sticky; 
+  top: 0; 
+  background: #fff; /* 默认白底 */
+  z-index: 10;
+}
+
+/* 2. 底部翻页栏 */
+.mistake-footer {
+  padding: 12px; 
+  border-top: 1px solid #e5e7eb; 
+  display: flex; 
+  justify-content: center; 
+  gap: 15px; 
+  align-items: center; 
+  background: #fff; /* 默认白底 */
+}
+
+/* 3. 单词文本颜色 */
+.mistake-word {
+  font-weight: bold; 
+  font-size: 16px; 
+  color: #1f2937; /* 默认深灰 */
+}
+.mistake-word.is-conquered {
+  color: #a855f7;       /* 默认紫色 */
+  text-decoration: line-through;
+}
+
+/* ------------- 🌙 Dark Mode 适配 ------------- */
+
+/* 表头变黑 */
+.dark .mistake-thead {
+  background: #1e293b; 
+}
+
+/* 底部栏变黑 (解决白条问题) */
+.dark .mistake-footer {
+  background: #1e293b;
+  border-top-color: #334155;
+}
+
+/* 底部页码文字变白 */
+.dark .mistake-footer span {
+  color: #e2e8f0 !important;
+}
+
+/* 单词文字变白 (解决看不清问题) */
+.dark .mistake-word {
+  color: #f1f5f9; 
+}
+.dark .mistake-word.is-conquered {
+  color: #c084fc; /* 夜间模式下用亮一点的紫色 */
+  opacity: 0.8;
+}
+
+/* 针对释义的小字稍微调亮 */
+.dark .mistake-table td div:nth-child(2) {
+  color: #94a3b8 !important;
+}
+
+/* 默认模式（日间）：深色文字 */
+.mistake-modal-title {
+  margin: 0;
+  font-size: 18px;
+  color: #111827; /* 深灰黑色 */
+}
+
+/* 🌙 夜间模式：亮白文字 */
+.dark .mistake-modal-title {
+  color: #f1f5f9 !important; /* 亮白色，强制覆盖 */
+}
+
+/* =========================================
+   🔥 强制修复：手机端 Markdown 高亮样式
+   (让 **加粗** 和 `代码` 都显示为黄色高亮)
+   ========================================= */
+
+/* 1. 针对加粗文字 (**text**) */
+.markdown-body strong,
+.markdown-body b {
+  background-color: #fef3c7 !important; /* 强制淡黄色背景 */
+  color: #92400e !important;            /* 强制深褐色文字 (提升对比度) */
+  padding: 0 4px !important;            /* 左右留空 */
+  border-radius: 4px !important;        /* 圆角 */
+  font-weight: 700 !important;
+  border: 1px solid #fcd34d !important; /* 加个边框，让它更像“卡片” */
+  
+  /* 修复：防止被其他样式(如重置样式)覆盖 */
+  text-decoration: none !important;
+  display: inline-block; /* 保持行内块级，防止背景断裂难看 */
+  line-height: 1.4;
+  margin: 0 2px;
+}
+
+/* 2. 针对行内代码 (`text`) - 图2那种样式 */
+.markdown-body code {
+  background-color: #fef3c7 !important; 
+  color: #92400e !important;
+  padding: 0 4px !important;
+  border-radius: 4px !important;
+  font-family: inherit !important; /* 手机上不要强制用等宽字体，很难看 */
+  border: 1px solid #fcd34d !important;
+  font-size: 0.95em;
+}
+
+/* 🌙 暗黑模式适配 (Dark Mode) */
+.dark .markdown-body strong,
+.dark .markdown-body b,
+.dark .markdown-body code {
+  background-color: rgba(245, 158, 11, 0.15) !important; /* 深色下的半透明黄 */
+  color: #fbbf24 !important;            /* 亮金色文字 */
+  border-color: rgba(245, 158, 11, 0.3) !important;
+}  
+
+.speaker.loading {
+  display: inline-block;
+  animation: spin 1s linear infinite;
+  opacity: 1;
+  cursor: wait;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.copy-page-btn {
+  color: #06b6d4; /* 青色文字 */
+  border-color: #a5f3fc;
+}
+/* 暗黑模式适配 */
+.dark .copy-page-btn {
+  color: #22d3ee;
+  border-color: #0891b2;
+  background: #164e63;
+}
+
+/* 🔥🔥🔥 复习阶段角标样式 */
+.review-stage-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px; /* 圆角胶囊感 */
+  color: white;
+  font-size: 10px;
+  font-weight: bold;
+  margin-left: 4px;
+  vertical-align: super; /* 稍微上浮，像角标一样 */
+  cursor: help;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+  line-height: 1;
+}
+
+/* 暗黑模式下可以微调亮度 */
+.dark .review-stage-tag {
+  box-shadow: 0 0 4px rgba(0,0,0,0.3);
+}
+
+/* --- 自定义下拉菜单样式 --- */
+.selectors {
+  position: relative; /* 关键 */
+  display: flex;
+  gap: 10px;
+  z-index: 1002; /* 保证在遮罩层之上 */
+}
+
+.custom-select {
+  position: relative;
+  min-width: 120px;
+  max-width: 160px;
+  font-size: 14px;
+}
+
+.select-trigger {
+  background: white;
+  border: 1px solid #d1d5db;
+  padding: 8px 12px;
+  border-radius: 6px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  color: #374151;
+  font-weight: 500;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
+
+.arrow {
+  font-size: 10px;
+  color: #9ca3af;
+  margin-left: 8px;
+  transition: transform 0.2s;
+}
+
+/* 展开时箭头旋转 */
+.custom-select.active .arrow {
+  transform: rotate(180deg);
+}
+
+/* 下拉列表容器 */
+.select-options, .select-optionsPart {
+  position: absolute;
+  top: 110%; /* 在按钮下方 */
+  left: 0;
+  width: max-content; /* 宽度随内容自适应 */
+  min-width: 100%;
+  max-width: 280px; /* 限制最大宽度防止太宽 */
+  max-height: 300px; /* 限制高度，可滚动 */
+  overflow-y: auto;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+  z-index: 2000;
+}
+
+.option-item {
+  padding: 10px 15px;
+  cursor: pointer;
+  color: #4b5563;
+  border-bottom: 1px solid #f3f4f6;
+  white-space: nowrap; /* 不换行 */
+}
+
+.option-item:last-child {
+  border-bottom: none;
+}
+
+.option-item:hover {
+  background-color: #f9fafb;
+  color: #2563eb;
+}
+
+/* 选中项高亮 */
+.option-item.selected {
+  background-color: #eff6ff;
+  color: #2563eb;
+  font-weight: bold;
+}
+
+/* 透明遮罩 (点击空白关闭) */
+.menu-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 1001; /* 比工具栏高，但比菜单低 */
+  background: transparent;
+}
+
+/* 暗黑模式适配 */
+.dark .select-trigger { background: #1e293b; border-color: #475569; color: #f1f5f9; }
+.dark .select-options, .dark .select-optionsPart { background: #1e293b; border-color: #475569; }
+.dark .option-item { color: #cbd5e1; border-bottom-color: #334155; }
+.dark .option-item:hover { background: #334155; }
+.dark .option-item.selected { background: #1e40af; color: white; }
 
 </style>
 
@@ -4486,5 +6472,53 @@ const removeAudioTag = (word) => {
 .dark .story-reader {
   color: #d1d5db !important;
 }
+/* 1. 强化侧边栏标题和未激活项的可见度 */
+.dark .sidebar-header {
+  color: #94a3b8 !important; /* 从原本的 9ca3af 调亮一点点，或者用 #64748b */
+  border-bottom: 1px solid #334155;
+}
 
+.dark .sidebar-item {
+  color: #94a3b8 !important; /* 默认未选中的文字调亮 */
+}
+
+.dark .sidebar-item:hover {
+  color: #f1f5f9 !important; /* 悬停时文字变亮白 */
+}
+
+/* 2. 补全 Markdown 的深层标题颜色 (h4/h5/h6) */
+.dark .markdown-body h4,
+.dark .markdown-body h5,
+.dark .markdown-body h6 {
+  color: #f1f5f9 !important; /* 强制所有层级标题在夜间都保持高亮 */
+  border-left: 3px solid #3b82f6; /* 给小标题加个蓝色前缀，增加辨识度 */
+  padding-left: 8px;
+}
+
+/* 3. 优化正文和列表的对比度 */
+.dark .markdown-body {
+  color: #e2e8f0 !important; /* 将默认灰改成更亮的 Slate-200 */
+}
+
+.dark .markdown-body p, 
+.dark .markdown-body li {
+  color: #cbd5e1 !important; /* 段落和列表文字微调 */
+}
+
+/* 4. 优化橙色高亮块 (重点词汇) 在夜间的显示 */
+/* 截图里的橙色背景太重，文字容易糊掉，我们换成更透亮的组合 */
+.dark .markdown-body strong, 
+.dark .markdown-body b {
+  background-color: rgba(245, 158, 11, 0.2) !important; /* 琥珀色半透明背景 */
+  color: #fbbf24 !important; /* 亮金色文字 */
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  padding: 1px 4px;
+}
+
+/* 5. 修复引用块 (blockquote) 的颜色，让例句更清晰 */
+.dark .markdown-body blockquote {
+  background: #0f172a !important; /* 纯黑底色 */
+  border-left-color: #3b82f6 !important; /* 亮蓝竖线 */
+  color: #94a3b8 !important;
+}
 </style>
