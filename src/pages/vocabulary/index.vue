@@ -119,22 +119,6 @@ const handleJumpNext = (e) => {
   }
 }
 
-// 🔥🔥🔥【新增】控制自定义下拉菜单的开关
-const showChapMenu = ref(false)
-const showPartMenu = ref(false)
-
-// 选择章节
-const onSelectChapter = (val) => {
-  currentChapter.value = val
-  showChapMenu.value = false
-}
-
-// 选择 Part
-const onSelectPart = (idx) => {
-  chunkIndex.value = idx
-  showPartMenu.value = false
-}
-
 // 🔥🔥🔥【新增】页面故事/文章存储
 // 结构: { "Chapter1_Part0": { content: "文章内容..." }, ... }
 const pageStories = useMyStorage('my_ielts_page_stories', {})
@@ -2985,46 +2969,13 @@ const showHiddenButtons = computed(() => {
 
         <div class="middle-tools">
           <div class="selectors" v-if="!isReviewMode">
-  
-  <div class="custom-select" :class="{ active: showChapMenu }">
-    <div class="select-trigger" @click="showChapMenu = !showChapMenu; showPartMenu = false">
-      <span>{{ currentChapter }}</span>
-      <span class="arrow">▼</span>
-    </div>
-    <div class="select-options" v-show="showChapMenu">
-      <div 
-        v-for="item in chapterOptions" 
-        :key="item.value" 
-        class="option-item"
-        :class="{ selected: currentChapter === item.value }"
-        @click="onSelectChapter(item.value)"
-      >
-        {{ item.label }} {{ item.isDone ? '✅' : '' }}
-      </div>
-    </div>
-  </div>
-
-  <div class="custom-select" :class="{ active: showPartMenu }">
-    <div class="select-trigger" @click="showPartMenu = !showPartMenu; showChapMenu = false">
-      <span>{{ chunkOptions[chunkIndex] ? chunkOptions[chunkIndex].split(' ')[0] + ' ' + chunkOptions[chunkIndex].split(' ')[1] : 'Part 1' }}</span>
-      <span class="arrow">▼</span>
-    </div>
-    <div class="select-optionsPart" v-show="showPartMenu">
-      <div 
-        v-for="(name, i) in chunkOptions" 
-        :key="i" 
-        class="option-item"
-        :class="{ selected: chunkIndex === i }"
-        @click="onSelectPart(i)"
-      >
-        {{ name }}
-      </div>
-    </div>
-  </div>
-
-</div>
-
-<div v-if="showChapMenu || showPartMenu" class="menu-overlay" @click="showChapMenu = false; showPartMenu = false"></div>
+            <select v-model="currentChapter" class="sel-chap">
+              <option v-for="item in chapterOptions" :key="item.value" :value="item.value">
+                {{ item.label }}{{ item.isDone ? '✅' : '' }}
+              </option>
+            </select>
+            <select v-model="chunkIndex" class="sel-part"><option v-for="(name, i) in chunkOptions" :key="i" :value="i">{{ name }}</option></select>
+          </div>
           
           <div class="stats-bar" :class="{ 'compact-mode': !isReviewMode }">
              <span v-if="isReviewMode" title="全书总词汇量">📚 {{ globalStats.total }}</span>
@@ -5930,106 +5881,6 @@ const showHiddenButtons = computed(() => {
 .dark .review-stage-tag {
   box-shadow: 0 0 4px rgba(0,0,0,0.3);
 }
-
-/* --- 自定义下拉菜单样式 --- */
-.selectors {
-  position: relative; /* 关键 */
-  display: flex;
-  gap: 10px;
-  z-index: 1002; /* 保证在遮罩层之上 */
-}
-
-.custom-select {
-  position: relative;
-  min-width: 120px;
-  max-width: 160px;
-  font-size: 14px;
-}
-
-.select-trigger {
-  background: white;
-  border: 1px solid #d1d5db;
-  padding: 8px 12px;
-  border-radius: 6px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  cursor: pointer;
-  color: #374151;
-  font-weight: 500;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-}
-
-.arrow {
-  font-size: 10px;
-  color: #9ca3af;
-  margin-left: 8px;
-  transition: transform 0.2s;
-}
-
-/* 展开时箭头旋转 */
-.custom-select.active .arrow {
-  transform: rotate(180deg);
-}
-
-/* 下拉列表容器 */
-.select-options, .select-optionsPart {
-  position: absolute;
-  top: 110%; /* 在按钮下方 */
-  left: 0;
-  width: max-content; /* 宽度随内容自适应 */
-  min-width: 100%;
-  max-width: 280px; /* 限制最大宽度防止太宽 */
-  max-height: 300px; /* 限制高度，可滚动 */
-  overflow-y: auto;
-  background: white;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
-  z-index: 2000;
-}
-
-.option-item {
-  padding: 10px 15px;
-  cursor: pointer;
-  color: #4b5563;
-  border-bottom: 1px solid #f3f4f6;
-  white-space: nowrap; /* 不换行 */
-}
-
-.option-item:last-child {
-  border-bottom: none;
-}
-
-.option-item:hover {
-  background-color: #f9fafb;
-  color: #2563eb;
-}
-
-/* 选中项高亮 */
-.option-item.selected {
-  background-color: #eff6ff;
-  color: #2563eb;
-  font-weight: bold;
-}
-
-/* 透明遮罩 (点击空白关闭) */
-.menu-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
-  z-index: 1001; /* 比工具栏高，但比菜单低 */
-  background: transparent;
-}
-
-/* 暗黑模式适配 */
-.dark .select-trigger { background: #1e293b; border-color: #475569; color: #f1f5f9; }
-.dark .select-options, .dark .select-optionsPart { background: #1e293b; border-color: #475569; }
-.dark .option-item { color: #cbd5e1; border-bottom-color: #334155; }
-.dark .option-item:hover { background: #334155; }
-.dark .option-item.selected { background: #1e40af; color: white; }
 
 </style>
 
