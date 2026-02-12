@@ -655,6 +655,9 @@ const displayData = computed(() => {
 function refreshReviewData() {
   if (!isReviewMode.value) return
 
+  // 0. 清理待结算的计时器
+  clearAllPendingFailures()
+
   // 1. 强制重新计算需要复习的单词
   const dueWords = reviewList.value.filter(item => item.time <= Date.now())
   reviewStaticList.value = JSON.parse(JSON.stringify(dueWords))
@@ -679,6 +682,59 @@ function exitDictationMode() {
   isDictation.value = false
   revealedZh.clear()
   isDictationFinished.value = false
+  clearAllPendingFailures() // 清理计时器
+}
+
+// 🔥🔥🔥【新增】纠错宽限期管理 (30秒)
+const pendingFailures = reactive({}) // 记录待结算的错误计时器 { [word]: timerId }
+
+// 清理所有待处理的计时器，防止内存占用或切页后的“幽灵”逻辑
+function clearAllPendingFailures() {
+  Object.keys(pendingFailures).forEach(wordEn => {
+    clearTimeout(pendingFailures[wordEn])
+    delete pendingFailures[wordEn]
+  })
+}
+
+// 提取错误处理逻辑，以便延迟调用
+function processFailure(word) {
+  if (!revealedZh.has(word.en)) revealedZh.add(word.en)
+
+  // 记录永久错误案底
+  const oldFailCount = globalFailHistory.value[word.en] || 0
+  globalFailHistory.value = {
+    ...globalFailHistory.value,
+    [word.en]: oldFailCount + 1
+  }
+
+  if (!isReviewMode.value) {
+    // 学习模式答错
+    if (masteredList.value.includes(word.en)) {
+      masteredList.value = masteredList.value.filter(w => w !== word.en)
+    }
+
+    const existing = reviewList.value.find(i => i.w === word.en)
+    if (!existing) {
+      reviewList.value.push({
+        w: word.en,
+        stage: 0,
+        time: Date.now() + INTERVALS[0] * 60000,
+        failCount: 1
+      })
+    } else {
+      existing.failCount = (existing.failCount || 0) + 1
+      existing.stage = 0
+      existing.time = Date.now() + INTERVALS[0] * 60000
+    }
+  } else {
+    // 复习模式答错
+    const idx = reviewList.value.findIndex(i => i.w === word.en)
+    if (idx > -1) {
+      reviewList.value[idx].stage = 0
+      reviewList.value[idx].time = Date.now() + INTERVALS[0] * 60000
+      reviewList.value[idx].failCount = (reviewList.value[idx].failCount || 0) + 1
+    }
+  }
 }
 
 
@@ -693,6 +749,7 @@ watch(isReviewMode, (val) => {
 
     // 【核心新增】自动关闭听写模式，回到浏览/背诵状态
     isDictation.value = false
+    clearAllPendingFailures()
   }
 }, { immediate: true })
 
@@ -958,6 +1015,11 @@ const playSentence = (text) => {
 // 🔴 核心修复：checkInput (解决了语法报错并优化了记录逻辑)
 // ==========================================
 function checkInput(word, e) {
+  // 如果是按下 Enter 键且内容为空，直接忽略，防止误触
+  if (e.type === 'keydown' && e.key === 'Enter' && !e.target.value.trim()) {
+    return
+  }
+
   // 1. 获取输入值和正确答案
   let val = e.target.value.trim().toLowerCase()
   let answer = word.en.toLowerCase()
@@ -976,6 +1038,12 @@ function checkInput(word, e) {
 
   if (isCorrect) {
     // --- 答对了 ---
+    // 如果该词在“待结算错误”名单中，立刻赦免它
+    if (pendingFailures[word.en]) {
+      clearTimeout(pendingFailures[word.en])
+      delete pendingFailures[word.en]
+    }
+
     if (!revealedZh.has(word.en)) revealedZh.add(word.en)
 
     // --- A. 学习模式 (第一次学) ---
@@ -1014,43 +1082,14 @@ function checkInput(word, e) {
     }
   } else {
     // --- 答错了 ---
-    if (!revealedZh.has(word.en)) revealedZh.add(word.en)
+    // 如果已经有计时器了，先清理掉旧的
+    if (pendingFailures[word.en]) clearTimeout(pendingFailures[word.en])
 
-    // 🔥【修复代码】记录永久错误案底
-    const oldFailCount = globalFailHistory.value[word.en] || 0
-    globalFailHistory.value = {
-      ...globalFailHistory.value,
-      [word.en]: oldFailCount + 1
-    }
-
-    if (!isReviewMode.value) {
-        // 学习模式答错：从已掌握中移除，并加入/更新复习列表
-        if (masteredList.value.includes(word.en)) {
-          masteredList.value = masteredList.value.filter(w => w !== word.en)
-        }
-
-        const existing = reviewList.value.find(i => i.w === word.en)
-        if (!existing) {
-           reviewList.value.push({
-             w: word.en,
-             stage: 0,
-             time: Date.now() + INTERVALS[0] * 60000,
-             failCount: 1
-           })
-        } else {
-           existing.failCount = (existing.failCount || 0) + 1
-           existing.stage = 0
-           existing.time = Date.now() + INTERVALS[0] * 60000
-        }
-    } else {
-        // 复习模式答错：重置阶段并更新错误计数
-        const idx = reviewList.value.findIndex(i => i.w === word.en)
-        if (idx > -1) {
-          reviewList.value[idx].stage = 0
-          reviewList.value[idx].time = Date.now() + INTERVALS[0] * 60000
-          reviewList.value[idx].failCount = (reviewList.value[idx].failCount || 0) + 1
-        }
-    }
+    // 开启 30 秒宽限期
+    pendingFailures[word.en] = setTimeout(() => {
+      processFailure(word)
+      delete pendingFailures[word.en]
+    }, 30000)
   }
 }
 
