@@ -1753,27 +1753,36 @@ const openMistakeModal = () => {
   showMistakeModal.value = true
 }
 
-// 5. 跳转 (保持不变)
+// 5. 跳转 (🔥 修复版：手机端不再打开新窗口，防止黑屏)
 const jumpToWordNewTab = (item) => {
+  // 1. 获取目标 URL (用于检测是否合法)
   const url = getSourceUrl(item.rawInfo)
+  
   if (!url || url === '#') {
     alert('该单词来自自定义生词本，暂无固定章节位置')
     return
   }
-  const fullUrl = window.location.origin + url
-  window.open(fullUrl, '_blank')
-}
 
-const isCurrentPartCompleted = computed(() => {
-  const list = completedParts.value[currentChapter.value] || []
-  return list.includes(chunkIndex.value)
-})
-const togglePartCompletion = () => {
-  const chap = currentChapter.value; const part = chunkIndex.value; const data = { ...completedParts.value }
-  if (!data[chap]) data[chap] = []
-  if (data[chap].includes(part)) data[chap] = data[chap].filter(i => i !== part)
-  else data[chap].push(part)
-  completedParts.value = data
+  // 2. 🔥🔥🔥 核心修复：检测是否为移动端
+  const isMobile = window.innerWidth < 768
+
+  if (isMobile) {
+    // 📱【手机端】执行“页内跳转”
+    // 直接关闭易错榜弹窗
+    showMistakeModal.value = false
+    
+    // 复用你写好的 handleJumpToSource 函数，直接跳过去
+    // 注意：handleJumpToSource 需要传入包含 source 属性的对象
+    handleJumpToSource({ 
+      en: item.en, 
+      source: item.source 
+    })
+    
+  } else {
+    // 💻【电脑端】保持原样，打开新标签页
+    const fullUrl = window.location.origin + url
+    window.open(fullUrl, '_blank')
+  }
 }
 
 // ⬇️⬇️⬇️ 补上这段丢失的翻页逻辑 ⬇️⬇️⬇️
@@ -3126,15 +3135,6 @@ const showHiddenButtons = computed(() => {
               
              <div class="col-idx text-center index-num desktop-only">
                 {{ isReviewMode ? word.id : word._id }}
-                
-                <span v-if="(word._isMastered || word._isKilled) && !isReviewMode" 
-                      class="status-icon"
-                      :style="{ 
-                        color: word._isKilled ? '#a855f7' : '#10b981', 
-                        fontWeight: 'bold'
-                      }">
-                  ✔
-                </span>
               </div>
               
               <div class="col-word">
@@ -4924,11 +4924,7 @@ const showHiddenButtons = computed(() => {
 
 /* 🔥 新增：专门控制对号的样式 */
 .status-icon {
-  position: absolute;  /* 绝对定位：悬浮在格子里 */
-  right: 2px;          /* 靠右显示，不干扰中间的数字 */
-  font-size: 12px;     /* 稍微调小一点，精致一些 */
-  top: 50%;
-  transform: translateY(-50%); /* 垂直居中 */
+  display: none !important;
 }
 
 /* 键盘选中的高亮样式 */
