@@ -3928,26 +3928,8 @@ const showHiddenButtons = computed(() => {
 .review-tab.active { color: #dc2626; }
 .dot { display: inline-block; width: 6px; height: 6px; background: red; border-radius: 50%; margin-left: 3px; vertical-align: top; }
 
-.selectors { display: flex; gap: 10px; flex-wrap: nowrap; align-items: center; }
-.selectors select {
-  padding: 10px 32px 10px 12px;
-  border: 1px solid #d1d5db;
-  border-radius: 8px;
-  background-color: white;
-  max-width: 160px;
-  font-size: 14px;
-  cursor: pointer;
-  -webkit-appearance: none;
-  -moz-appearance: none;
-  appearance: none;
-  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
-  background-repeat: no-repeat;
-  background-position: right 10px center;
-  background-size: 16px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  overflow: hidden;
-}
+.selectors { display: flex; gap: 10px; flex-wrap: nowrap; }
+.selectors select { padding: 12px 14px; border: 1px solid #d1d5db; border-radius: 6px; background: white; max-width: 140px; font-size: 14px; }
 .action-btn { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; border-radius: 6px; padding: 6px 12px; font-size: 14px; cursor: pointer; }
 .special-btn { background: #f0fdf4; color: #15803d; border-color: #bbf7d0; margin-right: 8px; }
 .toggle-label { display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 15px; font-weight: 600; color: #374151; user-select: none; }
@@ -4032,11 +4014,9 @@ const showHiddenButtons = computed(() => {
   .mobile-kill { position: absolute; top: 10px; right: 10px; font-size: 20px; color: #d1d5db; background: none; border: none; padding: 5px; }
   .review-badge-m { font-size: 12px; margin-right: 5px; }
   .bar-inner { gap: 10px; justify-content: center; }
-  .middle-tools { width: 100%; order: 3; justify-content: center; margin-top: 10px; padding: 0 5px; }
-  .selectors { width: 100%; justify-content: space-between; gap: 8px; }
-  .sel-chap { flex: 1.6; min-width: 0; max-width: 65% !important; }
-  .sel-part { flex: 1; min-width: 0; max-width: 32% !important; }
-  .selectors select { font-size: 13px; padding: 8px 24px 8px 8px; background-position: right 6px center; }
+  .middle-tools { width: 100%; order: 3; justify-content: center; margin-top: 10px; }
+  .selectors { width: 100%; justify-content: space-between; }
+  .sel-chap { flex: 2; } .sel-part { flex: 1; }
   .stats-bar { width: 100%; justify-content: center; flex-wrap: nowrap; margin-bottom: 5px; }
 
   .example-cell {
@@ -5996,7 +5976,6 @@ const showHiddenButtons = computed(() => {
   color: #f8fafc !important;            /* 亮白色文字 */
   border: 1px solid #475569 !important; /* 深色边框 */
   outline: none;
-  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
 }
 
 /* 适配下拉选项的背景 (部分浏览器支持) */
