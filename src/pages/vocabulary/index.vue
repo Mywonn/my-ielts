@@ -17,7 +17,7 @@ const playSound = (url) => {
 
 // 1. 配色 & 阶段颜色
 const GROUP_COLORS = [
-  '#ef4444', '#3b82f6', '#f59e0b', '#8b5cf6', '#10b981', 
+  '#ef4444', '#3b82f6', '#f59e0b', '#8b5cf6', '#10b981',
   '#ec4899', '#06b6d4', '#f97316', '#6366f1', '#84cc16', '#d946ef'
 ]
 
@@ -40,9 +40,9 @@ const useMyStorage = (key, defaultVal) => {
 
 const chapters = vocabularyData ? Object.keys(vocabularyData) : []
 const currentChapter = useMyStorage('my_ielts_chapter', chapters[0] || '')
-const reviewList = useMyStorage('my_ielts_review', []) 
+const reviewList = useMyStorage('my_ielts_review', [])
 const killedList = useMyStorage('my_ielts_killed', [])
-const masteredList = useMyStorage('my_ielts_mastered', []) 
+const masteredList = useMyStorage('my_ielts_mastered', [])
 const completedParts = useMyStorage('my_ielts_completed_parts', {})
 const customDict = useMyStorage('my_ielts_custom_dict', {})
 // 🔥🔥🔥【新增】永久记录每个单词的错误次数 (Key: 单词, Value: 次数)
@@ -52,11 +52,11 @@ const audioPeekHistory = useMyStorage('my_ielts_audio_peek_history', [])
 // 🔥🔥🔥【新增】分组笔记存储
 // 结构: { "Chapter1_0": { title: "标题", content: "详细辨析内容..." }, ... }
 const groupNotes = useMyStorage('my_ielts_group_notes', {})
-const isDictation = ref(false) 
+const isDictation = ref(false)
 const refreshKey = ref(0)
 const isReviewMode = ref(false)
 const chunkIndex = ref(0)
-const statusMap = reactive({}) 
+const statusMap = reactive({})
 const INTERVALS = [5, 30, 720, 1440, 2880, 5760]
 
 // 复习列表静态快照
@@ -83,15 +83,15 @@ const handleJumpNext = (e) => {
   // 获取页面上所有的输入框
   const inputs = Array.from(document.querySelectorAll('.dictation-input'))
   const currentIdx = inputs.indexOf(e.target)
-  
+
   // A. 如果按下了 Shift 键 (Shift + Tab) -> 往回跳 (上一格)
   if (e.shiftKey) {
     if (currentIdx > 0) {
       inputs[currentIdx - 1].focus()
       // 选中里面的文字，方便直接修改（可选体验优化）
-      setTimeout(() => inputs[currentIdx - 1].select(), 10) 
+      setTimeout(() => inputs[currentIdx - 1].select(), 10)
     }
-  } 
+  }
   else {
     // ⬇️⬇️⬇️ 修改这里 ⬇️⬇️⬇️
     if (currentIdx > -1 && currentIdx < inputs.length - 1) {
@@ -100,17 +100,17 @@ const handleJumpNext = (e) => {
     } else {
       // 🔥 如果是最后一个，触发失焦 + 标记完成
       e.target.blur()
-      
+
       if (isReviewMode.value && isDictation.value) {
         // 1. 标记完成
         isDictationFinished.value = true
-        
+
         // 2. 退出听写模式 (变回输入框之前的样子)
         isDictation.value = false
-        
+
         // 3. 退出全显/字义模式 (清空已翻开的中文)
         revealedZh.clear()
-        
+
         // 4. (可选) 如果你也想顺便把“偷看”的小眼睛也关掉，加上这行：
         peekedWords.clear()
 
@@ -126,7 +126,7 @@ const pageStories = useMyStorage('my_ielts_page_stories', {})
 const showStoryModal = ref(false)
 // 🔥🔥🔥【升级版】多篇文章存储逻辑
 // 数据结构变更为: [ { title: '文章1', content: '...' }, { title: '文章2', content: '...' } ]
-const storyList = ref([]) 
+const storyList = ref([])
 const currentStoryIdx = ref(0) // 当前选中的是第几篇
 
 // 🔥🔥🔥【新增】听写完成状态标记
@@ -159,10 +159,10 @@ const openStoryModal = () => {
 
   // 重置状态
   currentStoryIdx.value = 0
-  
+
   // 智能判断编辑模式：如果当前这篇没内容，就自动进编辑模式
-  isStoryEditing.value = !storyList.value[0].content 
-  
+  isStoryEditing.value = !storyList.value[0].content
+
   showStoryModal.value = true
 }
 
@@ -170,15 +170,15 @@ const openStoryModal = () => {
 const switchStory = (index) => {
   currentStoryIdx.value = index
   // 切换时，如果那篇没内容，自动进编辑；有内容则进预览
-  isStoryEditing.value = !storyList.value[index].content 
+  isStoryEditing.value = !storyList.value[index].content
 }
 
 // 3. 添加新文章
 const addNewStory = () => {
   const newIdx = storyList.value.length
-  storyList.value.push({ 
-    title: `文章 ${newIdx + 1}`, 
-    content: '' 
+  storyList.value.push({
+    title: `文章 ${newIdx + 1}`,
+    content: ''
   })
   switchStory(newIdx) // 自动跳到新建的这一篇
   isStoryEditing.value = true // 自动进入编辑模式
@@ -193,9 +193,9 @@ const deleteCurrentStory = () => {
     showCustomAlert('已清空内容')
     return
   }
-  
+
   if (!confirm('确定要删除这篇文章吗？')) return
-  
+
   storyList.value.splice(currentStoryIdx.value, 1)
   // 删除后，如果索引越界，修正索引
   if (currentStoryIdx.value >= storyList.value.length) {
@@ -206,16 +206,16 @@ const deleteCurrentStory = () => {
 // 5. 保存所有文章
 const saveStory = () => {
   const key = getPageKey()
-  
+
   // 过滤掉完全空白的文章（可选，这里我保留了，防止你辛辛苦苦建的空文档没了）
   // 存入 LocalStorage
   pageStories.value = {
     ...pageStories.value,
     [key]: storyList.value // 直接存数组
   }
-  
+
   // 保存后切回阅读模式
-  isStoryEditing.value = false 
+  isStoryEditing.value = false
   showCustomAlert('本页所有文章已保存 💾')
 }
 
@@ -223,7 +223,7 @@ const saveStory = () => {
 const hasStoryOnCurrentPage = computed(() => {
   const key = getPageKey()
   const data = pageStories.value[key]
-  
+
   if (!data) return false
 
   // 兼容新旧数据格式
@@ -249,12 +249,12 @@ const copyStoryPrompt = () => {
   displayData.value.forEach(block => {
     if (block.list) block.list.forEach(w => words.push(w.en))
   })
-  
+
   if (words.length === 0) return
-  
+
   // 生成提示词
   const prompt = `Please write a short, interesting story (about 150-200 words) using the following vocabulary. Highlight the vocabulary words in bold within the story.\n\nWords: ${words.join(', ')}`
-  
+
   // 复制到剪贴板
   if (navigator.clipboard) {
     navigator.clipboard.writeText(prompt).then(() => {
@@ -360,14 +360,14 @@ const getNotation = (item) => {
 const findWordDetail = (wordText) => {
   // 1. 先查自定义词典
   if (customDict.value[wordText]) {
-    return { 
-      en: wordText, 
-      zh: customDict.value[wordText].zh, 
-      pos: '自选', 
-      example: '', 
-      notation: '我的生词本', 
-      id: '★', 
-      source: '生词本' 
+    return {
+      en: wordText,
+      zh: customDict.value[wordText].zh,
+      pos: '自选',
+      example: '',
+      notation: '我的生词本',
+      id: '★',
+      source: '生词本'
     }
   }
 
@@ -376,7 +376,7 @@ const findWordDetail = (wordText) => {
 
   for (const chap in vocabularyData) {
     const rawGroups = vocabularyData[chap].words || vocabularyData[chap].list || []
-    
+
     // --- 模拟 chunkedParts 的合并逻辑 ---
     let partIndex = 0        // 当前是合并后的第几 Part (从0开始)
     let currentPartCount = 0 // 当前 Part 累积了多少词
@@ -386,12 +386,12 @@ const findWordDetail = (wordText) => {
 
     for (let gIdx = 0; gIdx < rawGroups.length; gIdx++) {
       const group = rawGroups[gIdx]
-      
+
       // 1. 先计算这一小细组里有多少“有效单词”
       let validCountInGroup = 0
       for (const item of group) {
         // let rawEn ...
-        
+
         validCountInGroup++ // 🔥 直接 +1，因为斩杀词现在也占位了
       }
 
@@ -412,7 +412,7 @@ const findWordDetail = (wordText) => {
            rawEn = item.word || item.en; pos = item.pos||''; zh = item.meaning||item.trans||item.zh||''; ex = item.example||''; notation = getNotation(item)
         }
         const en = extractText(rawEn)
-        
+
         // 只有未被斩杀的词，才算全局 ID
          {
           globalIdCounter++
@@ -420,9 +420,9 @@ const findWordDetail = (wordText) => {
 
         // --- 找到目标单词！---
         if (en === wordText) {
-          return { 
+          return {
             en, zh, pos, example: ex, notation,
-            id: globalIdCounter, 
+            id: globalIdCounter,
             // 🔥 这里输出的就是合并后的 Part 序号了 (partIndex + 1)
             source: `${chap} Part ${partIndex + 1}`
           }
@@ -473,36 +473,36 @@ const chapterOffsets = computed(() => {
 
 const processedAllWords = computed(() => {
   if (!currentChapter.value || !vocabularyData[currentChapter.value]) return []
-  const rawGroups = vocabularyData[currentChapter.value].words || vocabularyData[currentChapter.value].list || [] 
+  const rawGroups = vocabularyData[currentChapter.value].words || vocabularyData[currentChapter.value].list || []
   let resultGroups = []
   let globalIndex = chapterOffsets.value[currentChapter.value] || 0
-  
+
   rawGroups.forEach((group, gIdx) => {
     const color = GROUP_COLORS[gIdx % GROUP_COLORS.length]
     let groupWords = []
     group.forEach(item => {
       // ... 解析代码保持不变 ...
       let rawEn = '', pos = '', zh = '', ex = '', notation = ''
-      if (Array.isArray(item)) { 
+      if (Array.isArray(item)) {
         rawEn = item[0]; pos = item[1]||''; zh = item[2]||''; ex = item[3]||''; notation = getNotation(item)
-      } else { 
+      } else {
         rawEn = item.word||item.en; pos = item.pos||''; zh = item.meaning||item.trans||item.zh||''; ex = item.example||''; notation = getNotation(item)
       }
-      const en = extractText(rawEn) 
-      
+      const en = extractText(rawEn)
+
       // if (killedList.value.includes(en)) return  <-- 🔥🔥🔥 删除这一行！不要 return！
-      
+
       globalIndex++
       const isMastered = masteredList.value.includes(en)
-      
+
       // 🔥 新增：标记是否被斩杀
       const isKilled = killedList.value.includes(en)
 
-      groupWords.push({ 
-        _id: globalIndex, 
-        en, zh, pos, example: ex, notation, 
-        _color: color, 
-        _groupId: gIdx, 
+      groupWords.push({
+        _id: globalIndex,
+        en, zh, pos, example: ex, notation,
+        _color: color,
+        _groupId: gIdx,
         _isMastered: isMastered,
         _isKilled: isKilled // 🔥 传入新属性
       })
@@ -513,9 +513,9 @@ const processedAllWords = computed(() => {
 })
 
 const chunkedParts = computed(() => {
-  if (isReviewMode.value) return [] 
+  if (isReviewMode.value) return []
   const groups = processedAllWords.value
-  const MIN_TARGET = 35; const MAX_LIMIT = 45 
+  const MIN_TARGET = 35; const MAX_LIMIT = 45
   let parts = []; let currentPart = []; let currentCount = 0
   groups.forEach(group => {
     const nextCount = currentCount + group.length
@@ -532,7 +532,7 @@ const chunkOptions = computed(() => {
   if (isReviewMode.value) return ['全部错题']
   return chunkedParts.value.map((p, i) => {
     if (!p || p.length === 0) return `Part ${i+1}`
-    const first = p[0]._id; const last = p[p.length-1]._id; const count = p.length 
+    const first = p[0]._id; const last = p[p.length-1]._id; const count = p.length
     const isDone = completedParts.value[currentChapter.value]?.includes(i)
     return `Part ${i + 1} (${first}-${last}) ${count}个 ${isDone ? '✔' : ''}`
   })
@@ -542,33 +542,33 @@ const chunkOptions = computed(() => {
 const getChapterPartCount = (chapName) => {
   const data = vocabularyData[chapName]
   if (!data) return 0
-  
+
   // 获取该章节所有的单词组
   const groups = data.words || data.list || []
-  
+
   // 核心拆分参数 (必须与 chunkedParts 里的逻辑保持一致)
   const MIN_TARGET = 35
   const MAX_LIMIT = 45
-  
+
   let partCount = 0
   let currentCount = 0
-  
+
   groups.forEach(group => {
     const groupLen = group.length // 这一组有多少个词
     const nextCount = currentCount + groupLen
-    
+
     // 如果当前积累的词数够了，或者加上这一组会超标 -> 结算为一个 Part
     if (currentCount > 0 && (currentCount >= MIN_TARGET || nextCount > MAX_LIMIT)) {
-      partCount++ 
+      partCount++
       currentCount = 0
     }
-    
+
     currentCount += groupLen
   })
-  
+
   // 如果最后还剩一些零散的词，也算作一个 Part
   if (currentCount > 0) partCount++
-  
+
   return partCount
 }
 
@@ -577,15 +577,15 @@ const chapterOptions = computed(() => {
   return chapters.map(chap => {
     // 1. 算出这一章总共有几个 Part
     const total = getChapterPartCount(chap)
-    
+
     // 2. 算出这一章已完成了几个 Part
     // completedParts 的结构是 { "章节名": [0, 1, 2] }
     const doneList = completedParts.value[chap] || []
     const doneCount = doneList.length
-    
+
     // 3. 判断是否全部完成 (且该章节不为空)
     const isAllDone = total > 0 && doneCount >= total
-    
+
     return {
       value: chap,
       label: chap,
@@ -607,7 +607,7 @@ const displayData = computed(() => {
       }
     })
     const blocks = []
-    
+
     // 🔥 修改：仅仅是把文字里的数字加了 1，其他都没动
     const titles = [
       '阶段 1 - 新手/重来 (5分钟)',  // 原来是 0
@@ -626,22 +626,22 @@ const displayData = computed(() => {
     }
     return blocks
   }
-  
+
   // 👇👇👇 修改 else 部分 (非复习模式) 👇👇👇
   const currentPartList = chunkedParts.value[chunkIndex.value] || []
   if (currentPartList.length === 0) return []
-  
+
   let blocks = []
   let currentBlock = null
   let lastGroupId = -999
 
   currentPartList.forEach(word => {
     if (word._groupId !== lastGroupId) {
-      currentBlock = { 
-        color: word._color, 
+      currentBlock = {
+        color: word._color,
         list: [],
         // 🔥🔥🔥【新增】把原始组ID带出来，用于绑定笔记
-        groupId: word._groupId 
+        groupId: word._groupId
       }
       blocks.push(currentBlock)
       lastGroupId = word._groupId
@@ -654,7 +654,7 @@ const displayData = computed(() => {
 // ★ 修改：无损刷新核心逻辑 + 重置交互状态
 function refreshReviewData() {
   if (!isReviewMode.value) return
-  
+
   // 1. 强制重新计算需要复习的单词
   const dueWords = reviewList.value.filter(item => item.time <= Date.now())
   reviewStaticList.value = JSON.parse(JSON.stringify(dueWords))
@@ -666,26 +666,33 @@ function refreshReviewData() {
   revealedSource.clear()   // 清空出处
   isDictationFinished.value = false
 
-  // 3. 🔥🔥🔥【核心大招】🔥 
+  // 3. 🔥🔥🔥【核心大招】🔥
   // 只要让 key +1，Vue 就会自动销毁旧的 input 并创建新的，
   // 根本不需要 document.querySelectorAll 去手动清空 value！
-  refreshKey.value++ 
-  
+  refreshKey.value++
+
   showCustomAlert('状态已重置，请重新听写 ⚡️')
 }
-  
+
+// 一键退出听写及汉语释义
+function exitDictationMode() {
+  isDictation.value = false
+  revealedZh.clear()
+  isDictationFinished.value = false
+}
+
 
 watch(isReviewMode, (val) => {
   if (val) {
     // 进入复习模式：加载待复习单词
     const dueWords = reviewList.value.filter(item => item.time <= Date.now())
     reviewStaticList.value = JSON.parse(JSON.stringify(dueWords))
-  } else { 
+  } else {
     // 🔥 从复习返回学习模式：
-    reviewStaticList.value = [] 
-    
+    reviewStaticList.value = []
+
     // 【核心新增】自动关闭听写模式，回到浏览/背诵状态
-    isDictation.value = false 
+    isDictation.value = false
   }
 }, { immediate: true })
 
@@ -696,15 +703,15 @@ watch(reviewList, (val) => {
   }
 })
 // 定义一个临时变量（放在 watch 上面即可）
-let isSearchJumping = false 
+let isSearchJumping = false
 
 // 修改 watch 逻辑
-watch(currentChapter, () => { 
+watch(currentChapter, () => {
   // 🔥 如果是搜索跳转，不要重置页码！
-  if (isSearchJumping) return 
-  
+  if (isSearchJumping) return
+
   chunkIndex.value = 0
-  isReviewMode.value = false 
+  isReviewMode.value = false
 })
 
 // ==========================================
@@ -720,13 +727,13 @@ const getCdnUrl = (word, chapter = null) => {
   const GH_USERNAME = 'Mywonn'
   const GH_REPO_NAME = 'my-ielts'
   const GH_BRANCH = 'master'
-  
+
   // 保持你原有的章节查找逻辑
   let targetChapter = chapter || currentChapter.value
   if (!chapter && vocabularyData) {
     for (const chap in vocabularyData) {
       const groups = vocabularyData[chap].words || vocabularyData[chap].list || []
-      const isFound = groups.some(group => 
+      const isFound = groups.some(group =>
         group.some(item => {
           const rawEn = Array.isArray(item) ? item[0] : (item.word || item.en)
           return extractText(rawEn) === word
@@ -735,14 +742,14 @@ const getCdnUrl = (word, chapter = null) => {
       if (isFound) { targetChapter = chap; break }
     }
   }
-  
+
   // 🔥 修复重点 1：对单词进行 URL 编码，解决 "El Nino" 带空格无法播放的问题
   const encodedWord = encodeURIComponent(word)
 
   // 🔥 修复重点 2：更换为 Statically 源 (通常比 JsDelivr 更快更稳)
   // 备用方案 A (Statically):
   //return `https://cdn.statically.io/gh/${GH_USERNAME}/${GH_REPO_NAME}@${GH_BRANCH}/public/vocabulary/audio/${targetChapter}/${encodedWord}.mp3`
-  
+
   // 备用方案 B (JsDelivr - 你原来的，如果 A 不行可以换回 B，但保留 encodeURIComponent)
    return `https://cdn.jsdelivr.net/gh/${GH_USERNAME}/${GH_REPO_NAME}@${GH_BRANCH}/public/vocabulary/audio/${targetChapter}/${encodedWord}.mp3`
 }
@@ -756,7 +763,7 @@ const preloadPageAudio = () => {
       const word = wordItem.en
       // 如果缓存里没有，且不是自定义词，则进行预加载
       if (!audioCache.has(word) && !customDict.value[word]) {
-        const url = getCdnUrl(word) 
+        const url = getCdnUrl(word)
         const audio = new Audio()
         audio.preload = 'auto' // 告诉浏览器偷偷下载
         audio.src = url
@@ -768,7 +775,7 @@ const preloadPageAudio = () => {
 
 // 监听翻页动作，自动触发预加载 (延迟1秒以免卡顿)
 watch([currentChapter, chunkIndex, isReviewMode], () => {
-  setTimeout(preloadPageAudio, 1000) 
+  setTimeout(preloadPageAudio, 1000)
 }, { immediate: true })
 
 // 3. 核心：播放控制 (修复双重播放 + 错误处理)
@@ -779,38 +786,38 @@ const toggleAudio = (word) => {
   }
 
   // B. 停止当前一切播放（强行重置）
-  if (currentAudio.value) { 
+  if (currentAudio.value) {
     currentAudio.value.pause()
-    currentAudio.value.currentTime = 0 
+    currentAudio.value.currentTime = 0
     currentAudio.value = null // 销毁引用
   }
-  window.speechSynthesis.cancel() 
+  window.speechSynthesis.cancel()
 
   // 如果点的是正在播的，就暂停并退出
   if (playingWord.value === word) {
     playingWord.value = null
     isLoadingAudio.value = false
-    return 
+    return
   }
 
   // C. 准备新播放
   playingWord.value = word
-  isLoadingAudio.value = true 
-  
+  isLoadingAudio.value = true
+
   // 定义 TTS 播放器
   const playTTS = () => {
     // 双重检查：如果用户已经切到别的词了，这个 TTS 就闭嘴
-    if (playingWord.value !== word) return 
-    
+    if (playingWord.value !== word) return
+
     console.log('播放 TTS 兜底:', word)
     isLoadingAudio.value = false // 停止转圈
-    
+
     const u = new SpeechSynthesisUtterance(word)
     u.lang = 'en-US'; u.rate = 0.85
     const voices = window.speechSynthesis.getVoices()
     const bestVoice = voices.find(v => v.name.includes('Google US')) || voices.find(v => v.lang.includes('en-US'))
     if (bestVoice) u.voice = bestVoice
-    
+
     u.onend = () => { playingWord.value = null }
     u.onerror = () => { playingWord.value = null }
     window.speechSynthesis.speak(u)
@@ -822,11 +829,11 @@ const toggleAudio = (word) => {
   // D. 尝试播放原音
   let audio = audioCache.get(word)
   if (!audio || audio.error) {
-     const url = getCdnUrl(word) 
+     const url = getCdnUrl(word)
      audio = new Audio(url)
      audioCache.set(word, audio)
   }
-  
+
   audio.currentTime = 0
   currentAudio.value = audio
 
@@ -835,11 +842,11 @@ const toggleAudio = (word) => {
     // 如果 3秒 后还在加载状态 (isLoadingAudio 为 true)
     if (playingWord.value === word && isLoadingAudio.value) {
       console.warn('CDN 超时，强制掐断原音，切换 TTS')
-      
+
       // 🔪 关键一刀：立刻停止音频加载，防止它待会儿诈尸
       audio.pause()
       audio.src = "" // 清空源，彻底断绝念想
-      
+
       // 然后才播 TTS
       playTTS()
     }
@@ -853,10 +860,10 @@ const toggleAudio = (word) => {
 
   audio.onplay = abortTimeout
   audio.oncanplaythrough = abortTimeout
-  
-  audio.onended = () => { 
+
+  audio.onended = () => {
     playingWord.value = null
-    currentAudio.value = null 
+    currentAudio.value = null
   }
 
   // F. 失败监听 (404 或 网络错误)
@@ -873,14 +880,14 @@ const toggleAudio = (word) => {
     playPromise.catch(error => {
       // 忽略因我们手动 pause 导致的 AbortError
       if (error.name === 'AbortError') return
-      
+
       console.warn('播放被阻断:', error)
       clearTimeout(playTimeout)
       playTTS()
     })
   }
 }
-  
+
 // ★ 修改：输入框聚焦时自动播放
 const playOnFocus = (word) => {
   // 1. 如果当前已经在这个词了，就不重复触发
@@ -888,7 +895,7 @@ const playOnFocus = (word) => {
 
   // 🔥🔥🔥【核心修改】如果中文已经显示出来了，就禁止自动播放
   // 逻辑：如果能看到中文（revealedZh里有这个词），说明是“看义拼写”或“抄写”，不需要听声音
-  if (revealedZh.has(word)) return 
+  if (revealedZh.has(word)) return
 
   // 只有中文被隐藏（听写模式）时，才播放声音
   toggleAudio(word)
@@ -899,7 +906,7 @@ const playOnFocus = (word) => {
 const playSentence = (text) => {
   // 1. 基础检查
   if (!text) return console.warn('没有文本可读')
-  
+
   // 2. 停止当前正在播放的单词录音 (MP3)
   if (currentAudio.value) {
     currentAudio.value.pause()
@@ -912,18 +919,18 @@ const playSentence = (text) => {
 
   // 4. 创建发音对象
   const u = new SpeechSynthesisUtterance(text)
-  
+
   // ★ 核心修复 A：不管找没找到语音包，先强制设定语言
-  u.lang = 'en-US' 
-  u.rate = 0.9 
+  u.lang = 'en-US'
+  u.rate = 0.9
   u.volume = 1
 
   // ★ 核心修复 B：尝试获取语音包，但如果为空也不怕，我们有 lang 兜底
   const voices = window.speechSynthesis.getVoices()
   // 试着找一个好听的英文女声
-  const bestVoice = voices.find(v => v.name.includes('Google US')) || 
+  const bestVoice = voices.find(v => v.name.includes('Google US')) ||
                     voices.find(v => v.lang.includes('en-US'))
-  
+
   if (bestVoice) {
     u.voice = bestVoice
   }
@@ -958,57 +965,57 @@ function checkInput(word, e) {
   // 2. 清洗数据：统一引号格式并去除多余空格
   const normalize = (str) => {
     return str
-      .replace(/[\u2018\u2019`]/g, "'") 
-      .replace(/\s+/g, ' ')             
+      .replace(/[\u2018\u2019`]/g, "'")
+      .replace(/\s+/g, ' ')
   }
 
   const isCorrect = normalize(val) === normalize(answer)
-  
+
   // 更新红绿状态映射
   statusMap[word.en] = isCorrect ? 'correct' : 'error'
-  
+
   if (isCorrect) {
     // --- 答对了 ---
     if (!revealedZh.has(word.en)) revealedZh.add(word.en)
-    
+
     // --- A. 学习模式 (第一次学) ---
     if (!isReviewMode.value) {
       updateDailyStats('learn', 1)
-      
+
       // 如果这个词之前没掌握，现在掌握了 -> 记入斩杀数(攻克数)
       if (!masteredList.value.includes(word.en)) {
         masteredList.value.push(word.en)
         updateDailyStats('kill', 1) // 第一次学习变绿算作斩杀+1
       }
-      
+
       const idx = reviewList.value.findIndex(i => i.w === word.en)
       if (idx > -1) reviewList.value.splice(idx, 1)
       return
     }
-    
+
     // --- B. 复习模式 ---
     const idx = reviewList.value.findIndex(i => i.w === word.en)
     if (idx > -1) {
       updateDailyStats('review', 1)
       const item = reviewList.value[idx]
       item.stage += 1
-      
+
       // 如果达到了最大阶段 (完成所有艾宾浩斯周期)
       if (item.stage >= INTERVALS.length) {
-        reviewList.value.splice(idx, 1) 
+        reviewList.value.splice(idx, 1)
         if (!killedList.value.includes(word.en)) {
           killedList.value.push(word.en)
           updateDailyStats('kill', 1) // 复习通关变紫算作斩杀+1
         }
-      } else { 
-        item.time = Date.now() + INTERVALS[item.stage] * 60000 
-        reviewList.value = [...reviewList.value] 
+      } else {
+        item.time = Date.now() + INTERVALS[item.stage] * 60000
+        reviewList.value = [...reviewList.value]
       }
     }
   } else {
     // --- 答错了 ---
     if (!revealedZh.has(word.en)) revealedZh.add(word.en)
-    
+
     // 🔥【修复代码】记录永久错误案底
     const oldFailCount = globalFailHistory.value[word.en] || 0
     globalFailHistory.value = {
@@ -1021,14 +1028,14 @@ function checkInput(word, e) {
         if (masteredList.value.includes(word.en)) {
           masteredList.value = masteredList.value.filter(w => w !== word.en)
         }
-        
+
         const existing = reviewList.value.find(i => i.w === word.en)
         if (!existing) {
-           reviewList.value.push({ 
-             w: word.en, 
-             stage: 0, 
-             time: Date.now() + INTERVALS[0] * 60000, 
-             failCount: 1 
+           reviewList.value.push({
+             w: word.en,
+             stage: 0,
+             time: Date.now() + INTERVALS[0] * 60000,
+             failCount: 1
            })
         } else {
            existing.failCount = (existing.failCount || 0) + 1
@@ -1038,9 +1045,9 @@ function checkInput(word, e) {
     } else {
         // 复习模式答错：重置阶段并更新错误计数
         const idx = reviewList.value.findIndex(i => i.w === word.en)
-        if (idx > -1) { 
-          reviewList.value[idx].stage = 0 
-          reviewList.value[idx].time = Date.now() + INTERVALS[0] * 60000 
+        if (idx > -1) {
+          reviewList.value[idx].stage = 0
+          reviewList.value[idx].time = Date.now() + INTERVALS[0] * 60000
           reviewList.value[idx].failCount = (reviewList.value[idx].failCount || 0) + 1
         }
     }
@@ -1055,7 +1062,7 @@ const handleKill = (word) => {
   // A. 如果已经在斩杀名单里 -> 执行【恢复】
   if (killedList.value.includes(word)) {
     if (!confirm(`确定要撤销斩杀，恢复 "${word}" 吗？`)) return
-    
+
     // 移出斩杀名单 (即恢复)
     killedList.value = killedList.value.filter(w => w !== word)
     showCustomAlert(`"${word}" 已恢复 🍺`)
@@ -1067,12 +1074,12 @@ const handleKill = (word) => {
 
   // 加入斩杀名单
   killedList.value.push(word)
-  updateDailyStats('kill', 1) 
+  updateDailyStats('kill', 1)
 
   // 从复习/掌握列表中清理掉
   const rIdx = reviewList.value.findIndex(i => i.w === word)
   if (rIdx > -1) reviewList.value.splice(rIdx, 1)
-  
+
   if (masteredList.value.includes(word)) {
     masteredList.value = masteredList.value.filter(w => w !== word)
   }
@@ -1080,18 +1087,18 @@ const handleKill = (word) => {
 
 // ★ 3. 修改：导出（包含自定义词典）
 function doExport() {
-  const data = { 
-    k: killedList.value, 
-    r: reviewList.value, 
-    c: completedParts.value, 
+  const data = {
+    k: killedList.value,
+    r: reviewList.value,
+    c: completedParts.value,
     m: masteredList.value,
-    d: customDict.value, 
-    s: statsHistory.value, 
+    d: customDict.value,
+    s: statsHistory.value,
     n: groupNotes,
     f: globalFailHistory.value
   }
   const blob = new Blob([JSON.stringify(data)], { type: 'application/json' })
-  const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; 
+  const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url;
   a.download = `ielts_data_${new Date().toISOString().slice(0,10)}.json`; a.click()
 }
 
@@ -1101,7 +1108,7 @@ const copyWord = (text) => {
     navigator.clipboard.writeText(text).then(() => {
       // 这里的 alert 是可选的，如果你觉得弹窗烦，可以把这行删掉
       // 或者改成 console.log('已复制')
-      // alert(`已复制: ${text}`) 
+      // alert(`已复制: ${text}`)
     })
   } else {
     // 兼容旧浏览器
@@ -1122,21 +1129,21 @@ function doImport() {
 // ★ 4. 修改：导入（恢复自定义词典）
 function onFileChange(e) {
   const f = e.target.files[0]; if (!f) return
-  const r = new FileReader(); r.onload = (evt) => { 
-    try { 
+  const r = new FileReader(); r.onload = (evt) => {
+    try {
       const d = JSON.parse(evt.target.result)
-      if(d.k || d.r || d.d) { 
-        if(d.k) killedList.value = d.k; 
-        if(d.r) reviewList.value = d.r; 
-        if(d.c) completedParts.value = d.c; 
-        if(d.m) masteredList.value = d.m; 
-        if(d.d) customDict.value = d.d; 
-        if(d.s) statsHistory.value = d.s; 
+      if(d.k || d.r || d.d) {
+        if(d.k) killedList.value = d.k;
+        if(d.r) reviewList.value = d.r;
+        if(d.c) completedParts.value = d.c;
+        if(d.m) masteredList.value = d.m;
+        if(d.d) customDict.value = d.d;
+        if(d.s) statsHistory.value = d.s;
         if(d.n) groupNotes.value = d.n;
         if(d.f) globalFailHistory.value = d.f;
-        alert('同步成功'); location.reload() 
+        alert('同步成功'); location.reload()
       }
-    } catch(e){ alert('文件格式错误') } 
+    } catch(e){ alert('文件格式错误') }
   }; r.readAsText(f)
   e.target.value = ''
 }
@@ -1191,7 +1198,7 @@ const updateDailyStats = (type, val = 1) => {
   }
   // 确保字段存在（防止旧数据报错）
   if (typeof statsHistory.value[key][type] === 'undefined') statsHistory.value[key][type] = 0
-  
+
   statsHistory.value[key][type] += val
   // 触发 storage 保存
   statsHistory.value = { ...statsHistory.value }
@@ -1200,7 +1207,7 @@ const updateDailyStats = (type, val = 1) => {
 // 4. 加载并渲染图表 (动态引入 Chart.js，无需 npm install)
 const renderChart = async () => {
   if (!statsChartCanvas.value) return
-  
+
   // 销毁旧图表，防止重影
   if (chartInstance) { chartInstance.destroy(); chartInstance = null }
 
@@ -1210,28 +1217,28 @@ const renderChart = async () => {
 
     // 🔥 检测暗黑模式，定义颜色
     const isDark = document.body.classList.contains('dark') || document.documentElement.classList.contains('dark')
-    const textColor = isDark ? '#cbd5e1' : '#666'      
-    const gridColor = isDark ? '#334155' : '#e5e7eb'   
+    const textColor = isDark ? '#cbd5e1' : '#666'
+    const gridColor = isDark ? '#334155' : '#e5e7eb'
 
     const days = statsPeriod.value === 'week' ? 7 : 30
-    
+
     // 🔥🔥 修复开始：定义数据数组 🔥🔥
     const labels = []
     const dataDuration = [] // 专注时长
     const dataReview = []   // 复习量
     const dataLearn = []    // 新学量
     const dataKill = []     // <--- 【新增 1】 定义斩杀数据数组
-    
+
     const now = new Date()
     for (let i = days - 1; i >= 0; i--) {
       const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000)
       const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
-      
+
       labels.push(String(d.getDate()) + '日')
-      
+
       const record = statsHistory.value[key] || { duration: 0, review: 0, learn: 0, kill: 0 }
-      
-      dataDuration.push(Math.round(record.duration / 60)) 
+
+      dataDuration.push(Math.round(record.duration / 60))
       dataReview.push(record.review || 0)
       dataLearn.push(record.learn || 0)
       dataKill.push(record.kill || 0) // <--- 【新增 2】 读取斩杀数据
@@ -1295,29 +1302,29 @@ const renderChart = async () => {
         interaction: { mode: 'index', intersect: false },
         plugins: {
           legend: {
-            labels: { color: textColor } 
+            labels: { color: textColor }
           }
         },
         scales: {
-          x: { 
-            ticks: { color: textColor }, 
-            grid: { color: gridColor }   
-          },
-          y: { 
-            type: 'linear', 
-            display: true, 
-            position: 'left', 
-            stacked: true,
-            title: { display: true, text: '单词量', color: textColor }, 
+          x: {
             ticks: { color: textColor },
             grid: { color: gridColor }
-          }, 
-          y1: { 
-            type: 'linear', 
-            display: true, 
-            position: 'right', 
-            grid: { drawOnChartArea: false }, 
-            title: { display: true, text: '分钟', color: textColor }, 
+          },
+          y: {
+            type: 'linear',
+            display: true,
+            position: 'left',
+            stacked: true,
+            title: { display: true, text: '单词量', color: textColor },
+            ticks: { color: textColor },
+            grid: { color: gridColor }
+          },
+          y1: {
+            type: 'linear',
+            display: true,
+            position: 'right',
+            grid: { drawOnChartArea: false },
+            title: { display: true, text: '分钟', color: textColor },
             ticks: { color: textColor }
           }
         }
@@ -1350,20 +1357,20 @@ function confirmAddWord() {
     return
   }
   const word = input.trim()
-  
+
   // ★ 关键修复 1：无论后续如何，先立刻强制关闭第一个窗口
   showAddWordModal.value = false
 
   // 稍微延迟 200ms 再查词，防止弹窗切换太快导致视觉闪烁或逻辑冲突
   setTimeout(() => {
     const detail = findWordDetail(word)
-    
+
     if (detail.zh === '未找到释义') {
       // 没找到 -> 打开“补充中文”弹窗
       tempWord.value = word
       meaningInput.value = ''
       showMeaningModal.value = true
-      
+
       // 自动聚焦中文输入框
       setTimeout(() => document.getElementById('custom-meaning-input')?.focus(), 100)
     } else {
@@ -1377,13 +1384,13 @@ function confirmAddWord() {
 function confirmMeaningAdd() {
   const zh = meaningInput.value.trim()
   if (!zh) return // 必须输入中文
-  
+
   // ★ 关键修复 2：立刻关闭中文窗口
   showMeaningModal.value = false
 
   // 保存到自定义词典
   customDict.value = { ...customDict.value, [tempWord.value]: { zh: zh } }
-  
+
   // 执行添加
   finalizeAdd(tempWord.value)
 }
@@ -1395,7 +1402,7 @@ function finalizeAdd(word) {
   showMeaningModal.value = false
 
   const idx = reviewList.value.findIndex(i => i.w === word)
-  
+
   if (idx > -1) {
     reviewList.value[idx].stage = 0
     reviewList.value[idx].time = Date.now()
@@ -1404,7 +1411,7 @@ function finalizeAdd(word) {
     reviewList.value.push({ w: word, stage: 0, time: Date.now() })
     showCustomAlert(`"${word}" 已加入复习！✅`)
   }
-  
+
   if (isReviewMode.value) refreshReviewData()
 }
 
@@ -1446,7 +1453,7 @@ const confirmEdit = () => {
       customDict.value = { ...customDict.value, [oldW]: { zh: newZ } }
     }
     showCustomAlert('释义已更新')
-  } 
+  }
   // B. 如果改了英文拼写 (比如去掉了多余的点)
   else {
     // 1. 处理自定义词典 (删除旧key，添加新key)
@@ -1476,7 +1483,7 @@ const confirmEdit = () => {
       masteredList.value = masteredList.value.filter(w => w !== oldW)
       masteredList.value.push(newW)
     }
-    
+
     showCustomAlert(`已修正: ${oldW} -> ${newW}`)
   }
 
@@ -1491,7 +1498,7 @@ const confirmEdit = () => {
 const showScratchpad = ref(false)
 // 修改这里：让初始位置靠右，且垂直居中
 // window.innerWidth - 320 (黑板宽度) - 20 (右边距)
-const padX = ref(window.innerWidth - 320 - 5) 
+const padX = ref(window.innerWidth - 320 - 5)
 const padY = ref(window.innerHeight * 0.26) // 距离顶部 15% 的位置
 const canvasRef = ref(null) // 记得这里是你刚才改好的 ref
 let ctx = null
@@ -1512,9 +1519,9 @@ const getPos = (e) => {
   const cvs = canvasRef.value
   if (!cvs) return { x: 0, y: 0 }
   const rect = cvs.getBoundingClientRect()
-  return { 
-    x: e.clientX - rect.left, 
-    y: e.clientY - rect.top 
+  return {
+    x: e.clientX - rect.left,
+    y: e.clientY - rect.top
   }
 }
 
@@ -1523,7 +1530,7 @@ const initCanvas = () => {
   if (!canvasRef.value) return
   const cvs = canvasRef.value
   const rect = cvs.getBoundingClientRect()
-  
+
   // 向上取整，防止出现 0.5 像素导致的模糊
   const width = Math.ceil(rect.width)
   const height = Math.ceil(rect.height)
@@ -1535,11 +1542,11 @@ const initCanvas = () => {
   if (cvs.width !== width || cvs.height !== height) {
     cvs.width = width
     cvs.height = height
-    
+
     // 重置后必须重新设置画笔样式
     ctx = cvs.getContext('2d')
     if (ctx) {
-      ctx.strokeStyle = '#ffffff' 
+      ctx.strokeStyle = '#ffffff'
       ctx.lineWidth = 3
       ctx.lineCap = 'round'
       ctx.lineJoin = 'round'
@@ -1553,10 +1560,10 @@ const initCanvas = () => {
 // 3. 开始绘画
 const startDraw = (e) => {
   if (showModal.value) return
-  
+
   // 阻止默认行为 (防止数位板写字时触发页面滚动/选中)
   // 注意：某些浏览器 pointerdown 无法 preventDefault，加个 try
-  if (e.cancelable) e.preventDefault() 
+  if (e.cancelable) e.preventDefault()
 
   const cvs = canvasRef.value
   if (!cvs) return
@@ -1565,7 +1572,7 @@ const startDraw = (e) => {
   // (这是导致你写不出字的罪魁祸首)
 
   if (!ctx) initCanvas()
-  if (!ctx) return 
+  if (!ctx) return
 
   isDrawing = true
 
@@ -1578,7 +1585,7 @@ const startDraw = (e) => {
   // 再次强制设置颜色 (双重保险)
   ctx.strokeStyle = '#ffffff'
   ctx.lineWidth = 3
-  
+
   ctx.beginPath()
   const { x, y } = getPos(e)
   ctx.moveTo(x, y)
@@ -1587,17 +1594,17 @@ const startDraw = (e) => {
 // 4. 移动绘画
 const moveDraw = (e) => {
   if (!isDrawing || !ctx) return
-  
+
   if (e.cancelable) e.preventDefault()
-  
+
   const { x, y } = getPos(e)
   ctx.lineTo(x, y)
   ctx.stroke()
 }
 
 // 5. 停止绘画
-const stopDraw = (e) => { 
-  isDrawing = false 
+const stopDraw = (e) => {
+  isDrawing = false
   // 释放指针锁定
   if (e && e.target.releasePointerCapture && e.pointerId) {
     try { e.target.releasePointerCapture(e.pointerId) } catch(err){}
@@ -1638,7 +1645,7 @@ const onMouseUpResizeCheck = () => {
      setTimeout(() => {
         // 只有当画布尺寸和实际显示尺寸不符时，才重置（注意：这会清空笔迹）
         if (canvasRef.value && (canvasRef.value.width !== canvasRef.value.offsetWidth)) {
-           initCanvas() 
+           initCanvas()
         }
      }, 100)
    }
@@ -1647,13 +1654,13 @@ const onMouseUpResizeCheck = () => {
 // 6. 开关 (集成 ResizeObserver)
 const toggleScratchpad = () => {
   showScratchpad.value = !showScratchpad.value
-  
+
   if (showScratchpad.value) {
     // A. 打开时
     nextTick(() => {
       // 1. 先初始化一次
       initCanvas()
-      
+
       // 2. 启动监听器：如果用户拖拽改变了黑板大小，自动重置画布
       if (canvasRef.value && !myResizeObserver) {
         myResizeObserver = new ResizeObserver(() => {
@@ -1663,7 +1670,7 @@ const toggleScratchpad = () => {
         myResizeObserver.observe(canvasRef.value)
       }
     })
-    
+
     window.addEventListener('keydown', handleSpaceKey)
   } else {
     // B. 关闭时：断开监听，节省资源
@@ -1684,8 +1691,8 @@ const handleSpaceKey = (e) => {
 // 📊 新功能：易错单词排行榜 (Mistake Rank)
 // ==========================================
 const showMistakeModal = ref(false)
-const mistakePage = ref(1) 
-const MISTAKE_PAGE_SIZE = 20 
+const mistakePage = ref(1)
+const MISTAKE_PAGE_SIZE = 20
 
 // 🔥🔥🔥【新增 1】控制显示模式的开关 (false=正在攻坚, true=已攻克)
 const showConquered = ref(false)
@@ -1706,13 +1713,13 @@ const sortedMistakeList = computed(() => {
   const filteredList = allMistakes.filter(item => {
     // 核心判断：是否在“已完成”列表 (斩杀 或 掌握)
     const isFinished = killedList.value.includes(item.w) || masteredList.value.includes(item.w)
-    
+
     // 如果该词既不在复习列表，也不在斩杀/掌握列表，说明可能是刚加入但还没学的，或者数据异常，
     // 为了严谨，如果 showConquered = false (攻坚)，我们通常只显示“正在复习列表里”的词。
     // 但为了不漏掉，我们定义：
     // 已攻克 = 在 killedList 或 masteredList
     // 正在攻坚 = 不在上述列表 (通常意味着在 reviewList 或 正在学习)
-    
+
     if (showConquered.value) {
       return isFinished
     } else {
@@ -1726,12 +1733,12 @@ const sortedMistakeList = computed(() => {
       return {
         en: item.w,
         count: item.count, // 🔥 这里用的是永久记录的 count
-        zh: info.zh,           
+        zh: info.zh,
         source: info.source,
         rawInfo: info
       }
     })
-    .sort((a, b) => b.count - a.count) 
+    .sort((a, b) => b.count - a.count)
 })
 
 // 2. 当前页的数据 (保持不变)
@@ -1748,7 +1755,7 @@ const totalMistakePages = computed(() => {
 
 // 4. 打开弹窗 (保持不变，默认重置为第一页，默认看攻坚榜)
 const openMistakeModal = () => {
-  mistakePage.value = 1 
+  mistakePage.value = 1
   showConquered.value = false // 每次打开默认看“未完成”的，想看战利品自己点
   showMistakeModal.value = true
 }
@@ -1757,7 +1764,7 @@ const openMistakeModal = () => {
 const jumpToWordNewTab = (item) => {
   // 1. 获取目标 URL (用于检测是否合法)
   const url = getSourceUrl(item.rawInfo)
-  
+
   if (!url || url === '#') {
     alert('该单词来自自定义生词本，暂无固定章节位置')
     return
@@ -1770,14 +1777,14 @@ const jumpToWordNewTab = (item) => {
     // 📱【手机端】执行“页内跳转”
     // 直接关闭易错榜弹窗
     showMistakeModal.value = false
-    
+
     // 复用你写好的 handleJumpToSource 函数，直接跳过去
     // 注意：handleJumpToSource 需要传入包含 source 属性的对象
-    handleJumpToSource({ 
-      en: item.en, 
-      source: item.source 
+    handleJumpToSource({
+      en: item.en,
+      source: item.source
     })
-    
+
   } else {
     // 💻【电脑端】保持原样，打开新标签页
     const fullUrl = window.location.origin + url
@@ -1849,17 +1856,17 @@ const pauseTimer = () => {
 const selectBreak = (minutes) => {
   isBreak.value = true           // 强制设为休息
   // 🔥 修改：加上 Math.round 防止小数误差 (0.05 * 60 = 3)
-  pomoSeconds.value = Math.round(minutes * 60) 
-  showModal.value = false        
-  startTimer()                   
+  pomoSeconds.value = Math.round(minutes * 60)
+  showModal.value = false
+  startTimer()
 }
 
 // 6. 专注开始函数 (强制切换状态)
 const startFocus = () => {
   isBreak.value = false          // 强制设为专注
-  pomoSeconds.value = getFocusSeconds() 
-  showModal.value = false        
-  startTimer()                   
+  pomoSeconds.value = getFocusSeconds()
+  showModal.value = false
+  startTimer()
 }
 
 // 7. 监听下拉框变化
@@ -1912,31 +1919,31 @@ const startTimer = (resumeVal) => {
 
     if (remaining > 0) {
       pomoSeconds.value = remaining
-      
+
       const icon = isBreak.value ? '☕' : '🍅'
       const statusText = isBreak.value ? '休息' : '专注'
       document.title = `${formatTime(pomoSeconds.value)} ${icon} ${statusText}`
 
       // 只有非休息模式且秒数变化时才记录专注时长(这里逻辑保持你原有的即可)
       // 注意：为了防止每秒刷 Storage 太频繁，savePomo 其实可以节流，但为了准确性暂时不动
-      if (!isBreak.value) updateDailyStats('duration', 1) 
-      
-      savePomo() 
+      if (!isBreak.value) updateDailyStats('duration', 1)
+
+      savePomo()
     } else {
       // ⏰ 倒计时结束
       pomoSeconds.value = 0
-      stopTimer(false) 
-      
-      const justFinishedBreak = isBreak.value 
-      modalIsBreak.value = justFinishedBreak 
+      stopTimer(false)
+
+      const justFinishedBreak = isBreak.value
+      modalIsBreak.value = justFinishedBreak
 
       playSound(justFinishedBreak ? DO_SOUND : TIMEOUT_SOUND)
       showModal.value = true
       document.title = '🔔 时间到！'
 
-      isBreak.value = !justFinishedBreak 
+      isBreak.value = !justFinishedBreak
       pomoSeconds.value = isBreak.value ? 5 * 60 : getFocusSeconds()
-      
+
       savePomo()
     }
   }, 1000)
@@ -1949,24 +1956,24 @@ const stopTimer = (reset = true) => {
     timer = null
   }
   pomoState.value = 'idle'
-  
+
   // 清除缓存，防止刷新后又恢复到这个暂停点
-  localStorage.removeItem('my_ielts_pomo') 
-  
-  if (reset) { 
+  localStorage.removeItem('my_ielts_pomo')
+
+  if (reset) {
     // 🔥🔥🔥【修复 2】解决 "休息状态点停止变成5分钟，刷新又乱"
     // 逻辑：如果你在休息时点了停止，通常意味着你想结束休息回到工作，
     // 或者彻底重置。这里我们逻辑设定为：手动停止 = 回到专注准备状态。
     if (isBreak.value) {
        isBreak.value = false // 强制退出休息模式
     }
-    
+
     // 重置回下拉框选定的时间
     pomoSeconds.value = getFocusSeconds()
-    document.title = 'MyIELTS' 
+    document.title = 'MyIELTS'
   }
 }
-  
+
 // 🔥🔥🔥【新增】回到顶部逻辑
 const showBackToTop = ref(false)
 
@@ -1982,7 +1989,7 @@ const handleScroll = () => {
   showBackToTop.value = window.scrollY > 300
 
   // 2. 🔥 修复：大幅缩小判定范围，防止“撞车”
-  
+
   // 【判定A】是不是在最顶上？(只给 50px 的空间)
   const isAtTop = scrollTop < 50
 
@@ -1990,7 +1997,7 @@ const handleScroll = () => {
   // 计算距离底部的剩余距离
   const distFromBottom = docHeight - (scrollTop + winHeight)
   const isAtBottom = distFromBottom < 20
-  
+
   // 【判定C】短页面特判 (核心修复)
   // 如果页面内容太少，滑都没法滑，那就干脆一直显示，别闪了
   // 逻辑：如果文档高度 < 屏幕高度的 1.2 倍，就算短页面
@@ -2007,7 +2014,7 @@ const scrollToTop = () => {
 onMounted(() => {
   window.addEventListener('resize', updateWidth) // 原有的
   window.addEventListener('scroll', handleScroll) // 🔥 新增
-  
+
   // ... 原有的其他代码 ...
 })
 
@@ -2015,25 +2022,25 @@ onMounted(() => {
 onUnmounted(() => {
   if (timer) clearInterval(timer) // 原有的
   if (cloudMenuTimer) clearTimeout(cloudMenuTimer) // 原有的
-  
+
   window.removeEventListener('resize', updateWidth)
   window.removeEventListener('scroll', handleScroll) // 🔥 新增
 })
-  
+
 // 🔥🔥🔥【新增】组件销毁/刷新时，自动清理定时器
 onUnmounted(() => {
   if (timer) clearInterval(timer)
 })
 
 onMounted(() => {
-  
+
 
  // 1. 番茄钟恢复逻辑 (修复版：完美区分暂停和运行)
   const local = localStorage.getItem('my_ielts_pomo')
   if (local) {
     try {
       const data = JSON.parse(local)
-      
+
       // A. 如果保存的状态是【暂停中】，则"冻结"时间
       if (data.state === 'paused') {
           console.log('恢复暂停状态，时间冻结')
@@ -2044,7 +2051,7 @@ onMounted(() => {
           const icon = isBreak.value ? '☕' : '🍅'
           const statusText = isBreak.value ? '休息' : '专注'
           document.title = `⏸ ${formatTime(pomoSeconds.value)} ${icon} ${statusText}`
-      } 
+      }
       // B. 如果保存的状态是【运行中】，则计算流逝时间
       else if (data.endTime) {
           const now = Date.now()
@@ -2052,35 +2059,35 @@ onMounted(() => {
 
           if (remaining > 0) {
               // 时间还没跑完 -> 继续跑
-              isBreak.value = data.isBreak 
+              isBreak.value = data.isBreak
               pomoSeconds.value = remaining
-              pomoEndTime.value = data.endTime 
-              
+              pomoEndTime.value = data.endTime
+
               // 自动启动 (传入 true 表示这是恢复模式，不需要重置时间)
-              startTimer(true) 
+              startTimer(true)
           } else {
               // 时间已经跑完了
               console.log('检测到后台倒计时已过期，自动重置')
               localStorage.removeItem('my_ielts_pomo')
-              isBreak.value = false 
+              isBreak.value = false
               pomoState.value = 'idle'
-              pomoSeconds.value = getFocusSeconds() 
+              pomoSeconds.value = getFocusSeconds()
           }
       }
-    } catch (e) { 
-      console.error('番茄钟恢复失败', e) 
+    } catch (e) {
+      console.error('番茄钟恢复失败', e)
       localStorage.removeItem('my_ielts_pomo')
     }
   }
   window.speechSynthesis.getVoices()
-  
+
 
   // 2. 🔥🔥🔥【IQ 200版】精准跳转逻辑
   const params = new URLSearchParams(window.location.search)
   const targetChap = params.get('chap')
   const targetPart = params.get('part')
   const targetAnchor = params.get('anchor') // 获取目标单词
-  
+
   if (targetChap && targetPart) {
     isSearchJumping = true // 🔒 锁定，防止 watch 重置页码
 
@@ -2088,14 +2095,14 @@ onMounted(() => {
     isReviewMode.value = false
     currentChapter.value = decodeURIComponent(targetChap)
     chunkIndex.value = parseInt(targetPart)
-    
+
     // B. 解锁
     nextTick(() => { isSearchJumping = false })
-    
+
     // C. 滚动定位 (增加延时确保渲染)
     setTimeout(() => {
       let targetEl = null
-      
+
       // 优先策略：如果有具体单词，找单词的 ID
       if (targetAnchor) {
         const decodedWord = decodeURIComponent(targetAnchor)
@@ -2103,7 +2110,7 @@ onMounted(() => {
         const elementId = 'word-row-' + decodedWord.replace(/\s+/g, '_')
         targetEl = document.getElementById(elementId)
       }
-      
+
       // 兜底策略：如果没找到具体单词（比如单词改名了），就找本页第一个词
       if (!targetEl) {
         targetEl = document.querySelector('.row-item')
@@ -2125,24 +2132,24 @@ document.addEventListener('visibilitychange', () => {
   // 只有当 1. 页面重新变得可见  2. 番茄钟理论上正在运行 时才执行
   if (document.visibilityState === 'visible' && pomoState.value === 'running') {
      const local = localStorage.getItem('my_ielts_pomo')
-     
+
      if (local) {
        try {
          const data = JSON.parse(local)
          // 获取当前时间
          const now = Date.now()
-         
+
          // 计算：(现在的时间 - 上次保存的时间) = 离开了多久(秒)
          // 注意：data.timestamp 是上次 setInterval 跑的时候存的
          const elapsed = Math.floor((now - data.timestamp) / 1000)
-         
+
          // 如果离开时间很短（比如小于1秒），忽略不计，防止闪烁
          if (elapsed > 1) {
            console.log(`后台运行了 ${elapsed} 秒，正在校准...`)
-           
+
            // 计算剩余时间
            const remaining = data.seconds - elapsed
-           
+
            if (remaining > 0) {
              // 如果还有时间，直接修正进度条
              pomoSeconds.value = remaining
@@ -2207,7 +2214,7 @@ const moveSelection = (step) => {
 // ==========================================
 const handleSearchInput = () => {
   selectedIndex.value = -1 // 重置键盘选中状态
-  
+
   // 🔥 去掉 .toLowerCase() 限制，或者是保留它但搜索时也要兼顾原样
   // 但通常中文转小写没影响，保留即可
   const q = searchQuery.value.trim().toLowerCase()
@@ -2215,20 +2222,20 @@ const handleSearchInput = () => {
     searchResults.value = []
     return
   }
-  
+
   const results = []
-  const addedKeys = new Set() 
+  const addedKeys = new Set()
 
   // A. 先搜自定义词典
   for (const key in customDict.value) {
     const zh = customDict.value[key].zh || ''
     // 🔥 修改 1：同时匹配 英文(key) 或 中文(zh)
     if ((key.toLowerCase().includes(q) || zh.includes(q))) {
-      results.push({ 
-        en: key, 
-        zh: zh, 
-        source: '我的生词本', 
-        isCustom: true 
+      results.push({
+        en: key,
+        zh: zh,
+        source: '我的生词本',
+        isCustom: true
       })
       addedKeys.add(key)
     }
@@ -2238,22 +2245,22 @@ const handleSearchInput = () => {
   if (vocabularyData) {
     for (const chap in vocabularyData) {
       const rawGroups = vocabularyData[chap].words || vocabularyData[chap].list || []
-      
+
       // --- 模拟 chunkedParts 逻辑 ---
-      let partIndex = 0        
-      let currentPartCount = 0 
+      let partIndex = 0
+      let currentPartCount = 0
       const MIN_TARGET = 35
       const MAX_LIMIT = 45
 
       for (let gIdx = 0; gIdx < rawGroups.length; gIdx++) {
         const group = rawGroups[gIdx]
-        
+
         let validCountInGroup = 0
         for (const item of group) validCountInGroup++
 
         const nextCount = currentPartCount + validCountInGroup
         if (currentPartCount > 0 && (currentPartCount >= MIN_TARGET || nextCount > MAX_LIMIT)) {
-          partIndex++; currentPartCount = 0 
+          partIndex++; currentPartCount = 0
         }
 
         for (const item of group) {
@@ -2263,19 +2270,19 @@ const handleSearchInput = () => {
           } else {
              rawEn = item.word || item.en; zh = item.meaning||item.trans||item.zh||''
           }
-          
+
           const en = extractText(rawEn)
           const lowerEn = en.toLowerCase()
 
           // 🔥 修改 2：同时匹配 英文(lowerEn) 或 中文(zh)
           // 只要包含就加入，稍后统一排序
           if ((lowerEn.includes(q) || zh.includes(q)) && !addedKeys.has(en)) {
-            results.push({ 
-              en, 
-              zh, 
+            results.push({
+              en,
+              zh,
               source: `${chap} · Part ${partIndex + 1}`,
-              chapter: chap,         
-              partIdx: partIndex,    
+              chapter: chap,
+              partIdx: partIndex,
               isCustom: false
             })
             addedKeys.add(en)
@@ -2283,7 +2290,7 @@ const handleSearchInput = () => {
         }
         currentPartCount += validCountInGroup
       }
-      if (results.length > 100) break 
+      if (results.length > 100) break
     }
   }
 
@@ -2382,7 +2389,7 @@ const goToWord = (item) => {
 
   // 🔥🔥🔥【核心修复】开始 🔥🔥🔥
   // 3. 标记“正在跳转”，防止 watch 把页码重置为 0
-  isSearchJumping = true 
+  isSearchJumping = true
 
   // 4. 切换章节和页码
   currentChapter.value = item.chapter
@@ -2397,9 +2404,9 @@ const goToWord = (item) => {
   // 6. 等待 Vue 渲染完成后，滚动到指定位置
   setTimeout(() => {
     // 格式化 ID: word-row-单词 (处理空格)
-    const elementId = 'word-row-' + item.en.replace(/\s+/g, '_') 
+    const elementId = 'word-row-' + item.en.replace(/\s+/g, '_')
     const el = document.getElementById(elementId)
-    
+
     if (el) {
       el.scrollIntoView({ behavior: 'smooth', block: 'center' })
       el.classList.add('highlight-flash')
@@ -2407,7 +2414,7 @@ const goToWord = (item) => {
     } else {
       console.warn('未找到元素:', elementId)
     }
-  }, 400) 
+  }, 400)
 }
 
 // 🔥🔥🔥【IQ 200版】生成跳转链接 (带锚点参数)
@@ -2415,9 +2422,9 @@ const getSourceUrl = (wordItem) => {
   // 兼容性处理：如果传入的是字符串(旧代码)，防止报错
   const sourceStr = typeof wordItem === 'string' ? wordItem : wordItem.source
   const wordEn = typeof wordItem === 'string' ? '' : wordItem.en
-  
+
   if (!sourceStr || sourceStr === '生词本' || sourceStr === '未知') return '#'
-  
+
   const separator = ' Part '
   const lastIndex = sourceStr.lastIndexOf(separator)
   if (lastIndex === -1) return '#'
@@ -2425,20 +2432,20 @@ const getSourceUrl = (wordItem) => {
   const targetChapter = sourceStr.substring(0, lastIndex)
   const partStr = sourceStr.substring(lastIndex + separator.length)
   const targetPartIdx = parseInt(partStr) - 1
-  
+
   // 1. 构造 Query 参数 (新增 &anchor=单词)
   let query = `?chap=${encodeURIComponent(targetChapter)}&part=${targetPartIdx}`
   if (wordEn) {
     query += `&anchor=${encodeURIComponent(wordEn)}`
   }
-  
+
   // 2. 获取 Hash，防止跳回首页
   const currentHash = window.location.hash
-  
+
   // 3. 完整拼接
   return `${window.location.pathname}${query}${currentHash}`
 }
-  
+
 // ==========================================
 // 🔥 新增：复习阶段折叠控制
 // ==========================================
@@ -2464,7 +2471,7 @@ const isStageSourceVisible = (block) => {
 const toggleStageSource = (block) => {
   // 先看当前状态
   const isAllVisible = isStageSourceVisible(block)
-  
+
   block.list.forEach(word => {
     if (isAllVisible) {
       // 如果本来全是亮着的，就全部关掉
@@ -2513,10 +2520,10 @@ const copyCurrentPageWords = () => {
 // 🔥🔥🔥【新增】一键复制当前组的所有单词
 const copyGroupWords = (block) => {
   if (!block || !block.list || block.list.length === 0) return
-  
+
   // 提取单词并用换行符连接
   const text = block.list.map(w => w.en).join('\n')
-  
+
   // 执行复制
   if (navigator.clipboard) {
     navigator.clipboard.writeText(text).then(() => {
@@ -2556,11 +2563,11 @@ const isFloatBtnLeft = computed(() => {
 // 🔥🔥🔥【升级版】分组笔记/辨析功能逻辑 (修复版)
 // ==========================================
 const showNoteModal = ref(false)
-const currentNoteKey = ref('') 
+const currentNoteKey = ref('')
 // 新增：笔记列表数据
-const noteList = ref([]) 
-const currentNoteIdx = ref(0) 
-const isNoteEditing = ref(false) 
+const noteList = ref([])
+const currentNoteIdx = ref(0)
+const isNoteEditing = ref(false)
 
 // 1. 生成唯一 Key
 const getGroupKey = (groupId) => {
@@ -2582,7 +2589,7 @@ const openNoteModal = (groupId, mode = 'read') => {
   // 数据初始化与迁移
   if (!savedData) {
     noteList.value = [{ title: '辨析点 1', content: '' }]
-    mode = 'edit' 
+    mode = 'edit'
   } else if (savedData.content !== undefined && !Array.isArray(savedData)) {
     // 旧数据迁移
     noteList.value = [{ title: savedData.title || '辨析点 1', content: savedData.content }]
@@ -2601,15 +2608,15 @@ const openNoteModal = (groupId, mode = 'read') => {
 // 3. 切换当前的辨析点
 const switchNote = (index) => {
   currentNoteIdx.value = index
-  isNoteEditing.value = !noteList.value[index].content 
+  isNoteEditing.value = !noteList.value[index].content
 }
 
 // 4. 添加新的辨析点
 const addNewNote = () => {
   const newIdx = noteList.value.length
   noteList.value.push({ title: `辨析点 ${newIdx + 1}`, content: '' })
-  switchNote(newIdx) 
-  isNoteEditing.value = true 
+  switchNote(newIdx)
+  isNoteEditing.value = true
 }
 
 // 5. 删除当前辨析点
@@ -2722,7 +2729,7 @@ const isCheckingCloud = ref(false)
 // 修改后的 checkCloudStatus
 const checkCloudStatus = async () => {
   if (!syncConfig.token || !syncConfig.gistId) return
-  
+
   // 安全起见，开始检测时也清除一下旧定时器
   if (cloudMenuTimer) clearTimeout(cloudMenuTimer)
 
@@ -2731,11 +2738,11 @@ const checkCloudStatus = async () => {
     const res = await fetch(`https://api.github.com/gists/${syncConfig.gistId}`, {
       headers: { 'Authorization': `token ${syncConfig.token}` }
     })
-    
+
     if (res.ok) {
       const data = await res.json()
       const serverDate = new Date(data.updated_at)
-      
+
       const m = String(serverDate.getMonth() + 1).padStart(2, '0')
       const d = String(serverDate.getDate()).padStart(2, '0')
       const h = String(serverDate.getHours()).padStart(2, '0')
@@ -2745,7 +2752,7 @@ const checkCloudStatus = async () => {
       // 智能对比
       if (lastSyncTime.value && serverTime.value > lastSyncTime.value) {
         isNewVersionAvailable.value = true
-        
+
         // 🔥 情况 A：有更新 -> 停留 10 秒，给用户时间反应去点下载
         console.log('有更新，弹窗停留 10s')
         cloudMenuTimer = setTimeout(() => {
@@ -2754,7 +2761,7 @@ const checkCloudStatus = async () => {
 
       } else {
         isNewVersionAvailable.value = false
-        
+
         // 🔥 情况 B：无需更新 -> 停留 2 秒，看完即走
         console.log('无更新，弹窗停留 2s')
         cloudMenuTimer = setTimeout(() => {
@@ -2786,7 +2793,7 @@ const toggleCloudMenu = () => {
     checkCloudStatus()
   }
 }
-  
+
 // 保存配置
 const saveSyncConfig = () => {
   localStorage.setItem('my_ielts_gh_token', syncConfig.token.trim())
@@ -2798,22 +2805,22 @@ const saveSyncConfig = () => {
 // 🔥 上传到云端 (Backup)
 const uploadToCloud = async () => {
   if (!syncConfig.token || !syncConfig.gistId) return alert('请先点击 ⚙️ 配置 GitHub Token 和 Gist ID')
-  
+
   if (!confirm('确定要覆盖云端数据吗？(云端旧数据将丢失)')) return
 
   isSyncing.value = true
   try {
     // 1. 准备数据 (复用你之前的导出逻辑)
-    const data = { 
-      k: killedList.value, 
-      r: reviewList.value, 
-      c: completedParts.value, 
+    const data = {
+      k: killedList.value,
+      r: reviewList.value,
+      c: completedParts.value,
       m: masteredList.value,
-      d: customDict.value, 
-      s: statsHistory.value, 
+      d: customDict.value,
+      s: statsHistory.value,
       n: groupNotes.value,
       // 新增：故事列表
-      st: pageStories.value, 
+      st: pageStories.value,
       // 新增：听觉依赖
       ap: audioPeekHistory.value ,
       f: globalFailHistory.value
@@ -2837,12 +2844,12 @@ const uploadToCloud = async () => {
 
     if (res.ok) {
       updateSyncTime() // 更新本地时间
-      
+
       // 🔥🔥🔥【新增】上传成功后，手动更新界面上的云端时间状态
       // 让系统知道现在“云端”和“本地”已经一样新了
-      serverTime.value = lastSyncTime.value 
+      serverTime.value = lastSyncTime.value
       isNewVersionAvailable.value = false
-      
+
       alert('☁️ 上传成功！数据已安全保存到 Gist。')
     } else {
       throw new Error(res.statusText)
@@ -2856,11 +2863,11 @@ const uploadToCloud = async () => {
 }
 
 
-  
+
 // 🔥 从云端下载 (Restore)
 const downloadFromCloud = async () => {
   if (!syncConfig.token || !syncConfig.gistId) return alert('请先点击 ⚙️ 配置 GitHub Token 和 Gist ID')
-  
+
   if (!confirm('⚠️ 警告：这将用云端数据覆盖当前本地进度！确定吗？')) return
 
   isSyncing.value = true
@@ -2872,21 +2879,21 @@ const downloadFromCloud = async () => {
         'Authorization': `token ${syncConfig.token}`
       }
     })
-    
+
     if (!res.ok) throw new Error(res.statusText)
-    
+
     const json = await res.json()
     // 获取文件内容
     const fileContent = json.files['data.json'].content
     const d = JSON.parse(fileContent)
 
     // 恢复数据 (复用你之前的导入逻辑)
-    if(d.k) killedList.value = d.k; 
-    if(d.r) reviewList.value = d.r; 
-    if(d.c) completedParts.value = d.c; 
-    if(d.m) masteredList.value = d.m; 
-    if(d.d) customDict.value = d.d; 
-    if(d.s) statsHistory.value = d.s; 
+    if(d.k) killedList.value = d.k;
+    if(d.r) reviewList.value = d.r;
+    if(d.c) completedParts.value = d.c;
+    if(d.m) masteredList.value = d.m;
+    if(d.d) customDict.value = d.d;
+    if(d.s) statsHistory.value = d.s;
     if(d.n) groupNotes.value = d.n;
     // 恢复新增字段
     if(d.st) pageStories.value = d.st;
@@ -2914,7 +2921,7 @@ const getWordStage = (wordEn) => {
 // 🔥🔥🔥【修改】控制右侧悬浮按钮组容器的显隐
 const isFloatingGroupVisible = computed(() => {
   // 容器本身始终显示（只要不是极端情况），因为我们要保留“刷新”和“回到顶部”
-  return true 
+  return true
 })
 
 // 🔥🔥🔥【新增】专门控制那些“非核心”按钮的显隐
@@ -2923,10 +2930,10 @@ const showHiddenButtons = computed(() => {
   const isMobile = windowWidth.value < 768
   // 定义“严格听写模式”：手机 + 复习 + 听写 + 全显中文
   const isStrictDictation = isMobile && isReviewMode.value && isDictation.value && isAllRevealedComputed.value
-  
+
   // 1. 如果不是严格模式，直接显示
   if (!isStrictDictation) return true
-  
+
   // 2. 如果是严格模式，只有当“完成”后才显示
   return isDictationFinished.value
 })
@@ -2935,7 +2942,7 @@ const showHiddenButtons = computed(() => {
 
 <template>
   <div class="app-root">
-    
+
     <div class="tools-bar sticky-toolbar">
       <div class="bar-inner">
         <div class="left-tools">
@@ -2949,9 +2956,9 @@ const showHiddenButtons = computed(() => {
             <input type="checkbox" v-model="isDictation">
             <span>{{ isDictation ? '🎙️ ' : '👀 ' }}</span>
           </label>
-          <button v-if="isDictation" 
-                  class="mobile-only tool-btn-simple" 
-                  @click="toggleAllZh" 
+          <button v-if="isDictation"
+                  class="mobile-only tool-btn-simple"
+                  @click="toggleAllZh"
                   style="margin-left: 10px; font-size: 20px;"
                   :title="isAllRevealedComputed ? '全部隐藏' : '全部显示'">
             {{ isAllRevealedComputed ? '📖' : '🙈' }}
@@ -2967,7 +2974,7 @@ const showHiddenButtons = computed(() => {
             </select>
             <select v-model="chunkIndex" class="sel-part"><option v-for="(name, i) in chunkOptions" :key="i" :value="i">{{ name }}</option></select>
           </div>
-          
+
           <div class="stats-bar" :class="{ 'compact-mode': !isReviewMode }">
              <span v-if="isReviewMode" title="全书总词汇量">📚 {{ globalStats.total }}</span>
              <span class="s-learn" title="复习队列中">🔥 {{ globalStats.learning }}</span>
@@ -2975,17 +2982,17 @@ const showHiddenButtons = computed(() => {
              <span class="s-new" title="剩余单词">🌑 {{ globalStats.unlearned }}</span>
           </div>
         </div>
-        
+
         <div class="right-tools">
             <button v-if="isReviewMode" @click="showStatsModal = true" class="btn action-btn" title="学习统计">📊</button>
             <button @click="toggleScratchpad" class="btn action-btn desktop-only" :class="{ 'active-pad': showScratchpad }" title="打开/关闭草稿板">🖊️</button>
-            <button v-if="isReviewMode" @click="openMistakeModal" class="btn action-btn" title="易错单词排行榜" 
+            <button v-if="isReviewMode" @click="openMistakeModal" class="btn action-btn" title="易错单词排行榜"
               style="
-                width: 46px; 
-                height: 46px; 
-                padding: 0; 
-                display: inline-flex; 
-                align-items: center; 
+                width: 46px;
+                height: 46px;
+                padding: 0;
+                display: inline-flex;
+                align-items: center;
                 justify-content: center;
               ">
               <svg viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" style="width: 20px; height: 20px; fill: currentColor;">
@@ -2997,13 +3004,13 @@ const showHiddenButtons = computed(() => {
             <input type="file" id="fileInput" hidden @change="onFileChange">
 
             <div class="pomo-compact" :class="{ 'break-mode': isBreak }">
-  
-  <select v-if="!isBreak && pomoState === 'idle'" 
-        v-model="userFocusDuration" 
+
+  <select v-if="!isBreak && pomoState === 'idle'"
+        v-model="userFocusDuration"
         @change="handleDurationChange"
         class="pomo-select"
         title="点击调整专注时长">
-  
+
   <option v-for="opt in FOCUS_OPTIONS" :key="opt" :value="opt">
     {{ opt < 1 ? '⚡ 05s' : (opt < 10 ? '0'+opt : opt) + ':00' }}
   </option>
@@ -3019,7 +3026,7 @@ const showHiddenButtons = computed(() => {
         </div>
       </div>
     </div>
-    
+
     <div v-if="showModal" class="modal-overlay" @click.self="handleModalOverlayClick">
       <div class="modal-box">
         <button class="modal-close-icon" @click="showModal = false">✕</button>
@@ -3054,7 +3061,7 @@ const showHiddenButtons = computed(() => {
         </div>
         <div class="col-pos text-center">词性</div>
         <div class="col-zh header-zh-col">
-          词义 
+          词义
           <button v-if="isDictation" class="toggle-all-btn" @click="toggleAllZh" :title="isAllRevealedComputed ? '全部隐藏' : '全部显示'">
             {{ isAllRevealedComputed ? '📖' : '🙈' }}
           </button>
@@ -3067,22 +3074,22 @@ const showHiddenButtons = computed(() => {
 
     <div class="content-container">
       <div v-if="displayData.length === 0" class="empty-tip">{{ isReviewMode ? '暂无错题 🎉' : '本章数据加载中' }}</div>
-      
+
       <div v-for="(block, bIdx) in displayData" :key="bIdx" class="vocab-block" :style="{ borderLeftColor: block.color }">
-       <div v-if="!isReviewMode" class="group-note-bar" 
+       <div v-if="!isReviewMode" class="group-note-bar"
      :class="{ 'has-note': hasNoteData(block.groupId) }"
-     :style="{ 
+     :style="{
        /* 🔥 修改：没笔记时完全透明，有笔记时显示淡色背景 */
-       backgroundColor: hasNoteData(block.groupId) ? block.color + '15' : 'transparent', 
+       backgroundColor: hasNoteData(block.groupId) ? block.color + '15' : 'transparent',
        /* 🔥 修改：没笔记时无边框 */
        borderBottom: hasNoteData(block.groupId) ? ('1px solid ' + block.color + '20') : 'none'
      }">
-  
+
   <div class="note-title" @click="openNoteModal(block.groupId, 'read')">
     <span v-if="hasNoteData(block.groupId)" class="note-exist-text" :style="{ color: block.color }">
        <span style="font-weight:800; margin-right:4px;">P.</span> {{ getDisplayTitle(block.groupId) }}
     </span>
-    
+
     <span v-else class="note-placeholder" style="color: #9ca3af;">
        ➕ 添加辨析笔记
     </span>
@@ -3092,22 +3099,22 @@ const showHiddenButtons = computed(() => {
     <button class="note-action-btn copy-group-btn" @click.stop="copyGroupWords(block)" title="复制本组单词">
       📋
     </button>
-    
+
     <button class="note-action-btn" @click.stop="openNoteModal(block.groupId, 'edit')" title="编辑笔记">
       ⚙️
     </button>
   </div>
 </div>
-        <div v-if="isReviewMode && block.title" 
-             class="group-title" 
+        <div v-if="isReviewMode && block.title"
+             class="group-title"
              :style="{ color: block.color, backgroundColor: block.color + '15' }"
              @click="toggleStage(block.title)"
              style="cursor: pointer; display: flex; align-items: center; user-select: none;">
-          
+
           <span style="font-weight: bold; margin-right: 10px;">{{ block.title }}</span>
 
-          <button class="stage-source-btn" 
-                  @click.stop="toggleStageSource(block)" 
+          <button class="stage-source-btn"
+                  @click.stop="toggleStageSource(block)"
                   :title="isStageSourceVisible(block) ? '隐藏本阶段出处' : '显示本阶段出处'"
                   :style="{ color: isStageSourceVisible(block) ? block.color : '#9ca3af', opacity: isStageSourceVisible(block) ? 1 : 0.5 }">
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" :fill="isStageSourceVisible(block) ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -3115,7 +3122,7 @@ const showHiddenButtons = computed(() => {
               <circle cx="12" cy="10" r="3"></circle>
             </svg>
           </button>
-          
+
           <div style="flex: 1;"></div>
 
           <button class="collapse-btn" :style="{ color: block.color, borderColor: block.color }">
@@ -3124,46 +3131,46 @@ const showHiddenButtons = computed(() => {
         </div>
 
         <div v-show="!collapsedStages[block.title]">
-            <div v-for="(word) in block.list" 
-              :key="word.en + '_' + refreshKey" 
-              class="grid-layout row-item" 
-              :class="{ 
+            <div v-for="(word) in block.list"
+              :key="word.en + '_' + refreshKey"
+              class="grid-layout row-item"
+              :class="{
                 'mastered-row': word._isMastered && !word._isKilled && !isReviewMode,
-                'killed-row': word._isKilled && !isReviewMode 
+                'killed-row': word._isKilled && !isReviewMode
               }"
               :id="'word-row-' + word.en.replace(/\s+/g, '_')">
-              
+
              <div class="col-idx text-center index-num desktop-only">
                 {{ isReviewMode ? word.id : word._id }}
               </div>
-              
+
               <div class="col-word">
                 <div class="word-wrapper">
                   <div v-if="!isDictation" class="word-cell-container">
-                    
+
                     <div class="word-row-top">
                       <span class="en-text" @click.stop="toggleAudio(word.en)">
                         {{ word.en }}
                       </span>
 
-                      <span v-if="getWordStage(word.en) && !isReviewMode" 
+                      <span v-if="getWordStage(word.en) && !isReviewMode"
                             class="review-stage-tag"
                             :style="{ backgroundColor: STAGE_COLORS[getWordStage(word.en) - 1] }"
                             :title="'当前处于复习阶段 ' + getWordStage(word.en)">
                         {{ getWordStage(word.en) }}
                       </span>
-                      
-                      <span class="speaker" 
-                            @click.stop="toggleAudio(word.en)" 
-                            :class="{ 
+
+                      <span class="speaker"
+                            @click.stop="toggleAudio(word.en)"
+                            :class="{
                               playing: playingWord === word.en && !isLoadingAudio,
-                              loading: playingWord === word.en && isLoadingAudio 
+                              loading: playingWord === word.en && isLoadingAudio
                             }">
                         <template v-if="playingWord === word.en && isLoadingAudio">⏳</template>
                         <template v-else-if="playingWord === word.en">⏸️</template>
                         <template v-else>🔊</template>
                       </span>
-                      <span v-if="audioPeekHistory.includes(word.en)" 
+                      <span v-if="audioPeekHistory.includes(word.en)"
                             @click.stop="removeAudioTag(word.en)"
                             title="该词曾依赖听音回忆 (听觉印记)"
                             style="font-size: 14px; margin-left: 6px; cursor: help;">
@@ -3178,21 +3185,21 @@ const showHiddenButtons = computed(() => {
                     </div>
 
                     <div v-if="isShowSource || revealedSource.has(word.en)" class="source-container">
-  
+
                         <a :href="getSourceUrl(word)"
                            class="word-source-row clickable-source"
                            @click.prevent="handleJumpToSource(word)"
                            title="点击在当前页跳转">
                           📍 {{ word.source }}
                         </a>
-                      
+
                         <a :href="getSourceUrl(word)"
                            class="word-source-row icon-only"
                            target="_blank"
                            title="新标签页打开并自动切换 🚀">
                           🚀
                         </a>
-                      
+
                       </div>
 
                     <div v-if="isReviewMode && word._review" class="review-meta desktop-only">
@@ -3206,11 +3213,11 @@ const showHiddenButtons = computed(() => {
                       {{ playingWord === word.en ? '⏸️' : '🔊' }}
                     </span>
                     <div class="input-col">
-                      <input type="text" class="dictation-input" 
-                      :class="[statusMap[word.en], { 'mastered-input': word._isMastered && !isReviewMode }]" 
-                      placeholder="输入..." 
-                      @change="(e) => checkInput(word, e)" 
-                      @input="statusMap[word.en] = ''"  
+                      <input type="text" class="dictation-input"
+                      :class="[statusMap[word.en], { 'mastered-input': word._isMastered && !isReviewMode }]"
+                      placeholder="输入..."
+                      @change="(e) => checkInput(word, e)"
+                      @input="statusMap[word.en] = ''"
                       @focus="playOnFocus(word.en)"
                       @keydown.space.stop
                       @keydown.tab.prevent="handleJumpNext"
@@ -3225,15 +3232,15 @@ const showHiddenButtons = computed(() => {
                   </div>
                 </div>
                 <div class="mobile-only mobile-pos">{{ word.pos }}</div>
-                <button class="mobile-only mobile-kill" 
+                <button class="mobile-only mobile-kill"
                         @click="handleKill(word.en)"
                         :style="isDictation ? { top: 'auto', bottom: '10px', right: '10px', background: '#fff', border: '1px solid #eee', borderRadius: '50%', width:'30px', height:'30px' } : {}">
                   {{ word._isKilled ? '↺' : '✕' }}
                 </button>
               </div>
-              
+
               <div class="col-pos text-center italic desktop-only">{{ word.pos }}</div>
-              
+
               <div class="col-zh" @click="isDictation ? toggleZh(word.en) : null" :class="{ 'interactive-zh': isDictation }">
                 <div class="zh-text" :class="{ 'blur-zh': isDictation && !revealedZh.has(word.en) && word.pos !== '自选' }">
                   {{ word.zh }}
@@ -3242,28 +3249,28 @@ const showHiddenButtons = computed(() => {
                   {{ word.notation }}
                 </div>
               </div>
-              
+
               <div v-if="!isDictation" class="col-ex example-cell">
                 <div class="ex-content">
                   <span>{{ word.example }}</span>
                   <span v-if="word.example" class="speaker-small" @click.stop="playSentence(word.example)" title="读例句">🔉</span>
                 </div>
               </div>
-              
+
               <div v-if="!isDictation" class="col-note notation-cell desktop-only">{{ word.notation || '' }}</div>
-              
+
               <div class="col-del text-center desktop-only">
-                <button class="kill-btn" 
+                <button class="kill-btn"
           @click="handleKill(word.en)"
           :title="word._isKilled ? '恢复/撤销斩杀' : '斩杀/归档'"
           :style="{ color: word._isKilled ? '#a855f7' : '' }"> {{ word._isKilled ? '↺' : '✕' }}
-    
+
   </button>
               </div>
             </div>
         </div>
         </div>
-      
+
       <div class="pagination-area" v-if="!isReviewMode && chunkedParts.length > 1">
         <button class="page-btn big-btn" :disabled="chunkIndex === 0" @click="changePage(-1)">⬅️ 上一页</button>
         <div class="finish-control">
@@ -3282,46 +3289,47 @@ const showHiddenButtons = computed(() => {
         <span class="pad-title">:: 拖拽 ::</span>
         <button class="pad-close" @click="toggleScratchpad">✕</button>
       </div>
-      
+
      <canvas ref="canvasRef" class="pad-canvas"
         style="touch-action: none; display: block;"
-        @pointerdown="startDraw" 
-        @pointermove="moveDraw" 
-        @pointerup="stopDraw" 
+        @pointerdown="startDraw"
+        @pointermove="moveDraw"
+        @pointerup="stopDraw"
         @pointerleave="stopDraw"
         @dblclick="clearPad"
       ></canvas>
 
-    
+
     <div class="pad-footer">
         <span class="hint-text">↘️右下角拖动调整大小</span>
         <button class="pad-btn-clear" @click="clearPad">🗑️ (Space)</button>
       </div>
-    </div> 
+    </div>
     <div v-show="isFloatingGroupVisible" class="floating-action-group" :class="{ 'pos-left': isFloatBtnLeft }">
       <Transition name="fade-slide">
         <button v-if="!isReviewMode && showSmartCopyBtn" @click="copyCurrentPageWords" class="floating-btn copy-page-btn mobile-only" title="一键复制本页单词">📋</button>
       </Transition>
-      
+
       <button v-if="isReviewMode" @click="refreshReviewData" class="floating-btn refresh-btn" title="刷新数据">🔄</button>
-      
-      <button v-show="showHiddenButtons" v-if="!isReviewMode" 
-        @click="openStoryModal" 
-        class="floating-btn story-btn" 
+      <button v-if="isDictation" @click="exitDictationMode" class="floating-btn exit-btn" title="一键退出听写及汉语释义">🚪</button>
+
+      <button v-show="showHiddenButtons" v-if="!isReviewMode"
+        @click="openStoryModal"
+        class="floating-btn story-btn"
         :class="{ 'is-empty': !hasStoryOnCurrentPage }"
         :title="hasStoryOnCurrentPage ? '阅读本页文章' : '点击创建文章'">
           📜
       </button>
       <button v-show="showHiddenButtons" @click="manualAddWord" class="floating-btn add-btn" title="手动加入生词">➕</button>
-      
+
       <button v-show="showHiddenButtons" @click="openSearchModal" class="floating-btn search-btn" title="搜索单词/词根">🔍</button>
-      
+
       <button v-show="showBackToTop" @click="scrollToTop" class="floating-btn top-btn" title="回到顶部">
         <svg viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" class="svg-icon">
           <path d="M512 64C264.512 64 64 264.576 64 512s200.512 448 448 448c247.424 0 448-200.576 448-448S759.424 64 512 64zM712.448 664.512c-11.776 0-22.784-3.072-32.448-8.384l-1.984 1.984L511.936 512l-162.112 145.472-1.344-1.344c-9.6 5.248-20.544 8.32-32.192 8.32-36.736 0-66.496-29.76-66.496-66.432 0-11.712 3.072-22.656 8.32-32.192L255.936 563.584l10.752-9.664c3.328-3.712 7.04-7.104 11.136-9.984l188.544-169.216 1.28 0C479.296 363.456 495.168 356.544 512.64 356.544s33.408 6.912 45.12 18.176l0.768 0 191.872 168.832c4.032 2.816 7.68 6.08 11.072 9.728l11.392 10.048-2.368 2.304c5.376 9.6 8.448 20.672 8.448 32.448C778.88 634.752 749.12 664.512 712.448 664.512z" fill="currentColor"></path>
         </svg>
       </button>
-      
+
     <div v-show="showHiddenButtons" class="cloud-wrapper">
          <button @click="toggleCloudMenu" class="floating-btn sync-btn main-cloud-trigger" :class="{ 'active': isCloudMenuOpen }" title="云同步菜单">
            <svg v-if="isSyncing" class="animate-spin" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
@@ -3330,7 +3338,7 @@ const showHiddenButtons = computed(() => {
               <path d="M808.192 262.592a320.16 320.16 0 0 0-592.352 0A238.592 238.592 0 0 0 32 496a240.32 240.32 0 0 0 130.976 213.888 32 32 0 1 0 29.12-57.024A176.192 176.192 0 0 1 96 496a175.04 175.04 0 0 1 148.48-173.888l19.04-2.976 6.24-18.24C305.248 197.472 402.592 128 512 128a256 256 0 0 1 242.208 172.896l6.272 18.24 19.04 2.976A175.04 175.04 0 0 1 928 496a176.128 176.128 0 0 1-96.128 156.896 32.064 32.064 0 0 0 29.12 57.024A240.416 240.416 0 0 0 992 496a238.592 238.592 0 0 0-183.808-233.408z" />
            </svg>
          </button>
-        
+
         <Transition name="cloud-pop">
           <div v-if="isCloudMenuOpen" class="cloud-sub-menu">
                <div class="sync-dashboard" :class="{ 'has-update': isNewVersionAvailable }">
@@ -3349,13 +3357,13 @@ const showHiddenButtons = computed(() => {
                   <div v-if="isNewVersionAvailable" class="dash-footer update-mode">✨ 云端有新进度，建议下载</div>
                   <div v-else-if="serverTime" class="dash-footer safe-mode">✅ 当前已是最新</div>
                </div>
-               
+
                <button @click="uploadToCloud" class="floating-btn sync-btn svg-icon-btn sub-btn" title="上传进度到云端" :disabled="isSyncing">
                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/></svg>
                </button>
-               <button @click="downloadFromCloud" 
-                        class="floating-btn sync-btn svg-icon-btn sub-btn" 
-                        :title="isDownloadDisabled ? '本地已是最新版本 (无需下载)' : '从云端下载进度'" 
+               <button @click="downloadFromCloud"
+                        class="floating-btn sync-btn svg-icon-btn sub-btn"
+                        :title="isDownloadDisabled ? '本地已是最新版本 (无需下载)' : '从云端下载进度'"
                         :disabled="isDownloadDisabled"
                         :style="isDownloadDisabled ? { opacity: 0.3, cursor: 'not-allowed', filter: 'grayscale(1)' } : {}">
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
@@ -3365,17 +3373,17 @@ const showHiddenButtons = computed(() => {
                <button @click="showSyncModal = true" class="floating-btn sync-btn sub-btn" title="配置云同步" style="font-size: 20px;">⚙️</button>
           </div>
         </Transition>
-        
+
       </div>
-      
-      
+
+
     </div>
     <div v-if="showAddWordModal" class="modal-overlay" @click.self="showAddWordModal = false">
       <div class="modal-box" style="max-width: 360px;">
         <h3 class="modal-title">✍️ 添加新词</h3>
         <div style="margin: 20px 0;">
-          <input id="custom-word-input" type="text" v-model="newWordInput" 
-                 class="modal-input-field" placeholder="请输入单词..." 
+          <input id="custom-word-input" type="text" v-model="newWordInput"
+                 class="modal-input-field" placeholder="请输入单词..."
                  @keydown.enter="confirmAddWord" autocomplete="off">
         </div>
         <div class="modal-actions">
@@ -3392,8 +3400,8 @@ const showHiddenButtons = computed(() => {
           词库中未找到 "<strong>{{ tempWord }}</strong>"，请填写中文意思：
         </p>
         <div style="margin: 15px 0;">
-          <input id="custom-meaning-input" type="text" v-model="meaningInput" 
-                 class="modal-input-field" placeholder="例如：开阔眼界..." 
+          <input id="custom-meaning-input" type="text" v-model="meaningInput"
+                 class="modal-input-field" placeholder="例如：开阔眼界..."
                  @keydown.enter="confirmMeaningAdd" autocomplete="off">
         </div>
         <div class="modal-actions">
@@ -3414,7 +3422,7 @@ const showHiddenButtons = computed(() => {
 <div v-if="showEditModal" class="modal-overlay" @click.self="showEditModal = false">
       <div class="modal-box" style="max-width: 360px; text-align: left;">
         <h3 class="modal-title" style="text-align: center;">🛠️ 修改单词</h3>
-        
+
         <div style="margin-bottom: 15px;">
           <label style="display:block; color:#666; font-size:12px; margin-bottom:5px;">英文拼写</label>
           <input type="text" v-model="editForm.newWord" class="modal-input-field">
@@ -3440,7 +3448,7 @@ const showHiddenButtons = computed(() => {
             <button :class="{active: statsPeriod==='month'}" @click="statsPeriod='month'">近30天</button>
           </div>
         </div>
-        
+
         <div class="stats-summary">
           <div class="summary-item">
             <div class="num">{{ Math.round((statsHistory[getTodayKey()]?.duration || 0)/60) }}</div>
@@ -3471,15 +3479,15 @@ const showHiddenButtons = computed(() => {
     <div v-if="showSearchModal" class="modal-overlay" @click.self="showSearchModal = false">
       <div class="modal-box search-box-modal">
         <div class="search-header">
-          <input 
-          id="global-search-input" 
-          type="text" 
-          v-model="searchQuery" 
-          @input="handleSearchInput" 
-          @keydown.enter.prevent="handleSearchEnter" 
-          @keydown.up.prevent="moveSelection(-1)"   
-          @keydown.down.prevent="moveSelection(1)" 
-          placeholder="输入词根 (支持键盘 ↑↓ 选择)..." 
+          <input
+          id="global-search-input"
+          type="text"
+          v-model="searchQuery"
+          @input="handleSearchInput"
+          @keydown.enter.prevent="handleSearchEnter"
+          @keydown.up.prevent="moveSelection(-1)"
+          @keydown.down.prevent="moveSelection(1)"
+          placeholder="输入词根 (支持键盘 ↑↓ 选择)..."
           class="modal-input-field search-input"
           autocomplete="off"
           >
@@ -3489,16 +3497,16 @@ const showHiddenButtons = computed(() => {
         <div class="search-results-list">
           <div v-if="!searchQuery" class="empty-tip-text">输入字母查找包含该词根的单词</div>
           <div v-else-if="searchResults.length === 0" class="empty-tip-text">未找到匹配单词</div>
-          
-          <div v-else v-for="(item, index) in searchResults" 
-              :key="item.en" 
+
+          <div v-else v-for="(item, index) in searchResults"
+              :key="item.en"
               class="search-item"
-              :class="{ 
+              :class="{
                 'clickable-item': !item.isCustom,
                 'selected': index === selectedIndex  /* 🔥 绑定选中样式 */
-              }" 
+              }"
               @click="goToWord(item)"
-              @mouseenter="selectedIndex = index"   
+              @mouseenter="selectedIndex = index"
             >
             <div class="si-left">
               <div class="si-en">
@@ -3517,12 +3525,12 @@ const showHiddenButtons = computed(() => {
 
 <div v-if="showNoteModal" class="modal-overlay" @click.self="showNoteModal = false">
   <div class="modal-box read-card-modal" style="height: 80vh; display:flex; flex-direction:column; padding:0;">
-    
+
     <div class="read-header">
       <h3 class="read-title">
         {{ isNoteEditing ? '✏️ 编辑辨析笔记' : '📖 词义辨析' }}
       </h3>
-      
+
       <div class="read-actions">
         <button v-if="!isNoteEditing" class="icon-btn edit-switch-btn" @click="isNoteEditing = true" title="编辑">
           ✎ 编辑
@@ -3535,12 +3543,12 @@ const showHiddenButtons = computed(() => {
     </div>
 
     <div style="flex: 1; display: flex; overflow: hidden;">
-      
+
       <div class="story-sidebar">
         <div class="sidebar-header">辨析分组</div>
         <div class="sidebar-list">
-           <div v-for="(item, idx) in noteList" :key="idx" 
-                class="sidebar-item" 
+           <div v-for="(item, idx) in noteList" :key="idx"
+                class="sidebar-item"
                 :class="{ active: currentNoteIdx === idx }"
                 @click="switchNote(idx)">
               <span class="item-icon">{{ item.content ? '📝' : '⚪' }}</span>
@@ -3595,12 +3603,12 @@ const showHiddenButtons = computed(() => {
 
 <div v-if="showStoryModal" class="modal-overlay" @click.self="showStoryModal = false">
   <div class="modal-box read-card-modal" style="height: 85vh; display:flex; flex-direction:column; padding:0;">
-    
+
     <div class="read-header">
       <h3 class="read-title">
         {{ isStoryEditing ? '✏️ 编辑模式' : '📜 本页助记文章 (Part ' + (chunkIndex + 1) + ')' }}
       </h3>
-      
+
       <div class="read-actions">
         <button v-if="!isStoryEditing" class="icon-btn edit-switch-btn" @click="isStoryEditing = true" title="编辑当前文章">
           ✎ 编辑
@@ -3613,12 +3621,12 @@ const showHiddenButtons = computed(() => {
     </div>
 
     <div style="flex: 1; display: flex; overflow: hidden;">
-      
+
       <div class="story-sidebar">
         <div class="sidebar-header">文章列表</div>
         <div class="sidebar-list">
-           <div v-for="(item, idx) in storyList" :key="idx" 
-                class="sidebar-item" 
+           <div v-for="(item, idx) in storyList" :key="idx"
+                class="sidebar-item"
                 :class="{ active: currentStoryIdx === idx }"
                 @click="switchStory(idx)">
               <span class="item-icon">📄</span>
@@ -3631,12 +3639,12 @@ const showHiddenButtons = computed(() => {
       </div>
 
       <div class="story-content-area">
-        
+
         <div v-if="!isStoryEditing" class="markdown-body story-reader">
              <h1 class="story-page-title">{{ currentStory.title }}</h1>
-             
+
              <div v-if="currentStory.content" v-html="renderMarkdown(currentStory.content)"></div>
-             
+
              <div v-else class="empty-story-tip">
                <div style="font-size: 40px;">📝</div>
                <div>本篇文章暂无内容<br>点击右上角 <b>"✎ 编辑"</b> 开始写作</div>
@@ -3647,7 +3655,7 @@ const showHiddenButtons = computed(() => {
           <div style="margin-bottom: 10px;">
              <input type="text" v-model="currentStory.title" class="modal-input-field" placeholder="请输入文章标题..." style="font-weight:bold;">
           </div>
-          
+
           <div style="flex: 1; display: flex; gap: 15px; min-height: 0;">
              <div style="flex: 1; display: flex; flex-direction: column;">
                  <div class="editor-toolbar">
@@ -3655,12 +3663,12 @@ const showHiddenButtons = computed(() => {
                     <button class="tiny-btn" @click="copyStoryPrompt">🤖 复制 AI Prompt</button>
                     <button class="tiny-btn delete-btn" @click="deleteCurrentStory">🗑️ 删除此篇</button>
                  </div>
-                 <textarea v-model="currentStory.content" 
-                        class="modal-input-field" 
-                        style="flex: 1; resize: none; margin-bottom: 0;" 
+                 <textarea v-model="currentStory.content"
+                        class="modal-input-field"
+                        style="flex: 1; resize: none; margin-bottom: 0;"
                         placeholder="在此粘贴故事内容..."></textarea>
              </div>
-             
+
              <div class="desktop-only preview-pane">
                   <div class="editor-toolbar">实时预览</div>
                   <div class="markdown-body" style="padding:10px; overflow-y:auto; height:100%;" v-html="renderMarkdown(currentStory.content)"></div>
@@ -3686,7 +3694,7 @@ const showHiddenButtons = computed(() => {
       利用 GitHub Gist 实现免费私有云同步。<br>
       数据存储在您自己的 GitHub 账号中，安全可控。
     </p>
-    
+
     <div style="margin-bottom: 15px;">
       <label style="display:block; font-size:12px; font-weight:bold; margin-bottom:5px;">GitHub Token (勾选 gist 权限)</label>
       <input type="password" v-model="syncConfig.token" class="modal-input-field" placeholder="ghp_xxxxxxxxxxxx...">
@@ -3701,35 +3709,35 @@ const showHiddenButtons = computed(() => {
       <button @click="showSyncModal = false" class="modal-btn" style="background:#f3f4f6; color:#6b7280;">取消</button>
       <button @click="saveSyncConfig" class="modal-btn" style="background:#a855f7; color:white;">💾 保存配置</button>
     </div>
-    
+
     <div style="margin-top:15px; font-size:12px; color:#999; text-align:center;">
       配置保存在本地浏览器，不会上传到任何服务器。
     </div>
   </div>
-</div>  
+</div>
 
 <div v-if="showMistakeModal" class="modal-overlay" @click.self="showMistakeModal = false">
   <div class="modal-box" style="max-width: 600px; height: 80vh; padding: 0; display: flex; flex-direction: column;">
-    
+
     <div class="mistake-header">
       <div style="display:flex; align-items:center; gap: 10px;">
         <h3 class="mistake-modal-title">
           {{ showConquered ? '🏆 荣誉殿堂' : '📉 易错攻坚榜' }}
         </h3>
       </div>
-      
+
       <div style="display: flex; align-items: center; gap: 15px;">
         <div class="toggle-pill-group">
-          <button 
-            class="pill-btn" 
-            :class="{ active: !showConquered }" 
+          <button
+            class="pill-btn"
+            :class="{ active: !showConquered }"
             @click="showConquered = false; mistakePage = 1"
             title="显示还在背诵队列中的错词">
             正在攻坚
           </button>
-          <button 
-            class="pill-btn" 
-            :class="{ active: showConquered }" 
+          <button
+            class="pill-btn"
+            :class="{ active: showConquered }"
             @click="showConquered = true; mistakePage = 1"
             title="显示已斩杀/已掌握的历史错词">
             已攻克
@@ -3752,7 +3760,7 @@ const showHiddenButtons = computed(() => {
         <tbody>
           <tr v-for="item in currentMistakePageData" :key="item.en" :class="{ 'conquered-tr': showConquered }">
             <td>
-              <div class="mistake-word" 
+              <div class="mistake-word"
                    :class="{ 'is-conquered': showConquered }">
                 {{ item.en }}
               </div>
@@ -3767,7 +3775,7 @@ const showHiddenButtons = computed(() => {
               </button>
             </td>
           </tr>
-          
+
           <tr v-if="sortedMistakeList.length === 0">
             <td colspan="3" style="text-align: center; padding: 60px 20px; color: #9ca3af;">
               <div style="font-size: 40px; margin-bottom: 10px;">
@@ -3801,13 +3809,13 @@ const showHiddenButtons = computed(() => {
 <style scoped>
 /* 基础重置 */
 * { box-sizing: border-box; }
-.app-root { 
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
-  
+.app-root {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+
   /* ⚡️关键：这里定义了下半部分的通栏灰色 */
-  background: #f5f7fa; 
-  
-  min-height: 100vh; 
+  background: #f5f7fa;
+
+  min-height: 100vh;
   /* 🔥🔥🔥【核心修复】强制禁止左右滑动 🔥🔥🔥 */
   width: 100%;           /* 锁死宽度为屏幕宽 */
   overflow-x: hidden;    /* 裁剪掉左右溢出的部分 */
@@ -3815,27 +3823,27 @@ const showHiddenButtons = computed(() => {
 }
 
 /* 吸顶工具栏 */
-.tools-bar { 
+.tools-bar {
   /* 1. 确保背景色是纯白，防止下移后透出底下的内容 */
-  background: #ffffff; 
-  
+  background: #ffffff;
+
   /* 2. 适配灵动岛/刘海屏的核心代码 */
   /* 让工具栏的顶部内边距自动增加，把内容顶下来 */
-  padding-top: env(safe-area-inset-top); 
-  
+  padding-top: env(safe-area-inset-top);
+
   /* 3. 保持原有样式 */
-  width: 100%; 
-  border-bottom: 1px solid #e5e7eb; 
-  
+  width: 100%;
+  border-bottom: 1px solid #e5e7eb;
+
   /* 4. 关键：不要用 top: env(...)，而是用 padding 撑开 */
   /* 这样背景色会自动填充整个刘海区域，不会变成透明 */
   padding-bottom: 15px; /* 保持原有的底部内边距 */
-  
+
   /* 5. 确保吸顶 */
-  position: sticky; 
-  top: 0; 
-  z-index: 1000; 
-  box-shadow: 0 4px 6px rgba(0,0,0,0.02); 
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  box-shadow: 0 4px 6px rgba(0,0,0,0.02);
 }
 
 .dark .tools-bar {
@@ -3843,7 +3851,7 @@ const showHiddenButtons = computed(() => {
   background-color: #1e293b !important;
   border-bottom: 1px solid #334155 !important;
   color: #cbd5e1 !important;
-}  
+}
 .bar-inner { max-width: 1200px; margin: 0 auto; padding: 0 16px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; }
 .left-tools { display: flex; gap: 15px; align-items: center; }
 .right-tools { display: flex; align-items: center; gap: 10px; }
@@ -3886,22 +3894,22 @@ const showHiddenButtons = computed(() => {
 .restore-btn { background: #ecfdf5; color: #059669; border: 1px solid #d1fae5; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; }
 
 /* 表头对齐修正 */
-.header-table-row { 
-  max-width: 1200px; 
-  margin: 0 auto; 
-  
+.header-table-row {
+  max-width: 1200px;
+  margin: 0 auto;
+
   /* ⚡️关键：背景改成透明，这样它就显示出页面的灰色背景，实现“词汇区域是灰的，外面也是灰的” */
-  background: transparent; 
+  background: transparent;
   border-top: none;
-  
+
   /* 文字颜色保持 */
-  font-weight: 600; 
-  color: #6b7280; 
-  font-size: 14px; 
+  font-weight: 600;
+  color: #6b7280;
+  font-size: 14px;
   padding: 10px 0;
-  
+
   /* 保持左侧对齐的 5px 占位 */
-  border-left: 5px solid transparent; 
+  border-left: 5px solid transparent;
 }
 .header-table-row .grid-layout { padding: 12px 10px; }
 
@@ -3986,21 +3994,21 @@ const showHiddenButtons = computed(() => {
   .mobile-hide { display: none; }
   .desktop-only { display: none !important; }
   .mobile-only { display: block !important; }
-  .grid-layout { display: block; } 
+  .grid-layout { display: block; }
   .row-item { position: relative; padding: 12px; }
   .word-wrapper { margin-bottom: 6px; }
   .en-text { font-size: 18px; }
   .speaker { font-size: 18px; padding: 5px; }
     /* 🔥 修改后的代码：去掉了背景块，只保留精致的斜体灰字 */
-  .mobile-pos { 
+  .mobile-pos {
     font-size: 14px;      /* 稍微加大一点点，易读 */
     color: #9ca3af;       /* 使用更柔和的灰色 */
     background: none;     /* ❌ 移除灰色背景 */
     padding: 0;           /* ❌ 移除内边距 */
-    border: none;         
-    display: inline-block; 
-    font-family: serif; 
-    font-style: italic; 
+    border: none;
+    display: inline-block;
+    font-family: serif;
+    font-style: italic;
     margin-left: 4px;     /* 与单词保持一点距离 */
   }
   .mobile-kill { position: absolute; top: 10px; right: 10px; font-size: 20px; color: #d1d5db; background: none; border: none; padding: 5px; }
@@ -4010,7 +4018,7 @@ const showHiddenButtons = computed(() => {
   .selectors { width: 100%; justify-content: space-between; }
   .sel-chap { flex: 2; } .sel-part { flex: 1; }
   .stats-bar { width: 100%; justify-content: center; flex-wrap: nowrap; margin-bottom: 5px; }
-  
+
   .example-cell {
     display: block; margin-top: 8px; padding-top: 8px; border-top: 1px dashed #eee;
     font-size: 14px; color: #666; font-style: italic; white-space: normal; line-height: 1.5;
@@ -4026,27 +4034,27 @@ const showHiddenButtons = computed(() => {
 .scratchpad-window {
   position: fixed;
   z-index: 3000;
-  
+
   /* 1. 默认改为竖屏大小，匹配截图 */
   width: 300px;
   height: 520px;
-  
+
   /* 限制最小尺寸，防止缩太小导致界面崩坏 */
   min-width: 200px;
   min-height: 200px;
-  
+
   background: #2d2d2d;
   border: 2px solid #4b5563;
   border-radius: 8px;
   box-shadow: 0 10px 25px rgba(0,0,0,0.5);
-  
+
   display: flex;
   flex-direction: column;
   user-select: none;
-  
+
   /* 开启拖拽调整大小 */
   resize: both;
-  overflow: hidden; 
+  overflow: hidden;
 }
 
 /* =========================================
@@ -4058,7 +4066,7 @@ const showHiddenButtons = computed(() => {
   height: 40px;              /* 固定高度 */
   min-height: 40px;          /* ⚡️关键：防止被挤压 */
   flex-shrink: 0;            /* ⚡️关键：禁止被画布挤扁 */
-  
+
   background: #1e3a8a;       /* 改成深蓝色背景，更显眼 */
   cursor: move;
   display: flex;
@@ -4069,24 +4077,24 @@ const showHiddenButtons = computed(() => {
 }
 
 /* 标题文字：亮蓝色 */
-.pad-title { 
+.pad-title {
   color: #93c5fd;            /* 亮蓝淡色，对比度高 */
-  font-size: 14px; 
-  font-weight: bold; 
+  font-size: 14px;
+  font-weight: bold;
   letter-spacing: 1px;
 }
 
 /* 关闭按钮：纯白，变大 */
-.pad-close { 
-  background: none; 
-  border: none; 
+.pad-close {
+  background: none;
+  border: none;
   color: #ffffff;            /* 纯白 */
   font-size: 20px;           /* 放大一点 */
-  cursor: pointer; 
+  cursor: pointer;
   padding: 0 5px;
   line-height: 1;
 }
-.pad-close:hover { 
+.pad-close:hover {
   color: #ef4444;            /* 悬停变红 */
 }
 
@@ -4095,7 +4103,7 @@ const showHiddenButtons = computed(() => {
   height: 45px;              /* 稍微加高，容纳按钮 */
   min-height: 45px;          /* ⚡️关键：防止被挤压 */
   flex-shrink: 0;            /* ⚡️关键：禁止被画布挤扁 */
-  
+
   background: #111827;       /* 深色底 */
   display: flex;
   justify-content: space-between;
@@ -4107,7 +4115,7 @@ const showHiddenButtons = computed(() => {
 .pad-btn-clear {
   background: #dc2626;       /* 经典的红色 */
   color: white;              /* 白字 */
-  border: none; 
+  border: none;
   border-radius: 4px;        /* 圆角 */
   padding: 5px 10px;         /* 适当的内边距 */
   font-size: 12px;
@@ -4118,12 +4126,12 @@ const showHiddenButtons = computed(() => {
 
 /* 鼠标悬停变亮 */
 .pad-btn-clear:hover {
-  background: #ef4444; 
+  background: #ef4444;
 }
 
 /* 底部提示文字：改成浅灰色，清晰可见 */
-.hint-text { 
-  font-size: 12px; 
+.hint-text {
+  font-size: 12px;
   color: #d1d5db;            /* 亮灰白 */
 }
 
@@ -4136,7 +4144,7 @@ const showHiddenButtons = computed(() => {
   width: 100%;
   height: 0;                 /* ⚡️技巧：配合flex:1，让它自适应高度，不再无脑撑大 */
   min-height: 0;             /* 防止 Flex 子元素溢出 */
-  
+
   background: #2d2d2d;
   cursor: crosshair !important;
   touch-action: none !important;
@@ -4170,15 +4178,15 @@ const showHiddenButtons = computed(() => {
 .floating-action-group {
   position: fixed;
   top: 50%;
-  
+
   /* 🔥 修改 1：默认定位在右侧 */
   /* 距离中心右侧 680px，或者屏幕边缘 20px */
-  right: max(20px, calc(50% - 680px)); 
+  right: max(20px, calc(50% - 680px));
   left: auto; /* 清除左侧定位 */
-  
+
   transform: translateY(-50%); /* 垂直居中 */
   z-index: 1500;
-  
+
   display: flex;
   flex-direction: column; /* 垂直排列 */
   gap: 15px; /* 按钮之间的间距 */
@@ -4205,6 +4213,10 @@ const showHiddenButtons = computed(() => {
 .refresh-btn {
   color: #3b82f6; /* 蓝色 */
 }
+/* 退出听写按钮特定样式 */
+.exit-btn {
+  color: #ef4444; /* 红色 */
+}
 /* 🔥🔥🔥【修复】点击时强制缩小，覆盖 hover 的放大效果 */
 .refresh-btn:active {
   transform: scale(0.9) rotate(180deg) !important; /* 保持旋转但缩小，加 !important 确保覆盖 */
@@ -4230,7 +4242,7 @@ const showHiddenButtons = computed(() => {
 /* 🔥 修改 2：移动端适配也改到右边 */
 @media (max-width: 768px) {
   .floating-action-group {
-    left: auto; 
+    left: auto;
     right: 10px; /* 手机紧贴右边 */
     gap: 10px;
   }
@@ -4240,9 +4252,9 @@ const showHiddenButtons = computed(() => {
 /* 🔥 修改 3：当拥有 pos-left 类时，强制飞到左边去 (避让模式) */
 .floating-action-group.pos-left {
   right: auto !important; /* 取消右边定位 */
-  
+
   /* 飞到左侧对称位置 */
-  left: max(20px, calc(50% - 680px)); 
+  left: max(20px, calc(50% - 680px));
 }
 /* 自定义弹窗输入框样式 */
 .modal-input-field {
@@ -4447,16 +4459,16 @@ const showHiddenButtons = computed(() => {
 .search-box-modal {
   max-width: 500px;
   width: 90%;
-  
+
   /* 🔥 关键：高度设为 auto，根据内容自动撑开 */
   height: auto;
   min-height: 80px;  /* 没内容时最小高度 */
   max-height: 80vh;  /* 内容多了最大高度 */
-  
+
   display: flex;
   flex-direction: column;
   padding: 0 !important;
-  overflow: hidden; 
+  overflow: hidden;
   transition: all 0.2s ease; /* 增加一点流畅动画 */
 }
 
@@ -4490,7 +4502,7 @@ const showHiddenButtons = computed(() => {
   font-size: 18px;
   padding: 10px 15px;
   border-radius: 25px; /* 圆角输入框 */
-  
+
 }
 
 .static-pos {
@@ -4508,16 +4520,16 @@ const showHiddenButtons = computed(() => {
 
 .empty-tip-text {
   color: #9ca3af;
-  
+
   /* 🔥 修改：使用 Flex 布局实现真正的水平垂直居中 */
   display: flex;
   align-items: center;      /* 垂直居中 */
   justify-content: center;  /* 水平居中 */
-  
+
   /* 🔥 关键：强制撑满父容器的高度和宽度 */
-  height: 100%;             
+  height: 100%;
   width: 100%;
-  
+
   /* 去掉之前的 margin-top: 50px，防止位置偏下 */
   margin: 0;
 }
@@ -4596,12 +4608,12 @@ const showHiddenButtons = computed(() => {
 /* 当拥有 pos-right 类时，强制覆盖 left 属性，改为靠右 */
 .floating-action-group.pos-right {
   left: auto !important; /* 取消左边定位 */
-  
+
   /* 距离右边 20px，或者距离中心右侧 680px (保持对称美感) */
-  right: max(20px, calc(50% - 680px)); 
-  
+  right: max(20px, calc(50% - 680px));
+
   /* 可选：加个过渡动画，让它飞过去而不是闪过去 */
-  transition: all 0.3s ease-in-out; 
+  transition: all 0.3s ease-in-out;
 }
 
 /* =========================================
@@ -4615,14 +4627,14 @@ const showHiddenButtons = computed(() => {
   align-items: center;
   transition: all 0.2s ease;
   cursor: pointer;
-  
+
   /* 布局：保持一定高度，否则鼠标很难“碰”到它 */
   padding: 1px 12px;
-  min-height: 36px; 
+  min-height: 36px;
   border-radius: 6px 6px 0 0;
-  
+
   /* 🔥 核心修改：默认完全隐形 */
-  opacity: 0; 
+  opacity: 0;
 }
 
 /* 2. 状态A：有笔记 (一直显示) */
@@ -4634,7 +4646,7 @@ const showHiddenButtons = computed(() => {
 .group-note-bar:hover {
   opacity: 1 !important;
   /* 🔥 悬停时给个淡灰色背景，否则透明的时候看不清范围 */
-  background-color: rgba(0,0,0,0.03) !important; 
+  background-color: rgba(0,0,0,0.03) !important;
 }
 
 /* 4. 标题文字容器 */
@@ -4690,7 +4702,7 @@ const showHiddenButtons = computed(() => {
 
 /* 专门给复制按钮微调一下位置或大小（可选） */
 .copy-group-btn {
-  font-size: 14px; 
+  font-size: 14px;
 }
 
 /* 暗黑模式适配 */
@@ -4702,11 +4714,11 @@ const showHiddenButtons = computed(() => {
 /* --- 精美阅读卡片样式 调整卡片宽度 --- */
 .read-card-modal {
   /* 🔥 1. 设置宽度为屏幕的 85%，最小 600px，最大 1200px */
-  width: clamp(600px, 57%, 1200px) !important; 
-  
+  width: clamp(600px, 57%, 1200px) !important;
+
   /* 🔥🔥🔥 2. 核心修复：必须把 max-width 设为 none，否则会被默认的 400px 卡死！ */
-  max-width: none !important; 
-  
+  max-width: none !important;
+
   max-height: 80vh !important;
   height: auto !important;
   padding: 0 !important;
@@ -4826,9 +4838,9 @@ const showHiddenButtons = computed(() => {
 }
 
 /* 6. 处理表格里的 emoji (加大一点点) */
-.markdown-body td:nth-child(3) { 
+.markdown-body td:nth-child(3) {
   /* 假设第三列是形象比喻，通常有emoji */
-  font-size: 15px; 
+  font-size: 15px;
 }
 
 
@@ -4846,7 +4858,7 @@ const showHiddenButtons = computed(() => {
 
 /* 1. 确保父元素也是定位基准 (防止蒙层跑偏) */
 .row-item {
-  position: relative; 
+  position: relative;
   /* 保持原有的样式... */
 }
 
@@ -4860,20 +4872,20 @@ const showHiddenButtons = computed(() => {
 .highlight-flash::after {
   content: '';
   position: absolute;
-  top: 0; 
-  left: 0; 
-  right: 0; 
+  top: 0;
+  left: 0;
+  right: 0;
   bottom: 0;
-  
+
   /* 黄色背景，带一点透明度，防止遮住文字 */
-  background-color: rgba(251, 191, 36, 0.6); 
-  
+  background-color: rgba(251, 191, 36, 0.6);
+
   /* 确保蒙层在最上层 */
-  z-index: 999; 
-  
+  z-index: 999;
+
   /* 关键：让鼠标点击穿透蒙层，不影响操作 */
-  pointer-events: none; 
-  
+  pointer-events: none;
+
   /* 执行动画 */
   animation: flash-fade-overlay 2s ease-out forwards;
 }
@@ -4885,11 +4897,11 @@ const showHiddenButtons = computed(() => {
 /* --- 亮色模式 (Light Mode) --- */
 /* 找到 .killed-row (亮色模式) */
 .killed-row {
-  background-color: #f3e8ff !important; 
+  background-color: #f3e8ff !important;
   /* 🔥 修改：把颜色改成 transparent (透明)，而不是 #a855f7 */
   /* 这样既去掉了线，又保留了4px的占位，保持对齐 */
-  border-left: 4px solid transparent !important; 
-  color: #4b5563; 
+  border-left: 4px solid transparent !important;
+  color: #4b5563;
 }
 
 /* 斩杀状态下的输入框 (如果需要填空的话，给个淡紫色背景) */
@@ -4903,7 +4915,7 @@ const showHiddenButtons = computed(() => {
 .dark .killed-row {
   background-color: #2e1065 !important;
   /* 🔥 修改：同样改为透明 */
-  border-left: 4px solid transparent !important; 
+  border-left: 4px solid transparent !important;
   color: #e9d5ff !important;
   opacity: 0.8;
 }
@@ -4915,7 +4927,7 @@ const showHiddenButtons = computed(() => {
 /* 找到 .col-idx */
 .col-idx {
   /* 🔥 新增：设置为相对定位，作为对号的参考点 */
-  position: relative; 
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4957,27 +4969,27 @@ const showHiddenButtons = computed(() => {
 /* 1. 【基础状态 - 有文章时】 */
 .story-btn {
   color: #d97706; /* 深黄色图标 */
-  
+
   /* 🔥 修改 1：边框从 2px 改为 1px，更精致 */
-  border: 1px solid #22c55e; 
-  
+  border: 1px solid #22c55e;
+
   /* 🔥 修改 2：强制背景为白色 (确保夜间模式也是白底，跟其他按钮统一) */
-  background-color: #ffffff; 
-  
-  transition: all 0.3s ease; 
+  background-color: #ffffff;
+
+  transition: all 0.3s ease;
 }
 
 /* 2. 【空状态 - 无文章时】 */
 .story-btn.is-empty {
   color: #9ca3af !important; /* 灰色图标 */
-  
+
   /* 红色细边框 */
-  border-color: #ef4444 !important; 
-  
+  border-color: #ef4444 !important;
+
   /* 🔥 核心修复：夜间模式背景不再变黑，而是保持白色 */
-  background-color: #ffffff !important; 
-  
-  box-shadow: none !important; 
+  background-color: #ffffff !important;
+
+  box-shadow: none !important;
 }
 
 /* --- 鼠标悬停效果 --- */
@@ -5007,15 +5019,15 @@ const showHiddenButtons = computed(() => {
 
 .dark .story-btn.is-empty {
   /* 确保图标在白底上能看清 (灰色) */
-  color: #9ca3af !important; 
+  color: #9ca3af !important;
   /* 保持红色警示边框 */
-  border-color: #ef4444 !important; 
+  border-color: #ef4444 !important;
 }
 
 /* 悬停高亮 */
 .dark .story-btn.is-empty:hover {
-  color: #fbbf24 !important; 
-  border-color: #fbbf24 !important; 
+  color: #fbbf24 !important;
+  border-color: #fbbf24 !important;
   background-color: #fffbeb !important;
 }
 /* 番茄钟下拉框伪装 */
@@ -5024,12 +5036,12 @@ const showHiddenButtons = computed(() => {
   -webkit-appearance: none;
   background: transparent;  /* 透明背景 */
   border: none;             /* 无边框 */
-  
+
   font-family: monospace;   /* 保持和数字一样的字体 */
   font-weight: 700;
   font-size: 18px;
   color: #dc2626;           /* 红色文字 */
-  
+
   text-align: center;
   cursor: pointer;
   min-width: 55px;          /* 保持宽度防止抖动 */
@@ -5106,14 +5118,14 @@ const showHiddenButtons = computed(() => {
   color: #e2e8f0 !important; /* 将默认灰改成更亮的 Slate-200 */
 }
 
-.dark .markdown-body p, 
+.dark .markdown-body p,
 .dark .markdown-body li {
   color: #cbd5e1 !important; /* 段落和列表文字微调 */
 }
 
 /* 4. 优化橙色高亮块 (重点词汇) 在夜间的显示 */
 /* 截图里的橙色背景太重，文字容易糊掉，我们换成更透亮的组合 */
-.dark .markdown-body strong, 
+.dark .markdown-body strong,
 .dark .markdown-body b {
   background-color: rgba(245, 158, 11, 0.2) !important; /* 琥珀色半透明背景 */
   color: #fbbf24 !important; /* 亮金色文字 */
@@ -5159,7 +5171,7 @@ const showHiddenButtons = computed(() => {
     height: 40px;
     font-size: 18px;
     /* 稍微淡一点的背景，区分层级 */
-    background: #faf5ff; 
+    background: #faf5ff;
 }
 .sub-btn:hover {
      background: #f3e8ff;
@@ -5185,7 +5197,7 @@ const showHiddenButtons = computed(() => {
 .cloud-pop-leave-to {
   opacity: 0;
   /* 向向上位移并缩小，造成从主按钮里“弹出来”的视觉差 */
-  transform: translateY(-20px) scale(0.8); 
+  transform: translateY(-20px) scale(0.8);
   max-height: 0; /* 高度收缩 */
   margin-top: 0 !important; /* 消除间距，确保完全收起 */
 }
@@ -5204,17 +5216,17 @@ const showHiddenButtons = computed(() => {
     /* 让按钮组出现在主按钮的正下方 */
     top: 60px;  /* 50px按钮高度 + 10px间距 */
     right: 0;   /* 对齐父容器右侧 */
-    
+
     /* 垂直排列按钮 */
     display: flex;
     flex-direction: column;
     gap: 10px;
     align-items: center;
-    
+
     /* 🔥关键：必须允许内容溢出，这样Dashboard才能飞到左边去 */
-    overflow: visible !important; 
+    overflow: visible !important;
     z-index: 100;
-    
+
     width: 50px; /* 和主按钮同宽 */
     margin-top: 0 !important;
 }
@@ -5222,17 +5234,17 @@ const showHiddenButtons = computed(() => {
 /* 🔥🔥🔥【修改】把宽度加大，防止文字挤下去 */
 .sync-dashboard {
     position: absolute;
-    
+
     /* 位于容器左侧 */
-    right: 100%; 
-    margin-right: 15px; 
-    
+    right: 100%;
+    margin-right: 15px;
+
     /* 顶部对齐主按钮 */
-    top: -60px; 
-    
+    top: -60px;
+
     /* 🔴 改动在这里：从 240px 改为 320px (或者 auto) */
-    width: 240px; 
-    
+    width: 240px;
+
     background: #ffffff;
     border-radius: 12px;
     padding: 12px;
@@ -5241,7 +5253,7 @@ const showHiddenButtons = computed(() => {
     display: flex;
     flex-direction: column;
     gap: 8px;
-    z-index: 101; 
+    z-index: 101;
 }
 
 /* 🔥🔥🔥【新增】强制时间文字不换行 */
@@ -5251,9 +5263,9 @@ const showHiddenButtons = computed(() => {
   color: #374151;
   font-family: monospace;
   letter-spacing: -0.5px;
-  
+
   /* 🔴 核心修复：强制不换行 */
-  white-space: nowrap; 
+  white-space: nowrap;
 }
 
 /* 🔥🔥🔥【动画优化】整体向下弹出 */
@@ -5268,7 +5280,7 @@ const showHiddenButtons = computed(() => {
 .cloud-pop-leave-to {
   opacity: 0;
   /* 产生从主按钮“掉下来”的视觉效果 */
-  transform: translateY(-20px) scale(0.8); 
+  transform: translateY(-20px) scale(0.8);
 }
 
 /* 5. 其他通用样式 (保持不变) */
@@ -5300,7 +5312,7 @@ const showHiddenButtons = computed(() => {
   border-bottom: none;
   display: inline-block;
   transition: all 0.2s ease;
-  white-space: nowrap; 
+  white-space: nowrap;
 }
 
 /* 🚀 火箭按钮样式 */
@@ -5310,7 +5322,7 @@ const showHiddenButtons = computed(() => {
   border-bottom: none;
   display: inline-block;
   transition: all 0.2s ease;
-  
+
   font-size: 12px;
   background: #f0fdf4; /* 浅绿背景 */
   color: #15803d;      /* 深绿图标 */
@@ -5337,14 +5349,14 @@ const showHiddenButtons = computed(() => {
   background: #22c55e;
   color: white;
 }
-  
+
 /* =========================================
    📱 移动端适配 (Mobile Responsiveness)
 ========================================= */
 
 /* 核心规则：当屏幕宽度小于 768px 时（常见的手机竖屏和窄屏平板），应用此规则 */
 @media (max-width: 767.98px) {
-  
+
   /* 隐藏火箭图标 */
   .icon-only {
     display: none !important;
@@ -5354,7 +5366,7 @@ const showHiddenButtons = computed(() => {
   .source-container {
     gap: 0;
   }
-}  
+}
 
 /* 🔥🔥🔥【新增】同步时间小标签样式 */
 .sync-time-tag {
@@ -5374,7 +5386,7 @@ const showHiddenButtons = computed(() => {
   background: #1e293b;
   color: #94a3b8;
   border-color: #334155;
-} 
+}
 
 /* =========================================
    🎨 颜值升级：同步仪表盘 (Sync Dashboard)
@@ -5633,11 +5645,11 @@ const showHiddenButtons = computed(() => {
 
 /* 弹窗头部布局 */
 .mistake-header {
-  padding: 15px 20px; 
-  border-bottom: 1px solid #e5e7eb; 
-  display: flex; 
-  justify-content: space-between; 
-  align-items: center; 
+  padding: 15px 20px;
+  border-bottom: 1px solid #e5e7eb;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   background: #f9fafb;
 }
 
@@ -5671,7 +5683,7 @@ const showHiddenButtons = computed(() => {
 
 /* 当切换到“已攻克”时，激活颜色变成紫色，区分度更高 */
 .pill-btn:last-child.active {
-  color: #a855f7; 
+  color: #a855f7;
 }
 
 /* 攻克榜的特殊样式 */
@@ -5700,27 +5712,27 @@ const showHiddenButtons = computed(() => {
 
 /* 1. 表头固定与背景 */
 .mistake-thead {
-  position: sticky; 
-  top: 0; 
+  position: sticky;
+  top: 0;
   background: #fff; /* 默认白底 */
   z-index: 10;
 }
 
 /* 2. 底部翻页栏 */
 .mistake-footer {
-  padding: 12px; 
-  border-top: 1px solid #e5e7eb; 
-  display: flex; 
-  justify-content: center; 
-  gap: 15px; 
-  align-items: center; 
+  padding: 12px;
+  border-top: 1px solid #e5e7eb;
+  display: flex;
+  justify-content: center;
+  gap: 15px;
+  align-items: center;
   background: #fff; /* 默认白底 */
 }
 
 /* 3. 单词文本颜色 */
 .mistake-word {
-  font-weight: bold; 
-  font-size: 16px; 
+  font-weight: bold;
+  font-size: 16px;
   color: #1f2937; /* 默认深灰 */
 }
 .mistake-word.is-conquered {
@@ -5732,7 +5744,7 @@ const showHiddenButtons = computed(() => {
 
 /* 表头变黑 */
 .dark .mistake-thead {
-  background: #1e293b; 
+  background: #1e293b;
 }
 
 /* 底部栏变黑 (解决白条问题) */
@@ -5748,7 +5760,7 @@ const showHiddenButtons = computed(() => {
 
 /* 单词文字变白 (解决看不清问题) */
 .dark .mistake-word {
-  color: #f1f5f9; 
+  color: #f1f5f9;
 }
 .dark .mistake-word.is-conquered {
   color: #c084fc; /* 夜间模式下用亮一点的紫色 */
@@ -5786,7 +5798,7 @@ const showHiddenButtons = computed(() => {
   border-radius: 4px !important;        /* 圆角 */
   font-weight: 700 !important;
   border: 1px solid #fcd34d !important; /* 加个边框，让它更像“卡片” */
-  
+
   /* 修复：防止被其他样式(如重置样式)覆盖 */
   text-decoration: none !important;
   display: inline-block; /* 保持行内块级，防止背景断裂难看 */
@@ -5796,7 +5808,7 @@ const showHiddenButtons = computed(() => {
 
 /* 2. 针对行内代码 (`text`) - 图2那种样式 */
 .markdown-body code {
-  background-color: #fef3c7 !important; 
+  background-color: #fef3c7 !important;
   color: #92400e !important;
   padding: 0 4px !important;
   border-radius: 4px !important;
@@ -5812,7 +5824,7 @@ const showHiddenButtons = computed(() => {
   background-color: rgba(245, 158, 11, 0.15) !important; /* 深色下的半透明黄 */
   color: #fbbf24 !important;            /* 亮金色文字 */
   border-color: rgba(245, 158, 11, 0.3) !important;
-}  
+}
 
 .speaker.loading {
   display: inline-block;
@@ -5876,14 +5888,14 @@ const showHiddenButtons = computed(() => {
 /* 2. 单词块容器 */
 .dark .vocab-block {
   background-color: #1e293b !important;
-  
+
   /* 🔥 修改：拆分边框设置，保护左侧颜色不被覆盖 */
   border-top: 1px solid #334155 !important;
   border-right: 1px solid #334155 !important;
   border-bottom: 1px solid #334155 !important;
-  
+
   /* 关键：左边只强制 宽度 和 样式，不要强制 颜色 */
-  border-left-width: 5px !important; 
+  border-left-width: 5px !important;
   border-left-style: solid !important;
   /* (border-left-color 会自动使用你代码里 :style 绑定的颜色) */
 
@@ -5900,10 +5912,10 @@ const showHiddenButtons = computed(() => {
 
 /* 4. 彻底去除斑马纹！(无论单双行，背景都一样) */
 .dark .row-item:nth-child(even) {
-  background-color: #1e293b !important; 
+  background-color: #1e293b !important;
 }
 
-/* 5. 【新增】已掌握/正确的单词行样式 
+/* 5. 【新增】已掌握/正确的单词行样式
    你需要给 Vue 的 div 加上 :class="{ 'learned-row': item.isLearned }" */
 .dark .row-item.mastered-row {
   background-color: #36465f !important; /* ✅ 很深的墨绿色背景，代表“已完成” */
@@ -5931,12 +5943,12 @@ const showHiddenButtons = computed(() => {
 .dark .row-item div:last-child { color: #94a3b8 !important; }
 
 /* 7. 输入框正确状态 (保持之前的修复) */
-.dark input.correct, 
+.dark input.correct,
 .dark input.is-valid,
 .dark .correct input {
-  background-color: #064e3b !important; 
-  border: 1px solid #10b981 !important;  
-  color: #a7f3d0 !important;             
+  background-color: #064e3b !important;
+  border: 1px solid #10b981 !important;
+  color: #a7f3d0 !important;
 }
 /* 输入框默认深色 */
 .dark input {
@@ -5982,9 +5994,9 @@ const showHiddenButtons = computed(() => {
   font-size: 16px;
   line-height: 1.7;    /* 舒适的行高 */
   color: #374151;
-  
+
   /* 限制最大宽度，防止在大屏幕上每行字太长读着累，但保持靠左 */
-  max-width: 800px;    
+  max-width: 800px;
   margin: 0 auto;      /* 容器整体居中 */
   padding-bottom: 50px;
 }
@@ -6013,7 +6025,7 @@ const showHiddenButtons = computed(() => {
 }
 
 /* 4. 列表样式优化 */
-.markdown-body ul, 
+.markdown-body ul,
 .markdown-body ol {
   padding-left: 1.5em; /* 稍微缩进一点 */
   margin-bottom: 1.2em;
@@ -6032,7 +6044,7 @@ const showHiddenButtons = computed(() => {
 }
 
 /* 6. 加粗单词的高亮背景 */
-.markdown-body strong, 
+.markdown-body strong,
 .markdown-body b {
   color: #000;
   font-weight: 700;
@@ -6043,14 +6055,14 @@ const showHiddenButtons = computed(() => {
 
 /* --- 暗黑模式适配 --- */
 .dark .markdown-body { color: #d1d5db; }
-.dark .markdown-body h1, 
-.dark .markdown-body h2, 
+.dark .markdown-body h1,
+.dark .markdown-body h2,
 .dark .markdown-body h3 { color: #f3f4f6; border-bottom-color: #334155; }
 .dark .markdown-body blockquote { background: #1e293b; border-left-color: #4b5563; color: #9ca3af; }
-.dark .markdown-body strong, 
-.dark .markdown-body b { 
+.dark .markdown-body strong,
+.dark .markdown-body b {
   background-color: #78350f; /* 暗黑模式下的高亮背景色 */
-  color: #fcd34d; 
+  color: #fcd34d;
 }
 
 /* ========================
@@ -6188,12 +6200,12 @@ const showHiddenButtons = computed(() => {
 .delete-btn:hover { background: #fee2e2; }
 
 .preview-pane {
-  flex: 1; 
-  display: flex; 
-  flex-direction: column; 
-  background: #f9fafb; 
-  border-radius: 8px; 
-  padding: 10px; 
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: #f9fafb;
+  border-radius: 8px;
+  padding: 10px;
   border: 1px solid #e5e7eb;
 }
 
@@ -6280,7 +6292,7 @@ const showHiddenButtons = computed(() => {
 }
 /* 删除按钮特殊处理 (深红背景) */
 .dark .delete-btn {
-  background-color: #450a0a !important; 
+  background-color: #450a0a !important;
   color: #fca5a5 !important;
 }
 .dark .delete-btn:hover {
@@ -6330,14 +6342,14 @@ const showHiddenButtons = computed(() => {
   color: #e2e8f0 !important; /* 将默认灰改成更亮的 Slate-200 */
 }
 
-.dark .markdown-body p, 
+.dark .markdown-body p,
 .dark .markdown-body li {
   color: #cbd5e1 !important; /* 段落和列表文字微调 */
 }
 
 /* 4. 优化橙色高亮块 (重点词汇) 在夜间的显示 */
 /* 截图里的橙色背景太重，文字容易糊掉，我们换成更透亮的组合 */
-.dark .markdown-body strong, 
+.dark .markdown-body strong,
 .dark .markdown-body b {
   background-color: rgba(245, 158, 11, 0.2) !important; /* 琥珀色半透明背景 */
   color: #fbbf24 !important; /* 亮金色文字 */
