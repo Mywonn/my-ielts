@@ -2965,6 +2965,47 @@ const isFloatingGroupVisible = computed(() => {
   // 容器本身始终显示（只要不是极端情况），因为我们要保留“刷新”和“回到顶部”
   return true
 })
+// ==========================================
+// ✅ 进度标记核心逻辑 (修复版)
+// ==========================================
+
+// 1. 判断当前页是否已标记完成
+const isCurrentPartCompleted = computed(() => {
+  const list = completedParts.value[currentChapter.value] || []
+  return list.includes(chunkIndex.value)
+})
+
+// 2. 切换完成状态 (带反馈)
+const togglePartCompletion = () => {
+  const chap = currentChapter.value
+  const part = chunkIndex.value
+  const list = completedParts.value[chap] || []
+
+  if (list.includes(part)) {
+    // A. 如果已完成 -> 取消标记
+    const newList = list.filter(p => p !== part)
+    completedParts.value = {
+      ...completedParts.value,
+      [chap]: newList
+    }
+    showCustomAlert('已撤销完成标记 ⭕')
+  } else {
+    // B. 如果未完成 -> 标记完成
+    const newList = [...list, part].sort((a, b) => a - b)
+    completedParts.value = {
+      ...completedParts.value,
+      [chap]: newList
+    }
+    
+    // 计算本章进度，给个特殊的反馈
+    const totalParts = getChapterPartCount(chap)
+    if (newList.length >= totalParts) {
+      showCustomAlert(`太强了！本章 ${chap} 全部通关！🏆`)
+    } else {
+      showCustomAlert('本页已标记完成！🎉')
+    }
+  }
+}
 
 // 🔥🔥🔥【新增】专门控制那些“非核心”按钮的显隐
 // (故事、加词、搜索、云同步)
@@ -3317,7 +3358,10 @@ const showHiddenButtons = computed(() => {
         <button class="page-btn big-btn" :disabled="chunkIndex === 0" @click="changePage(-1)">⬅️ 上一页</button>
         <div class="finish-control">
           <span class="page-info">{{ chunkIndex + 1 }} / {{ chunkedParts.length }}</span>
-          <button class="finish-btn" :class="{ 'done': isCurrentPartCompleted }" @click="togglePartCompletion" title="标记本页为已完成">
+          <button class="finish-btn" 
+                  :class="{ 'done': isCurrentPartCompleted }" 
+                  @click="togglePartCompletion" 
+                  title="标记本页为已完成">
             {{ isCurrentPartCompleted ? '✅ 已完成' : '⭕ 标记完成' }}
           </button>
         </div>
