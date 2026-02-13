@@ -114,7 +114,10 @@ const handleJumpNext = (e) => {
         // 4. (可选) 如果你也想顺便把“偷看”的小眼睛也关掉，加上这行：
         peekedWords.clear()
 
-        showCustomAlert('本组听写完成！已回到浏览模式 🎉')
+        // 5. 🔥 新增：自动刷新页面数据
+        refreshReviewData()
+
+        showCustomAlert('本组听写完成！已自动刷新 🎉')
       }
     }
   }
@@ -3524,6 +3527,7 @@ const showHiddenButtons = computed(() => {
           v-model="searchQuery"
           @input="handleSearchInput"
           @keydown.enter.prevent="handleSearchEnter"
+          @keydown.esc="showSearchModal = false"
           @keydown.up.prevent="moveSelection(-1)"
           @keydown.down.prevent="moveSelection(1)"
           placeholder="输入词根 (支持键盘 ↑↓ 选择)..."
@@ -4251,6 +4255,7 @@ const showHiddenButtons = computed(() => {
 /* 刷新按钮特定样式 */
 .refresh-btn {
   color: #3b82f6; /* 蓝色 */
+  margin-bottom: 0px; /* 🔥 新增：增加下方间距，防止误触 */
 }
 /* 退出听写按钮特定样式 */
 .exit-btn {
