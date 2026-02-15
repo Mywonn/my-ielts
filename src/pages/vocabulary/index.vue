@@ -78,8 +78,12 @@ const toggleZh = (key) => {
   else revealedZh.add(key)
 }
 
-// 🔥🔥🔥【修复 2】手动处理跳转 (支持 Shift+Tab 回退)
-const handleJumpNext = (e) => {
+// 🔥🔥🔥【修复】手动处理跳转 (支持 Shift+Tab 回退) + 强制触发校验
+const handleJumpNext = (word, e) => {
+  // 1. 🚨 核心修复：在跳转前，强制手动执行一次检查！
+  // 这样无论 change 事件是否被吞掉，都会进行判分（变红/变绿）
+  checkInput(word, e)
+
   // 获取页面上所有的输入框
   const inputs = Array.from(document.querySelectorAll('.dictation-input'))
   const currentIdx = inputs.indexOf(e.target)
@@ -88,12 +92,12 @@ const handleJumpNext = (e) => {
   if (e.shiftKey) {
     if (currentIdx > 0) {
       inputs[currentIdx - 1].focus()
-      // 选中里面的文字，方便直接修改（可选体验优化）
+      // 选中里面的文字，方便直接修改
       setTimeout(() => inputs[currentIdx - 1].select(), 10)
     }
   }
   else {
-    // ⬇️⬇️⬇️ 修改这里 ⬇️⬇️⬇️
+    // B. 正常跳转 (Enter / Tab)
     if (currentIdx > -1 && currentIdx < inputs.length - 1) {
       // 如果后面还有，跳到下一个
       inputs[currentIdx + 1].focus()
@@ -111,10 +115,10 @@ const handleJumpNext = (e) => {
         // 3. 退出全显/字义模式 (清空已翻开的中文)
         revealedZh.clear()
 
-        // 4. (可选) 如果你也想顺便把“偷看”的小眼睛也关掉，加上这行：
+        // 4. 清空偷看记录
         peekedWords.clear()
 
-        // 5. 🔥 新增：自动刷新页面数据
+        // 5. 自动刷新页面数据
         refreshReviewData()
 
         showCustomAlert('本组听写完成！已自动刷新 🎉')
@@ -244,6 +248,21 @@ const currentStory = computed(() => {
   return storyList.value[currentStoryIdx.value] || { title: '', content: '' }
 })
 
+// 🔥🔥🔥【新增】计算复习池中各阶段的单词数量 (S1-S6)
+const stageCounts = computed(() => {
+  // 索引0对应阶段1，索引5对应阶段6
+  const counts = [0, 0, 0, 0, 0, 0]
+  
+  reviewList.value.forEach(item => {
+    // 获取阶段，默认为0 (阶段1)
+    let s = item.stage || 0
+    // 兜底防止越界，最大归为阶段6
+    if (s > 5) s = 5
+    counts[s]++
+  })
+  
+  return counts
+})
 
 // 4. 🔥 核心功能：一键生成 AI 提示词
 const copyStoryPrompt = () => {
@@ -683,6 +702,7 @@ function refreshReviewData() {
 // 一键退出听写及汉语释义
 function exitDictationMode() {
   isDictation.value = false
+  refreshReviewData()
   revealedZh.clear()
   isDictationFinished.value = false
   clearAllPendingFailures() // 清理计时器
@@ -3156,6 +3176,19 @@ const showHiddenButtons = computed(() => {
     </div>
 
     <div class="content-container">
+      <div v-if="isReviewMode" class="mobile-only stage-dashboard">
+        <div v-for="(count, idx) in stageCounts" :key="idx" 
+             class="stage-dash-item"
+             :style="{ 
+               borderColor: STAGE_COLORS[idx], 
+               backgroundColor: STAGE_COLORS[idx] + '10',
+               color: STAGE_COLORS[idx]
+             }">
+          <div class="dash-label">S{{ idx + 1 }}</div>
+          <div class="dash-count">{{ count }}</div>
+        </div>
+      </div>
+     
       <div v-if="displayData.length === 0" class="empty-tip">{{ isReviewMode ? '暂无错题 🎉' : '本章数据加载中' }}</div>
 
       <div v-for="(block, bIdx) in displayData" :key="bIdx" class="vocab-block" :style="{ borderLeftColor: block.color }">
@@ -3303,8 +3336,8 @@ const showHiddenButtons = computed(() => {
                       @input="statusMap[word.en] = ''"
                       @focus="playOnFocus(word.en)"
                       @keydown.space.stop
-                      @keydown.tab.prevent="handleJumpNext"
-                      @keydown.enter.prevent="handleJumpNext"
+                      @keydown.tab.prevent="handleJumpNext(word, $event)" 
+                      @keydown.enter.prevent="handleJumpNext(word, $event)"
                       autocomplete="off">
                       <div v-if="statusMap[word.en] === 'error'" class="error-hint">❌ {{ word.en }}</div>
                       <div v-if="peekedWords.has(word.en)" class="peek-hint">👀 {{ word.en }}</div>
@@ -5972,6 +6005,63 @@ const showHiddenButtons = computed(() => {
 /* 暗黑模式下可以微调亮度 */
 .dark .review-stage-tag {
   box-shadow: 0 0 4px rgba(0,0,0,0.3);
+}
+
+/* 🔥🔥🔥【最终完美修复版】移动端仪表盘样式 */
+
+/* 1. 必须包裹在 media query 里，确保只在手机生效 */
+@media (max-width: 768px) {
+  .stage-dashboard {
+    /* ⚡️ 核心修复：加 !important，强制覆盖 mobile-only 的 display: block */
+    display: grid !important;
+    
+    /* 强制一行 6 列 */
+    grid-template-columns: repeat(6, 1fr);
+    
+    gap: 3px;          /* 极小间距 */
+    margin: 10px 5px;  /* 上下留白 */
+    padding: 0;
+  }
+
+  .stage-dash-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    
+    border-width: 1px;
+    border-style: solid;
+    border-radius: 6px;
+    
+    /* 紧凑内边距 */
+    padding: 4px 1px; 
+    background-color: #fff;
+    
+    /* 防止被压缩变形 */
+    min-width: 0; 
+    overflow: hidden;
+  }
+
+  .dash-label {
+    font-size: 10px;
+    font-weight: 800;
+    opacity: 0.7;
+    margin-bottom: 0px;
+    line-height: 1.2;
+    font-family: sans-serif;
+  }
+
+  .dash-count {
+    font-size: 16px;    /* 大字号 */
+    font-weight: 900;   /* 超粗 */
+    line-height: 1.1;
+    letter-spacing: -0.5px;
+  }
+}
+
+/* 🌙 暗黑模式适配 */
+.dark .stage-dash-item {
+  background-color: rgba(255, 255, 255, 0.05);
 }
 
 </style>
