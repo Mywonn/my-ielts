@@ -3464,7 +3464,7 @@ const isStageStatsOpen = ref(true)
                 class="floating-btn stats-toggle-btn" 
                 :class="{ 'active': isStageStatsOpen }"
                 :title="isStageStatsOpen ? '收起统计' : '展开复习分布'">
-          {{ isStageStatsOpen ? '🔻' : '📊' }}
+          {{ isStageStatsOpen ? '✕' : '📊' }}
         </button>
      </div>
       <Transition name="fade-slide">
