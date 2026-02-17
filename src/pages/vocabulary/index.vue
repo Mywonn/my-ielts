@@ -78,47 +78,65 @@ const toggleZh = (key) => {
   else revealedZh.add(key)
 }
 
-// 🔥🔥🔥【修复】手动处理跳转 (支持 Shift+Tab 回退) + 强制触发校验
+// 🔥🔥🔥【修复版 V3】智能跳转处理 (空内容不判错 + 修复最后一个词逻辑)
 const handleJumpNext = (word, e) => {
-  // 1. 🚨 核心修复：在跳转前，强制手动执行一次检查！
-  // 这样无论 change 事件是否被吞掉，都会进行判分（变红/变绿）
-  checkInput(word, e)
-
-  // 获取页面上所有的输入框
+  // 获取当前所有输入框
   const inputs = Array.from(document.querySelectorAll('.dictation-input'))
   const currentIdx = inputs.indexOf(e.target)
+  const val = e.target.value.trim()
 
-  // A. 如果按下了 Shift 键 (Shift + Tab) -> 往回跳 (上一格)
+  // 1. 🚨 核心修复：只有当输入框“有内容”时，才进行校验！
+  // 如果是空的，说明用户只是想跳过，或者按 Shift+Tab 回退，此时不要判错（不变红）
+  if (val) {
+    checkInput(word, e)
+  } else {
+    // 如果是空的，且之前有错误状态，可以顺便清除一下红框（可选优化）
+    if (statusMap[word.en] === 'error') {
+       delete statusMap[word.en] 
+    }
+  }
+
+  // --- 后面是跳转逻辑 ---
+
+  // A. Shift + Tab (往回跳)
   if (e.shiftKey) {
     if (currentIdx > 0) {
       inputs[currentIdx - 1].focus()
-      // 选中里面的文字，方便直接修改
       setTimeout(() => inputs[currentIdx - 1].select(), 10)
     }
   }
+  // B. Tab 或 Enter (往下跳)
   else {
-    // B. 正常跳转 (Enter / Tab)
     if (currentIdx > -1 && currentIdx < inputs.length - 1) {
-      // 如果后面还有，跳到下一个
+      // 还有下一个，跳过去
       inputs[currentIdx + 1].focus()
     } else {
-      // 🔥 如果是最后一个，触发失焦 + 标记完成
+      // 🔥 是最后一个词了！
       e.target.blur()
 
       if (isReviewMode.value && isDictation.value) {
+        
+        // 特殊处理最后一个词：
+        // 如果最后一个词有内容且错了，立刻结算（防止被刷新冲掉）
+        if (val && statusMap[word.en] === 'error') {
+           if (pendingFailures[word.en]) {
+             clearTimeout(pendingFailures[word.en])
+             delete pendingFailures[word.en]
+           }
+           processFailure(word)
+        }
+        
+        // 如果最后一个词是空的，我们认为用户放弃了这个词（或者已经背完了）
+        // 这里不做特殊惩罚，直接进入结算流程
+
         // 1. 标记完成
         isDictationFinished.value = true
-
-        // 2. 退出听写模式 (变回输入框之前的样子)
+        // 2. 退出听写
         isDictation.value = false
-
-        // 3. 退出全显/字义模式 (清空已翻开的中文)
+        // 3. 清理状态
         revealedZh.clear()
-
-        // 4. 清空偷看记录
         peekedWords.clear()
-
-        // 5. 自动刷新页面数据
+        // 4. 刷新数据
         refreshReviewData()
 
         showCustomAlert('本组听写完成！已自动刷新 🎉')
@@ -3040,7 +3058,7 @@ const showHiddenButtons = computed(() => {
   // 2. 如果是严格模式，只有当“完成”后才显示
   return isDictationFinished.value
 })
-
+const isStageStatsOpen = ref(true)
 </script>
 
 <template>
@@ -3425,6 +3443,30 @@ const showHiddenButtons = computed(() => {
       </div>
     </div>
     <div v-show="isFloatingGroupVisible" class="floating-action-group" :class="{ 'pos-left': isFloatBtnLeft }">
+    <div v-if="isReviewMode" class="side-stats-wrapper desktop-only">
+        
+        <Transition name="accordion-up">
+          <div v-if="isStageStatsOpen" class="side-stats-list" style="margin-bottom: 8px;">
+            <div v-for="(count, idx) in stageCounts" :key="idx" 
+                 class="side-stat-pill"
+                 :style="{ 
+                   borderLeftColor: STAGE_COLORS[idx],
+                   color: STAGE_COLORS[idx]
+                 }"
+                 :title="'阶段 ' + (idx + 1) + ': ' + count + ' 个'">
+              <span class="stat-label">S{{ idx + 1 }}</span>
+              <span class="stat-num">{{ count }}</span>
+            </div>
+          </div>
+        </Transition>
+
+        <button @click="isStageStatsOpen = !isStageStatsOpen" 
+                class="floating-btn stats-toggle-btn" 
+                :class="{ 'active': isStageStatsOpen }"
+                :title="isStageStatsOpen ? '收起统计' : '展开复习分布'">
+          {{ isStageStatsOpen ? '🔻' : '📊' }}
+        </button>
+     </div>
       <Transition name="fade-slide">
         <button v-if="!isReviewMode && showSmartCopyBtn" @click="copyCurrentPageWords" class="floating-btn copy-page-btn mobile-only" title="一键复制本页单词">📋</button>
       </Transition>
@@ -3448,7 +3490,7 @@ const showHiddenButtons = computed(() => {
           <path d="M512 64C264.512 64 64 264.576 64 512s200.512 448 448 448c247.424 0 448-200.576 448-448S759.424 64 512 64zM712.448 664.512c-11.776 0-22.784-3.072-32.448-8.384l-1.984 1.984L511.936 512l-162.112 145.472-1.344-1.344c-9.6 5.248-20.544 8.32-32.192 8.32-36.736 0-66.496-29.76-66.496-66.432 0-11.712 3.072-22.656 8.32-32.192L255.936 563.584l10.752-9.664c3.328-3.712 7.04-7.104 11.136-9.984l188.544-169.216 1.28 0C479.296 363.456 495.168 356.544 512.64 356.544s33.408 6.912 45.12 18.176l0.768 0 191.872 168.832c4.032 2.816 7.68 6.08 11.072 9.728l11.392 10.048-2.368 2.304c5.376 9.6 8.448 20.672 8.448 32.448C778.88 634.752 749.12 664.512 712.448 664.512z" fill="currentColor"></path>
         </svg>
       </button>
-
+    
     <div v-show="showHiddenButtons" class="cloud-wrapper">
          <button @click="toggleCloudMenu" class="floating-btn sync-btn main-cloud-trigger" :class="{ 'active': isCloudMenuOpen }" title="云同步菜单">
            <svg v-if="isSyncing" class="animate-spin" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
@@ -3491,12 +3533,16 @@ const showHiddenButtons = computed(() => {
                 </button>
                <button @click="showSyncModal = true" class="floating-btn sync-btn sub-btn" title="配置云同步" style="font-size: 20px;">⚙️</button>
           </div>
+          
         </Transition>
+        
 
       </div>
-
+    
 
     </div>
+    
+
     <div v-if="showAddWordModal" class="modal-overlay" @click.self="showAddWordModal = false">
       <div class="modal-box" style="max-width: 360px;">
         <h3 class="modal-title">✍️ 添加新词</h3>
@@ -6062,6 +6108,143 @@ const showHiddenButtons = computed(() => {
 /* 🌙 暗黑模式适配 */
 .dark .stage-dash-item {
   background-color: rgba(255, 255, 255, 0.05);
+}
+
+/* =========================================
+   📊 右侧悬浮复习统计栏 (向上展开 - 修正版)
+   ========================================= */
+
+/* 1. 包装容器 */
+.side-stats-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* 🔴 修复：删除了 margin-bottom: 12px; */
+  /* 现在它会完全复用父级 floating-action-group 的 gap: 15px，与其他按钮间距一致 */
+  margin-bottom: 0; 
+  position: relative;
+  z-index: 1600;
+}
+
+/* 2. 列表容器 (在按钮上方) */
+.side-stats-list {
+  display: flex;
+  flex-direction: column-reverse; /* S1 在最下面 */
+  gap: 8px; 
+  padding-bottom: 10px; /* 给按钮留出一点呼吸空间，防止列表紧贴按钮 */
+}
+
+/* 3. 单个数据胶囊 (Pill) - 宽度对齐 */
+.side-stat-pill {
+  display: flex;
+  align-items: center;
+  /* 🔴 修复：改为居中对齐 + 间距控制，比 space-between 更稳 */
+  justify-content: center;
+  gap: 4px;
+  
+  /* 🔴 修复：宽度改为 50px，与下方圆形按钮直径严格一致 */
+  width: 50px;         
+  height: 28px;
+  padding: 0 2px;      /* 减小内边距，防止数字被挤 */
+  
+  background: #ffffff;
+  border-radius: 14px;
+  
+  border: 1px solid #f3f4f6;
+  border-left-width: 4px; /* 左侧色条 */
+  /* border-left-color 由内联样式控制 */
+  
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+  cursor: default;
+  transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+  user-select: none;
+}
+
+/* 悬停效果 */
+.side-stat-pill:hover {
+  transform: scale(1.1) translateX(-2px);
+  box-shadow: 0 4px 10px rgba(0,0,0,0.12);
+  z-index: 10;
+}
+
+/* 标签 (S1) */
+.stat-label {
+  font-size: 10px;
+  font-weight: 800;
+  opacity: 0.5;
+  margin-right: 0; /* 不需要 margin，用 gap 控制 */
+}
+
+/* 数字 */
+.stat-num {
+  font-family: 'Menlo', 'Monaco', monospace;
+  font-size: 12px; /* 稍微调小 1px 以防三位数溢出 */
+  font-weight: 700;
+  letter-spacing: -0.5px; /* 紧凑一点 */
+}
+
+/* 4. 开关按钮 (保持 50px) */
+.stats-toggle-btn {
+  width: 50px;
+  height: 50px;
+  font-size: 22px;
+  background: #fff;
+  color: #6b7280;
+  border-radius: 50%;
+  border: 1px solid #d1d5db;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  transition: all 0.3s;
+  z-index: 20;
+}
+
+.stats-toggle-btn.active {
+  background: #f9fafb;
+  color: #374151;
+  transform: rotate(180deg);
+}
+
+.stats-toggle-btn:hover {
+  background: #fff;
+  transform: scale(1.1);
+  box-shadow: 0 6px 16px rgba(0,0,0,0.2);
+}
+
+/* --- 🌟 向上折叠动画 (Accordion Up) --- */
+.accordion-up-enter-active,
+.accordion-up-leave-active {
+  transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  max-height: 300px;
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.accordion-up-enter-from,
+.accordion-up-leave-to {
+  max-height: 0;
+  opacity: 0;
+  transform: translateY(20px) scale(0.5);
+  margin-bottom: 0 !important;
+}
+
+/* --- 🌙 暗黑模式适配 --- */
+.dark .side-stat-pill {
+  background: #1e293b;
+  border-color: #334155;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+}
+.dark .stat-num { color: #f3f4f6; }
+.dark .stats-toggle-btn {
+  background: #1e293b;
+  border-color: #4b5563;
+  color: #94a3b8;
+}
+.dark .stats-toggle-btn:hover {
+  background: #334155;
+  color: #f1f5f9;
 }
 
 </style>
