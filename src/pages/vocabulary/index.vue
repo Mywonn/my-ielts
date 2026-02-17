@@ -78,26 +78,16 @@ const toggleZh = (key) => {
   else revealedZh.add(key)
 }
 
-// 🔥🔥🔥【修复版 V3】智能跳转处理 (空内容不判错 + 修复最后一个词逻辑)
+// 🔥🔥🔥【修复版 V4】防止双重判分导致跳级
 const handleJumpNext = (word, e) => {
-  // 获取当前所有输入框
   const inputs = Array.from(document.querySelectorAll('.dictation-input'))
   const currentIdx = inputs.indexOf(e.target)
   const val = e.target.value.trim()
 
-  // 1. 🚨 核心修复：只有当输入框“有内容”时，才进行校验！
-  // 如果是空的，说明用户只是想跳过，或者按 Shift+Tab 回退，此时不要判错（不变红）
-  if (val) {
-    checkInput(word, e)
-  } else {
-    // 如果是空的，且之前有错误状态，可以顺便清除一下红框（可选优化）
-    if (statusMap[word.en] === 'error') {
-       delete statusMap[word.en] 
-    }
-  }
-
-  // --- 后面是跳转逻辑 ---
-
+  // 🔴 核心修改：删除了这里的 checkInput(word, e)
+  // 原因：焦点的转移 (focus/blur) 会自动触发 @change 事件进行校验。
+  // 如果在这里手动校验一次，@change 又校验一次，就会导致艾宾浩斯阶段连跳两级 (S1 -> S3)。
+  
   // A. Shift + Tab (往回跳)
   if (e.shiftKey) {
     if (currentIdx > 0) {
@@ -109,15 +99,18 @@ const handleJumpNext = (word, e) => {
   else {
     if (currentIdx > -1 && currentIdx < inputs.length - 1) {
       // 还有下一个，跳过去
+      // 注意：这一步 focus() 会触发当前输入框的 blur，进而自动触发 checkInput
       inputs[currentIdx + 1].focus()
     } else {
       // 🔥 是最后一个词了！
-      e.target.blur()
+      e.target.blur() // 主动触发失焦，确保最后一次 checkInput 执行
 
       if (isReviewMode.value && isDictation.value) {
         
-        // 特殊处理最后一个词：
-        // 如果最后一个词有内容且错了，立刻结算（防止被刷新冲掉）
+        // 稍微延迟一下，确保 checkInput 已经更新了 statusMap
+        // 虽然 blur 是同步的，但为了稳妥，我们直接取状态
+        
+        // 如果最后一个词有内容且错了，立刻结算
         if (val && statusMap[word.en] === 'error') {
            if (pendingFailures[word.en]) {
              clearTimeout(pendingFailures[word.en])
@@ -126,17 +119,11 @@ const handleJumpNext = (word, e) => {
            processFailure(word)
         }
         
-        // 如果最后一个词是空的，我们认为用户放弃了这个词（或者已经背完了）
-        // 这里不做特殊惩罚，直接进入结算流程
-
-        // 1. 标记完成
+        // 结算流程
         isDictationFinished.value = true
-        // 2. 退出听写
         isDictation.value = false
-        // 3. 清理状态
         revealedZh.clear()
         peekedWords.clear()
-        // 4. 刷新数据
         refreshReviewData()
 
         showCustomAlert('本组听写完成！已自动刷新 🎉')
@@ -144,6 +131,7 @@ const handleJumpNext = (word, e) => {
     }
   }
 }
+
 
 // 🔥🔥🔥【新增】页面故事/文章存储
 // 结构: { "Chapter1_Part0": { content: "文章内容..." }, ... }
