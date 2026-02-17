@@ -695,7 +695,6 @@ function refreshReviewData() {
   revealedZh.clear()       // 清空中文
   peekedWords.clear()      // 清空偷看
   revealedSource.clear()   // 清空出处
-  sessionGradedWords.clear()
   isDictationFinished.value = false
 
   // 3. 🔥🔥🔥【核心大招】🔥
@@ -717,8 +716,6 @@ function exitDictationMode() {
 
 // 🔥🔥🔥【新增】纠错宽限期管理 (30秒)
 const pendingFailures = reactive({}) // 记录待结算的错误计时器 { [word]: timerId }
-
-
 
 // 清理所有待处理的计时器，防止内存占用或切页后的“幽灵”逻辑
 function clearAllPendingFailures() {
@@ -1068,43 +1065,50 @@ function checkInput(word, e) {
   // 更新红绿状态映射
   statusMap[word.en] = isCorrect ? 'correct' : 'error'
 
-  if (!sessionGradedWords.has(word.en)) {
-        
-        // 标记为已结算
-        sessionGradedWords.add(word.en)
+  if (isCorrect) {
+    // --- 答对了 ---
+    // 如果该词在“待结算错误”名单中，立刻赦免它
+    if (pendingFailures[word.en]) {
+      clearTimeout(pendingFailures[word.en])
+      delete pendingFailures[word.en]
+    }
 
-        // --- A. 学习模式 ---
-        if (!isReviewMode.value) {
-          updateDailyStats('learn', 1)
-          if (!masteredList.value.includes(word.en)) {
-            masteredList.value.push(word.en)
-            updateDailyStats('kill', 1)
-          }
-          const idx = reviewList.value.findIndex(i => i.w === word.en)
-          if (idx > -1) reviewList.value.splice(idx, 1)
-        } 
-        // --- B. 复习模式 ---
-        else {
-          const idx = reviewList.value.findIndex(i => i.w === word.en)
-          if (idx > -1) {
-            updateDailyStats('review', 1) // 统计+1
-            const item = reviewList.value[idx]
-            item.stage += 1 // 阶段+1
+    if (!revealedZh.has(word.en)) revealedZh.add(word.en)
 
-            if (item.stage >= INTERVALS.length) {
-              reviewList.value.splice(idx, 1)
-              if (!killedList.value.includes(word.en)) {
-                killedList.value.push(word.en)
-                updateDailyStats('kill', 1)
-              }
-            } else {
-              item.time = Date.now() + INTERVALS[item.stage] * 60000
-              // 触发 Vue 响应式更新
-              reviewList.value = [...reviewList.value]
-            }
-          }
+    // --- A. 学习模式 (第一次学) ---
+    if (!isReviewMode.value) {
+      updateDailyStats('learn', 1)
+
+      // 如果这个词之前没掌握，现在掌握了 -> 记入斩杀数(攻克数)
+      if (!masteredList.value.includes(word.en)) {
+        masteredList.value.push(word.en)
+        updateDailyStats('kill', 1) // 第一次学习变绿算作斩杀+1
+      }
+
+      const idx = reviewList.value.findIndex(i => i.w === word.en)
+      if (idx > -1) reviewList.value.splice(idx, 1)
+      return
+    }
+
+    // --- B. 复习模式 ---
+    const idx = reviewList.value.findIndex(i => i.w === word.en)
+    if (idx > -1) {
+      updateDailyStats('review', 1)
+      const item = reviewList.value[idx]
+      item.stage += 1
+
+      // 如果达到了最大阶段 (完成所有艾宾浩斯周期)
+      if (item.stage >= INTERVALS.length) {
+        reviewList.value.splice(idx, 1)
+        if (!killedList.value.includes(word.en)) {
+          killedList.value.push(word.en)
+          updateDailyStats('kill', 1) // 复习通关变紫算作斩杀+1
         }
-   
+      } else {
+        item.time = Date.now() + INTERVALS[item.stage] * 60000
+        reviewList.value = [...reviewList.value]
+      }
+    }
   } else {
     // --- 答错了 ---
     // 如果已经有计时器了，先清理掉旧的
