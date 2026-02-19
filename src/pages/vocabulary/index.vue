@@ -78,16 +78,18 @@ const toggleZh = (key) => {
   else revealedZh.add(key)
 }
 
-// 🔥🔥🔥【修复版 V4】防止双重判分导致跳级
+// 🔥🔥🔥【修复版 V6】加入回车强制检测 (确保判断功能百分百触发)
 const handleJumpNext = (word, e) => {
   const inputs = Array.from(document.querySelectorAll('.dictation-input'))
   const currentIdx = inputs.indexOf(e.target)
   const val = e.target.value.trim()
 
-  // 🔴 核心修改：删除了这里的 checkInput(word, e)
-  // 原因：焦点的转移 (focus/blur) 会自动触发 @change 事件进行校验。
-  // 如果在这里手动校验一次，@change 又校验一次，就会导致艾宾浩斯阶段连跳两级 (S1 -> S3)。
-  
+  // 🔥 核心：如果是按 Enter 键，强制执行一次检查！
+  // 这样能保证即使你没改字直接按回车，也能触发“二次判断”的震动逻辑
+  if (e.key === 'Enter') {
+    checkInput(word, e)
+  }
+
   // A. Shift + Tab (往回跳)
   if (e.shiftKey) {
     if (currentIdx > 0) {
@@ -98,39 +100,34 @@ const handleJumpNext = (word, e) => {
   // B. Tab 或 Enter (往下跳)
   else {
     if (currentIdx > -1 && currentIdx < inputs.length - 1) {
-      // 还有下一个，跳过去
-      // 注意：这一步 focus() 会触发当前输入框的 blur，进而自动触发 checkInput
       inputs[currentIdx + 1].focus()
     } else {
-      // 🔥 是最后一个词了！
-      e.target.blur() // 主动触发失焦，确保最后一次 checkInput 执行
+      // 是最后一个词了
+      e.target.blur() 
+      setTimeout(() => {
+        if (isReviewMode.value && isDictation.value) {
+          // 结算前最后的校验
+          if (val && statusMap[word.en] === 'error') {
+             if (pendingFailures[word.en]) {
+               clearTimeout(pendingFailures[word.en])
+               delete pendingFailures[word.en]
+             }
+             processFailure(word)
+          }
+          
+          isDictationFinished.value = true
+          isDictation.value = false
+          revealedZh.clear()
+          peekedWords.clear()
+          refreshReviewData()
 
-      if (isReviewMode.value && isDictation.value) {
-        
-        // 稍微延迟一下，确保 checkInput 已经更新了 statusMap
-        // 虽然 blur 是同步的，但为了稳妥，我们直接取状态
-        
-        // 如果最后一个词有内容且错了，立刻结算
-        if (val && statusMap[word.en] === 'error') {
-           if (pendingFailures[word.en]) {
-             clearTimeout(pendingFailures[word.en])
-             delete pendingFailures[word.en]
-           }
-           processFailure(word)
+          showCustomAlert('本组听写完成！已自动刷新 🎉')
         }
-        
-        // 结算流程
-        isDictationFinished.value = true
-        isDictation.value = false
-        revealedZh.clear()
-        peekedWords.clear()
-        refreshReviewData()
-
-        showCustomAlert('本组听写完成！已自动刷新 🎉')
-      }
+      }, 10)
     }
   }
 }
+
 
 
 // 🔥🔥🔥【新增】页面故事/文章存储
@@ -717,10 +714,15 @@ function exitDictationMode() {
 // 🔥🔥🔥【新增】纠错宽限期管理 (30秒)
 const pendingFailures = reactive({}) // 记录待结算的错误计时器 { [word]: timerId }
 
-// 清理所有待处理的计时器，防止内存占用或切页后的“幽灵”逻辑
+// 清理所有待处理的计时器 (退出或刷新时调用)
 function clearAllPendingFailures() {
   Object.keys(pendingFailures).forEach(wordEn => {
     clearTimeout(pendingFailures[wordEn])
+    
+    // 🔥 这里的词都是“写了但写错”的，退出时必须判负！
+    // 至于“空着没写”的词，因为 checkInput 把它过滤了，所以这里不会误伤。
+    processFailure({ en: wordEn }) 
+    
     delete pendingFailures[wordEn]
   })
 }
@@ -1041,23 +1043,32 @@ const playSentence = (text) => {
 }
 
 // ==========================================
-// 🔴 核心修复：checkInput (解决了语法报错并优化了记录逻辑)
+// 🔴 核心修复：checkInput (精准区分“空”与“错” + 二次判断震动)
 // ==========================================
 function checkInput(word, e) {
-  // 如果是按下 Enter 键且内容为空，直接忽略，防止误触
-  if (e.type === 'keydown' && e.key === 'Enter' && !e.target.value.trim()) {
-    return
+  // 1. 获取输入值
+  let val = e.target.value.trim().toLowerCase()
+
+  // 🔥🔥🔥【关键修复 1】如果内容为空：
+  // 认为是“暂时跳过”，彻底清除它的痕迹，防止卡死下一次复习
+  if (!val) {
+    // 1. 清除红框/绿框状态
+    delete statusMap[word.en]
+    
+    // 2. 如果之前已经在倒计时（比如先写错又删了），把它救出来，不算错！
+    if (pendingFailures[word.en]) {
+       clearTimeout(pendingFailures[word.en])
+       delete pendingFailures[word.en]
+    }
+    return // 直接结束，不进行后续的对错判断
   }
 
-  // 1. 获取输入值和正确答案
-  let val = e.target.value.trim().toLowerCase()
+  // 2. 获取正确答案
   let answer = word.en.toLowerCase()
 
-  // 2. 清洗数据：统一引号格式并去除多余空格
+  // 3. 清洗数据
   const normalize = (str) => {
-    return str
-      .replace(/[\u2018\u2019`]/g, "'")
-      .replace(/\s+/g, ' ')
+    return str.replace(/[\u2018\u2019`]/g, "'").replace(/\s+/g, ' ')
   }
 
   const isCorrect = normalize(val) === normalize(answer)
@@ -1067,42 +1078,33 @@ function checkInput(word, e) {
 
   if (isCorrect) {
     // --- 答对了 ---
-    // 如果该词在“待结算错误”名单中，立刻赦免它
     if (pendingFailures[word.en]) {
       clearTimeout(pendingFailures[word.en])
       delete pendingFailures[word.en]
     }
-
     if (!revealedZh.has(word.en)) revealedZh.add(word.en)
 
-    // --- A. 学习模式 (第一次学) ---
     if (!isReviewMode.value) {
       updateDailyStats('learn', 1)
-
-      // 如果这个词之前没掌握，现在掌握了 -> 记入斩杀数(攻克数)
       if (!masteredList.value.includes(word.en)) {
         masteredList.value.push(word.en)
-        updateDailyStats('kill', 1) // 第一次学习变绿算作斩杀+1
+        updateDailyStats('kill', 1)
       }
-
       const idx = reviewList.value.findIndex(i => i.w === word.en)
       if (idx > -1) reviewList.value.splice(idx, 1)
       return
     }
 
-    // --- B. 复习模式 ---
     const idx = reviewList.value.findIndex(i => i.w === word.en)
     if (idx > -1) {
       updateDailyStats('review', 1)
       const item = reviewList.value[idx]
       item.stage += 1
-
-      // 如果达到了最大阶段 (完成所有艾宾浩斯周期)
       if (item.stage >= INTERVALS.length) {
         reviewList.value.splice(idx, 1)
         if (!killedList.value.includes(word.en)) {
           killedList.value.push(word.en)
-          updateDailyStats('kill', 1) // 复习通关变紫算作斩杀+1
+          updateDailyStats('kill', 1)
         }
       } else {
         item.time = Date.now() + INTERVALS[item.stage] * 60000
@@ -1111,17 +1113,25 @@ function checkInput(word, e) {
     }
   } else {
     // --- 答错了 ---
-    // 如果已经有计时器了，先清理掉旧的
+
+    // 🔥🔥🔥【关键修复 2】二次判断（震动反馈）
+    // 逻辑：如果 pendingFailures 里有这个词，说明这是在“红框”状态下的第二次输入 -> 触发震动
+    if (pendingFailures[word.en] && e.target) {
+      e.target.classList.remove('shake-animation')
+      void e.target.offsetWidth // 强制重绘，保证每次都能震
+      e.target.classList.add('shake-animation')
+    }
+
+    // 2. 重置计时器（给你新的 30 秒）
     if (pendingFailures[word.en]) clearTimeout(pendingFailures[word.en])
 
-    // 开启 30 秒宽限期
+    // 3. 开启/重新开启 30 秒宽限期
     pendingFailures[word.en] = setTimeout(() => {
       processFailure(word)
       delete pendingFailures[word.en]
     }, 30000)
   }
 }
-
 
 // ==========================================
 // ⚔️ 智能斩杀/恢复逻辑 (Handle Kill/Restore)
@@ -6233,6 +6243,19 @@ const isStageStatsOpen = ref(true)
 .dark .stats-toggle-btn:hover {
   background: #334155;
   color: #f1f5f9;
+}
+
+/* 🔥🔥🔥 错误震动动画 */
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-5px); }
+  75% { transform: translateX(5px); }
+}
+
+.shake-animation {
+  animation: shake 0.3s ease-in-out;
+  border-color: #ef4444 !important; /* 强制变红 */
+  background-color: #fef2f2 !important;
 }
 
 </style>
