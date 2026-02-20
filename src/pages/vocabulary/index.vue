@@ -1042,25 +1042,18 @@ const playSentence = (text) => {
   }, 10)
 }
 
-// ==========================================
-// 🔴 核心修复：checkInput (精准区分“空”与“错” + 二次判断震动)
-// ==========================================
 function checkInput(word, e) {
   // 1. 获取输入值
   let val = e.target.value.trim().toLowerCase()
 
-  // 🔥🔥🔥【关键修复 1】如果内容为空：
-  // 认为是“暂时跳过”，彻底清除它的痕迹，防止卡死下一次复习
+  // 如果内容为空：认为是“暂时跳过”... (保留你的原有代码)
   if (!val) {
-    // 1. 清除红框/绿框状态
     delete statusMap[word.en]
-    
-    // 2. 如果之前已经在倒计时（比如先写错又删了），把它救出来，不算错！
     if (pendingFailures[word.en]) {
        clearTimeout(pendingFailures[word.en])
        delete pendingFailures[word.en]
     }
-    return // 直接结束，不进行后续的对错判断
+    return 
   }
 
   // 2. 获取正确答案
@@ -1073,11 +1066,18 @@ function checkInput(word, e) {
 
   const isCorrect = normalize(val) === normalize(answer)
 
+  // 🔥🔥🔥【核心修复 1】：在更新状态前，先看看它刚才是不是已经答对过了
+  const wasAlreadyCorrect = statusMap[word.en] === 'correct'
+
   // 更新红绿状态映射
   statusMap[word.en] = isCorrect ? 'correct' : 'error'
 
   if (isCorrect) {
     // --- 答对了 ---
+
+    // 🔥🔥🔥【核心修复 2】：如果刚才已经是绿框了，说明这是被 @change 连带触发的，直接拦截！
+    if (wasAlreadyCorrect) return
+
     if (pendingFailures[word.en]) {
       clearTimeout(pendingFailures[word.en])
       delete pendingFailures[word.en]
