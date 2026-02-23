@@ -348,6 +348,32 @@ const extractText = (val) => {
   return String(val)
 }
 
+// 🔥 智能词性颜色分配
+const getPosStyle = (posStr) => {
+  if (!posStr) return {}
+  const p = posStr.toLowerCase()
+  
+  // 包含动词成分 (v. / vt. / vi.) -> 红色系
+  if (p.includes('v.') || p === 'v' || p.includes('vt') || p.includes('vi')) {
+    return { color: '#ef4444', backgroundColor: '#fef2f2', border: '1px solid #fee2e2' }
+  }
+  // 包含形容词成分 (adj.) -> 绿色系
+  if (p.includes('adj')) {
+    return { color: '#10b981', backgroundColor: '#ecfdf5', border: '1px solid #d1fae5' }
+  }
+  // 包含副词成分 (adv.) -> 橙色系
+  if (p.includes('adv')) {
+    return { color: '#f59e0b', backgroundColor: '#fffbeb', border: '1px solid #fef3c7' }
+  }
+  // 包含名词成分 (n.) -> 蓝色系 (放最后因为有些词是 n./v.，优先显示动词红)
+  if (p.includes('n.') || p === 'n') {
+    return { color: '#3b82f6', backgroundColor: '#eff6ff', border: '1px solid #dbeafe' }
+  }
+  
+  // 其他/未知词性 -> 默认高级灰
+  return { color: '#6b7280', backgroundColor: '#f3f4f6', border: '1px solid #e5e7eb' }
+}
+
 const getNotation = (item) => {
   if (!item) return ''
   if (Array.isArray(item)) {
@@ -3387,7 +3413,9 @@ const isStageStatsOpen = ref(true)
                     </button>
                   </div>
                 </div>
-                <div class="mobile-only mobile-pos">{{ word.pos }}</div>
+                <div class="mobile-only mobile-pos">
+                  <span class="pos-color-tag" :style="getPosStyle(word.pos)">{{ word.pos }}</span>
+                </div>
                 <button class="mobile-only mobile-kill"
                         @click="handleKill(word.en)"
                         :style="isDictation ? { top: 'auto', bottom: '10px', right: '10px', background: '#fff', border: '1px solid #eee', borderRadius: '50%', width:'30px', height:'30px' } : {}">
@@ -3395,7 +3423,9 @@ const isStageStatsOpen = ref(true)
                 </button>
               </div>
 
-              <div class="col-pos text-center italic desktop-only">{{ word.pos }}</div>
+              <div class="col-pos text-center desktop-only">
+                <span class="pos-color-tag" :style="getPosStyle(word.pos)">{{ word.pos }}</span>
+              </div>
 
               <div class="col-zh" @click="isDictation ? toggleZh(word.en) : null" :class="{ 'interactive-zh': isDictation }">
                 <div class="zh-text" :class="{ 'blur-zh': isDictation && !revealedZh.has(word.en) && word.pos !== '自选' }">
@@ -6280,6 +6310,24 @@ const isStageStatsOpen = ref(true)
   animation: shake 0.3s ease-in-out;
   border-color: #ef4444 !important; /* 强制变红 */
   background-color: #fef2f2 !important;
+}
+
+/* 词性彩色小标签 */
+.pos-color-tag {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: 'Menlo', 'Monaco', monospace; /* 用等宽字体看起来更专业 */
+  font-style: normal; /* 取消斜体，色块已经足够醒目 */
+  font-weight: 700;
+  line-height: 1.2;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+}
+
+/* 适配暗黑模式 */
+.dark .pos-color-tag {
+  filter: brightness(0.8) contrast(1.2); /* 在夜间模式自动压暗背景，提高文字对比度 */
 }
 
 </style>
