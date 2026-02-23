@@ -713,6 +713,7 @@ function exitDictationMode() {
 
 // 🔥🔥🔥【新增】纠错宽限期管理 (30秒)
 const pendingFailures = reactive({}) // 记录待结算的错误计时器 { [word]: timerId }
+const retryCounts = reactive({})
 
 // 清理所有待处理的计时器 (退出或刷新时调用)
 function clearAllPendingFailures() {
@@ -725,6 +726,7 @@ function clearAllPendingFailures() {
     
     delete pendingFailures[wordEn]
   })
+  for(const key in retryCounts) delete retryCounts[key]
 }
 
 // 提取错误处理逻辑，以便延迟调用
@@ -1052,6 +1054,7 @@ function checkInput(word, e) {
     if (pendingFailures[word.en]) {
        clearTimeout(pendingFailures[word.en])
        delete pendingFailures[word.en]
+       delete retryCounts[word.en]
     }
     return 
   }
@@ -1082,6 +1085,8 @@ function checkInput(word, e) {
       clearTimeout(pendingFailures[word.en])
       delete pendingFailures[word.en]
     }
+    if (retryCounts[word.en] !== undefined) delete retryCounts[word.en]
+
     if (!revealedZh.has(word.en)) revealedZh.add(word.en)
 
     if (!isReviewMode.value) {
@@ -1111,28 +1116,47 @@ function checkInput(word, e) {
         reviewList.value = [...reviewList.value]
       }
     }
-  } else {
+  }  else {
     // --- 答错了 ---
 
-    // 🔥🔥🔥【关键修复 2】二次判断（震动反馈）
-    // 逻辑：如果 pendingFailures 里有这个词，说明这是在“红框”状态下的第二次输入 -> 触发震动
+    // 🔥 1. 记录修改次数
+    if (pendingFailures[word.en]) {
+      // 如果已经在倒计时内，说明这是一次修改
+      retryCounts[word.en] = (retryCounts[word.en] || 0) + 1
+    } else {
+      // 第一次拼错，初始化修改次数为 0
+      retryCounts[word.en] = 0
+    }
+
+    // 🔥 2. 震动反馈
     if (pendingFailures[word.en] && e.target) {
       e.target.classList.remove('shake-animation')
       void e.target.offsetWidth // 强制重绘，保证每次都能震
       e.target.classList.add('shake-animation')
     }
 
-    // 2. 重置计时器（给你新的 30 秒）
+    // 🔥 3. 检查是否达到上限（最多改 2 次）
+    if (retryCounts[word.en] >= 2) {
+      // 直接判负，不给机会了
+      if (pendingFailures[word.en]) clearTimeout(pendingFailures[word.en])
+      delete pendingFailures[word.en]
+      delete retryCounts[word.en]
+      
+      processFailure(word)
+      showCustomAlert(`"${word.en}" 修改已达 2 次上限，直接判错！🚫`)
+      return // 结束执行，不再重新计时
+    }
+
+    // 🔥 4. 重置计时器为 15 秒
     if (pendingFailures[word.en]) clearTimeout(pendingFailures[word.en])
 
-    // 3. 开启/重新开启 30 秒宽限期
     pendingFailures[word.en] = setTimeout(() => {
       processFailure(word)
       delete pendingFailures[word.en]
-    }, 30000)
+      delete retryCounts[word.en] // 时间到了也要清理记录
+    }, 15000) // ⚡️ 从 30000 改为 15000
   }
 }
-
 // ==========================================
 // ⚔️ 智能斩杀/恢复逻辑 (Handle Kill/Restore)
 // ==========================================
