@@ -3316,7 +3316,7 @@ const isStageStatsOpen = ref(true)
                       </button>
                     </div>
 
-                    <div v-if="isShowSource || revealedSource.has(word.en)" class="source-container">
+                    <div v-if="isReviewMode && (isShowSource || revealedSource.has(word.en))" class="source-container">
 
                         <a :href="getSourceUrl(word)"
                            class="word-source-row clickable-source"
