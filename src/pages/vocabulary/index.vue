@@ -311,18 +311,17 @@ const toggleSingleSource = (key) => {
   else revealedSource.add(key)
 }
 
-// 修改原有的 watch，增加清理逻辑
+// 🔥🔥🔥【修复版】合并清理逻辑，彻底解决跨模式状态残留问题
 watch([currentChapter, chunkIndex, isReviewMode, isDictation], () => {
-  revealedZh.clear()
-  peekedWords.clear()
-  revealedSource.clear() // 🔥 切换章节时重置
+  revealedZh.clear()       // 清空中文显示状态
+  peekedWords.clear()      // 清空偷看记录
+  revealedSource.clear()   // 清空出处显示状态
   isDictationFinished.value = false
-})
-
-// 修改原有的 watch，增加 peekedWords.clear()
-watch([currentChapter, chunkIndex, isReviewMode, isDictation], () => {
-  revealedZh.clear()
-  peekedWords.clear() // 🔥🔥🔥【新增 2】切换章节时清空偷看记录
+  
+  // 🔥🔥🔥【核心修复】：切换章节、模式或开关听写时，强行清空所有单词的对错(红绿)状态
+  for (const key in statusMap) {
+    delete statusMap[key]
+  }
 })
 
 // 一键显示/隐藏
