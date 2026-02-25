@@ -4058,7 +4058,7 @@ const removeCustomWord = (wordEn) => {
             <td style="text-align: center;">
               <span class="pos-color-tag" :style="getPosStyle(item.pos)">{{ item.pos }}</span>
             </td>
-            <td style="font-size: 13px; color: #4b5563;">{{ item.zh }}</td>
+            <td class="custom-zh-cell">{{ item.zh }}</td>
             <td style="text-align: right; white-space: nowrap;">
               <button class="tiny-btn" @click="openEditModal({en: item.en, zh: item.zh, pos: item.pos})" style="margin-right: 5px;">
                 ✎<span class="mobile-hide"> 修改</span>
@@ -6485,6 +6485,17 @@ const removeCustomWord = (wordEn) => {
 /* 适配暗黑模式 */
 .dark .pos-color-tag {
   filter: brightness(0.8) contrast(1.2); /* 在夜间模式自动压暗背景，提高文字对比度 */
+}
+
+/* 生词本释义列日间模式 */
+.custom-zh-cell {
+  font-size: 13px;
+  color: #4b5563;
+}
+
+/* 🌙 生词本释义列夜间模式适配 */
+.dark .custom-zh-cell {
+  color: #cbd5e1 !important; /* 亮灰白色，保证夜间清晰可见 */
 }
 
 </style>
