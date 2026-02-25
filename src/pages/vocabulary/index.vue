@@ -413,7 +413,7 @@ const findWordDetail = (wordText) => {
     return {
       en: wordText,
       zh: customDict.value[wordText].zh,
-      pos: '自选',
+      pos: customDict.value[wordText].pos || '自选', // 🔥【修改】读取独立词性
       example: '',
       notation: '我的生词本',
       id: '★',
@@ -1286,6 +1286,7 @@ function onFileChange(e) {
   }; r.readAsText(f)
   e.target.value = ''
 }
+
 // ==========================================
 // ★ 修复版：自定义弹窗完整逻辑 (修复窗口残留问题)
 // ==========================================
@@ -1296,7 +1297,9 @@ const newWordInput = ref('')          // 单词输入框值
 
 const showMeaningModal = ref(false)   // 补充中文窗
 const meaningInput = ref('')          // 中文输入框值
+const posInput = ref('')              // 🔥【新增】词性输入框值
 const tempWord = ref('')              // 暂存单词
+const showCustomDictModal = ref(false) // 🔥【新增】生词本弹窗开关
 
 const showMsgModal = ref(false)       // 成功提示窗
 const msgContent = ref('')            // 提示内容
@@ -1524,11 +1527,12 @@ function confirmMeaningAdd() {
   const zh = meaningInput.value.trim()
   if (!zh) return // 必须输入中文
 
+  const pos = posInput.value.trim() || '自选' // 🔥【新增】获取词性，不填默认"自选"
+  
   // ★ 关键修复 2：立刻关闭中文窗口
   showMeaningModal.value = false
 
-  // 保存到自定义词典
-  customDict.value = { ...customDict.value, [tempWord.value]: { zh: zh } }
+  customDict.value = { ...customDict.value, [tempWord.value]: { zh: zh, pos: pos } }
 
   // 执行添加
   finalizeAdd(tempWord.value)
@@ -1564,13 +1568,14 @@ function showCustomAlert(msg) {
 // ★ 新增：修改单词功能 (修复手滑)
 // ==========================================
 const showEditModal = ref(false)
-const editForm = reactive({ oldWord: '', newWord: '', newZh: '' })
+const editForm = reactive({ oldWord: '', newWord: '', newZh: '', newPos: '' })
 
 // 1. 打开修改窗口
 const openEditModal = (wordItem) => {
   editForm.oldWord = wordItem.en
   editForm.newWord = wordItem.en
   editForm.newZh = wordItem.zh
+  editForm.newPos = wordItem.pos || '自选' // 🔥【新增】带入词性
   showEditModal.value = true
 }
 
@@ -1579,32 +1584,26 @@ const confirmEdit = () => {
   const oldW = editForm.oldWord
   const newW = editForm.newWord.trim()
   const newZ = editForm.newZh.trim()
+  const newP = editForm.newPos.trim() || '自选' // 🔥【新增】
 
   if (!newW) return alert('单词不能为空')
 
-  // A. 如果只是改了中文意思
   if (oldW === newW) {
-    // 如果原词在自定义词典里，直接更新
     if (customDict.value[oldW]) {
       customDict.value[oldW].zh = newZ
+      customDict.value[oldW].pos = newP // 🔥 更新词性
     } else {
-      // 如果是原生词库的词，通过添加进自定义词典来“覆盖”释义
-      customDict.value = { ...customDict.value, [oldW]: { zh: newZ } }
+      customDict.value = { ...customDict.value, [oldW]: { zh: newZ, pos: newP } }
     }
     showCustomAlert('释义已更新')
-  }
-  // B. 如果改了英文拼写 (比如去掉了多余的点)
-  else {
-    // 1. 处理自定义词典 (删除旧key，添加新key)
+  } else {
     if (customDict.value[oldW]) {
       const newDict = { ...customDict.value }
-      delete newDict[oldW] // 删旧
-      newDict[newW] = { zh: newZ } // 建新
+      delete newDict[oldW] 
+      newDict[newW] = { zh: newZ, pos: newP } // 🔥 建新
       customDict.value = newDict
     } else {
-      // 原生词变异：直接新建自定义词
-      customDict.value = { ...customDict.value, [newW]: { zh: newZ } }
-      // 注意：原生词本身还在库里，但我们会迁移复习进度
+      customDict.value = { ...customDict.value, [newW]: { zh: newZ, pos: newP } }
     }
 
     // 2. 迁移复习进度 (ReviewList)
@@ -3124,6 +3123,69 @@ const shuffleArray = (array) => {
   return array.sort(() => Math.random() - 0.5)
 }
 
+// 🔥🔥🔥【新增】生词本列表数据及删除方法
+const customDictList = computed(() => {
+  return Object.keys(customDict.value).map(key => ({
+    en: key,
+    zh: customDict.value[key].zh,
+    pos: customDict.value[key].pos || '自选'
+  }))
+})
+
+// 👇👇👇 从这里开始新增查找和分页逻辑 👇👇👇
+const customDictSearch = ref('') // 搜索词
+const customDictPage = ref(1)    // 当前页码
+const CUSTOM_DICT_PAGE_SIZE = 20 // 每页显示 20 个
+
+// 监听搜索词变化，一旦搜索，页码自动回到第一页
+watch(customDictSearch, () => {
+  customDictPage.value = 1
+})
+
+// 1. 先进行搜索过滤
+const filteredCustomDictList = computed(() => {
+  let list = customDictList.value
+  const q = customDictSearch.value.trim().toLowerCase()
+  if (q) {
+    list = list.filter(item => 
+      item.en.toLowerCase().includes(q) || 
+      item.zh.includes(q)
+    )
+  }
+  // 按字母顺序排个序，找起来更方便
+  return list.sort((a, b) => a.en.localeCompare(b.en))
+})
+
+// 2. 再进行分页切割
+const currentCustomDictPageData = computed(() => {
+  const start = (customDictPage.value - 1) * CUSTOM_DICT_PAGE_SIZE
+  const end = start + CUSTOM_DICT_PAGE_SIZE
+  return filteredCustomDictList.value.slice(start, end)
+})
+
+// 3. 计算总页数
+const totalCustomDictPages = computed(() => {
+  return Math.ceil(filteredCustomDictList.value.length / CUSTOM_DICT_PAGE_SIZE) || 1
+})
+// 👆👆👆 新增结束 👆👆👆
+
+const removeCustomWord = (wordEn) => {
+  if (!confirm(`确定要从生词本中删除 "${wordEn}" 吗？这也会丢失该词的复习进度。`)) return
+  
+  // 从词典中删除
+  const newDict = { ...customDict.value }
+  delete newDict[wordEn]
+  customDict.value = newDict
+
+  // 清理各列表中的记录
+  reviewList.value = reviewList.value.filter(i => i.w !== wordEn)
+  killedList.value = killedList.value.filter(w => w !== wordEn)
+  masteredList.value = masteredList.value.filter(w => w !== wordEn)
+  
+  if (isReviewMode.value) refreshReviewData()
+  showCustomAlert(`已删除 "${wordEn}"`)
+}
+
 </script>
 
 <template>
@@ -3170,6 +3232,7 @@ const shuffleArray = (array) => {
         </div>
 
         <div class="right-tools">
+            <button @click="showCustomDictModal = true" class="btn action-btn" title="我的生词本">📓</button>
             <button v-if="isReviewMode" @click="showStatsModal = true" class="btn action-btn" title="学习统计">📊</button>
             <button @click="toggleScratchpad" class="btn action-btn desktop-only" :class="{ 'active-pad': showScratchpad }" title="打开/关闭草稿板">🖊️</button>
             <button v-if="isReviewMode" @click="openMistakeModal" class="btn action-btn" title="易错单词排行榜"
@@ -3634,8 +3697,12 @@ const shuffleArray = (array) => {
           词库中未找到 "<strong>{{ tempWord }}</strong>"，请填写中文意思：
         </p>
         <div style="margin: 15px 0;">
+          <input type="text" v-model="posInput"
+                 class="modal-input-field" placeholder="词性 (如 n. / v. / adj.)"
+                 style="margin-bottom: 10px; font-family: monospace;" autocomplete="off">
+                 
           <input id="custom-meaning-input" type="text" v-model="meaningInput"
-                 class="modal-input-field" placeholder="例如：开阔眼界..."
+                 class="modal-input-field" placeholder="中文释义 (例如：开阔眼界...)"
                  @keydown.enter="confirmMeaningAdd" autocomplete="off">
         </div>
         <div class="modal-actions">
@@ -3653,7 +3720,7 @@ const shuffleArray = (array) => {
     </div>
 </div>
 
-<div v-if="showEditModal" class="modal-overlay" @click.self="showEditModal = false">
+<div v-if="showEditModal" class="modal-overlay" @click.self="showEditModal = false" style="z-index: 2050;">
       <div class="modal-box" style="max-width: 360px; text-align: left;">
         <h3 class="modal-title" style="text-align: center;">🛠️ 修改单词</h3>
 
@@ -3662,6 +3729,10 @@ const shuffleArray = (array) => {
           <input type="text" v-model="editForm.newWord" class="modal-input-field">
         </div>
 
+        <div style="margin-bottom: 15px;">
+          <label style="display:block; color:#666; font-size:12px; margin-bottom:5px;">词性 (如 n. / v.)</label>
+          <input type="text" v-model="editForm.newPos" class="modal-input-field" style="font-family: monospace;">
+        </div>
         <div style="margin-bottom: 20px;">
           <label style="display:block; color:#666; font-size:12px; margin-bottom:5px;">中文释义</label>
           <input type="text" v-model="editForm.newZh" class="modal-input-field">
@@ -3948,6 +4019,74 @@ const shuffleArray = (array) => {
     <div style="margin-top:15px; font-size:12px; color:#999; text-align:center;">
       配置保存在本地浏览器，不会上传到任何服务器。
     </div>
+  </div>
+</div>
+
+<div v-if="showCustomDictModal" class="modal-overlay" @click.self="showCustomDictModal = false">
+  <div class="modal-box read-card-modal" style="height: 75vh; display:flex; flex-direction:column; padding:0; width: clamp(320px, 95vw, 800px) !important;">
+    
+    <div class="read-header" style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center;">
+      <h3 class="read-title" style="margin: 0;">📓 我的生词本</h3>
+      <div style="flex: 1; min-width: 150px; text-align: right;">
+        <input type="text" v-model="customDictSearch" placeholder="🔍 搜索单词或释义..." 
+               class="modal-input-field" 
+               style="width: 100%; max-width: 250px; padding: 6px 12px; margin: 0; font-size: 13px; border-radius: 20px;">
+      </div>
+      <div class="read-actions">
+        <button class="icon-btn close-btn" @click="showCustomDictModal = false">✕</button>
+      </div>
+    </div>
+
+    <div style="flex: 1; overflow-y: auto; padding: 0;">
+      <table class="mistake-table">
+        <thead class="mistake-thead">
+          <tr>
+            <th style="width: 30%;">单词</th>
+            <th style="width: 15%; text-align: center;">词性</th>
+            <th>释义</th>
+            <th style="width: 18%; text-align: right; white-space: nowrap;">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="item in currentCustomDictPageData" :key="item.en">
+            <td>
+              <div class="en-text" style="font-size: 15px;">
+                {{ item.en }}
+                <span class="speaker-small" @click.stop="toggleAudio(item.en)">🔊</span>
+              </div>
+            </td>
+            <td style="text-align: center;">
+              <span class="pos-color-tag" :style="getPosStyle(item.pos)">{{ item.pos }}</span>
+            </td>
+            <td style="font-size: 13px; color: #4b5563;">{{ item.zh }}</td>
+            <td style="text-align: right; white-space: nowrap;">
+              <button class="tiny-btn" @click="openEditModal({en: item.en, zh: item.zh, pos: item.pos})" style="margin-right: 5px;">
+                ✎<span class="mobile-hide"> 修改</span>
+              </button>
+              <button class="tiny-btn delete-btn" @click="removeCustomWord(item.en)">
+                ✕<span class="mobile-hide"> 删除</span>
+              </button>
+            </td>
+          </tr>
+          
+          <tr v-if="currentCustomDictPageData.length === 0">
+            <td colspan="4" style="text-align: center; padding: 60px 20px; color: #9ca3af;">
+              <div style="font-size: 40px; margin-bottom: 10px;">📭</div>
+              {{ customDictSearch ? '未找到匹配的单词' : '生词本空空如也，快去添加吧！' }}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="mistake-footer" v-if="totalCustomDictPages > 1 || customDictSearch">
+      <button class="page-nav-btn" :disabled="customDictPage === 1" @click="customDictPage--">上一页</button>
+      <span style="font-size: 14px; color: #374151; font-weight: bold;" :class="{'dark-text-white': true}">
+        {{ customDictPage }} / {{ totalCustomDictPages }}
+      </span>
+      <button class="page-nav-btn" :disabled="customDictPage >= totalCustomDictPages" @click="customDictPage++">下一页</button>
+    </div>
+
   </div>
 </div>
 
@@ -6340,6 +6479,7 @@ const shuffleArray = (array) => {
   font-weight: 700;
   line-height: 1.2;
   box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+  white-space: nowrap;
 }
 
 /* 适配暗黑模式 */
@@ -6668,6 +6808,7 @@ const shuffleArray = (array) => {
   font-size: 11px;
   cursor: pointer;
   color: #4b5563;
+  white-space: nowrap;
 }
 .tiny-btn:hover { background: #e5e7eb; }
 .delete-btn { color: #ef4444; background: #fef2f2; }
