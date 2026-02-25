@@ -646,36 +646,48 @@ const chapterOptions = computed(() => {
 
 const displayData = computed(() => {
   if (isReviewMode.value) {
-    // 🔥 修复 Bug：去掉 : reviewList.value 的后备逻辑
-    // 原因：当 reviewStaticList 为空（代表当前没复习任务）时，原逻辑会错误地显示 reviewList 里所有“未来才到期”的单词，导致“背完又出现”的假象。
     const sourceList = reviewStaticList.value
     const groups = { 5:[], 4:[], 3:[], 2:[], 1:[], 0:[] }
+    
     sourceList.forEach((item, i) => {
       const stage = item.stage >= 6 ? 5 : (item.stage || 0)
       if (groups[stage]) {
-        groups[stage].push({ ...findWordDetail(item.w), _review: item, _id: i + 1 })
+        groups[stage].push({ 
+          ...findWordDetail(item.w), 
+          _review: item, 
+          _id: i + 1,
+          // 🔥 新增：为每个单词生成一个固定的随机权重
+          // 这里的 i 是 reviewStaticList 的索引，保证了只要列表不刷新，权重就不变
+          _order: Math.sin(i + 99) // 使用伪随机确保计算属性内部稳定
+        })
       }
     })
+    
     const blocks = []
-
-    // 🔥 修改：仅仅是把文字里的数字加了 1，其他都没动
     const titles = [
-      '阶段 1 - 新手/重来 (5分钟)',  // 原来是 0
-      '阶段 2 - 入门 (30分钟)',      // 原来是 1
-      '阶段 3 - 熟悉 (12小时)',      // 原来是 2
-      '阶段 4 - 掌握 (1天)',         // 原来是 3
-      '阶段 5 - 牢固 (2天)',         // 原来是 4
-      '阶段 6 - 大师 (4天+)'         // 原来是 5
+      '阶段 1 - 新手/重来 (5分钟)',
+      '阶段 2 - 入门 (30分钟)',
+      '阶段 3 - 熟悉 (12小时)',
+      '阶段 4 - 掌握 (1天)',
+      '阶段 5 - 牢固 (2天)',
+      '阶段 6 - 大师 (4天+)'
     ]
 
-    // 🔥 保持原来的倒序循环 (5 -> 0)，确保位置不动
     for (let s = 5; s >= 0; s--) {
       if (groups[s].length > 0) {
-        blocks.push({ color: STAGE_COLORS[s], title: `🔥 ${titles[s]} [${groups[s].length}个]`, list: groups[s] })
+        // 🔥 【核心修改】：如果不是阶段 1 (s > 0)，则打乱顺序
+        const listToDisplay = s > 0 ? shuffleArray([...groups[s]]) : groups[s]
+        
+        blocks.push({ 
+          color: STAGE_COLORS[s], 
+          title: `🔥 ${titles[s]} [${groups[s].length}个]`, 
+          list: listToDisplay // 使用处理后的列表
+        })
       }
     }
     return blocks
   }
+   
 
   // 👇👇👇 修改 else 部分 (非复习模式) 👇👇👇
   const currentPartList = chunkedParts.value[chunkIndex.value] || []
@@ -3106,6 +3118,12 @@ const showHiddenButtons = computed(() => {
   return isDictationFinished.value
 })
 const isStageStatsOpen = ref(true)
+
+// 随机打乱数组的工具函数
+const shuffleArray = (array) => {
+  return array.sort(() => Math.random() - 0.5)
+}
+
 </script>
 
 <template>
