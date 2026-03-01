@@ -11,6 +11,11 @@ const menus = reactive([
     link: '/vocabulary',
   },
   {
+    label: 'Listening',
+    icon: 'i-carbon-machine-learning-model',
+    link: '/learning',
+  },
+  {
     label: '语法',
     icon: 'i-carbon-load-balancer-vpc ',
     link: '/grammar',
@@ -35,6 +40,7 @@ const menus = reactive([
     icon: 'i-carbon-edit',
     link: '/writing',
   },
+
 ])
 
 // 🔥🔥🔥【新增】全局刷新函数
@@ -47,7 +53,7 @@ const showMobileMenu = ref(false)
 
 <template>
   <header>
-    <nav 
+    <nav
         class="fixed z-30 w-full border-b border-gray-200 bg-white px-4 py-3 dark:border-gray-700 dark:bg-gray-800"
         style="z-index: 3000;"
       >
@@ -76,13 +82,21 @@ const showMobileMenu = ref(false)
             </ul>
           </div>
         </div>
-        
+
         <div class="flex items-center justify-between lg:order-2">
+          <a
+            href="https://github.com/hefengxian/my-ielts"
+            target="_blank"
+            class="rounded-lg p-2 text-gray-500 hover:bg-gray-100 dark:text-gray-400 hover:text-gray-900 focus:ring-4 focus:ring-gray-300 dark:hover:bg-gray-700 dark:hover:text-white dark:focus:ring-gray-600"
+          >
+            <div i-simple-icons-github />
+          </a>
+
           <button
             class="ml-2 rounded-lg p-2 text-gray-500 lg:hidden ...（后面保持不变）"
             @click="refreshPage"
           >
-            <div i-carbon-renew /> 
+            <div i-carbon-renew />
           </button>
 
           <button class="ml-2 rounded-lg p-2 text-gray-500 hover:bg-gray-100 dark:text-gray-400 hover:text-gray-900 focus:ring-4 focus:ring-gray-300 dark:hover:bg-gray-700 dark:hover:text-white dark:focus:ring-gray-600" @click="toggleDark()">
@@ -101,9 +115,9 @@ const showMobileMenu = ref(false)
 
       </div>
     </nav>
-    <nav 
+    <nav
         class="fixed left-0 right-0 bottom-0 z-20 overflow-y-auto bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 lg:hidden"
-        style="top: 61px; z-index: 2000;" 
+        style="top: 61px; z-index: 2000;"
         :class="showMobileMenu ? 'block' : 'hidden'"
       >
       <!-- Mobile menu -->
