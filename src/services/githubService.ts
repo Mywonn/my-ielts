@@ -31,7 +31,14 @@ export async function fetchGistFile(token, gistId, filename) {
         if (!file) return null // File not found in Gist
         
         // Gist content is usually raw string
-        return JSON.parse(file.content)
+        // Gist content is usually raw string
+        try {
+            // 如果内容存在且不为空白，则解析，否则直接返回空数组
+            return file.content && file.content.trim() ? JSON.parse(file.content) : [];
+        } catch (e) {
+            console.warn('Gist 里的文件为空或不是合法的 JSON，已自动按空数组处理。');
+            return []; // 解析失败时安全返回空数组
+        }
     } catch (error) {
         console.error('Failed to fetch from GitHub Gist:', error)
         throw error
