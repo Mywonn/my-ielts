@@ -123,6 +123,18 @@ const applyHighlightColor = (hexColor) => {
     highlightMenu.visible = false
 }
 
+// 适配暗黑模式的高亮颜色映射
+const getHighlightClass = (hexColor) => {
+    const colorMap = {
+        '#fef08a': 'bg-yellow-200 text-yellow-900 dark:bg-yellow-500/30 dark:text-yellow-200',
+        '#bbf7d0': 'bg-green-200 text-green-900 dark:bg-green-500/30 dark:text-green-200',
+        '#bfdbfe': 'bg-blue-200 text-blue-900 dark:bg-blue-500/30 dark:text-blue-200',
+        '#fbcfe8': 'bg-pink-200 text-pink-900 dark:bg-pink-500/30 dark:text-pink-200'
+    }
+    // 返回对应的 Tailwind 类，如果没有匹配到（比如异常数据），回退到默认暗色兼容高亮
+    return colorMap[hexColor] || 'bg-gray-300 text-gray-900 dark:bg-gray-600 dark:text-gray-100'
+}  
+  
 // 新增：API 提供商状态与切换逻辑
 const apiProvider = ref('gemini')
 
@@ -963,8 +975,11 @@ onUnmounted(() => {
                         :data-w-idx="wIdx"
                         @click.stop="handleWordClick($event, wordObj.text, sent.text)"
                         class="rounded px-[2px] cursor-pointer transition-colors"
-                        :style="{ backgroundColor: wordObj.color || 'transparent' }"
-                        :class="{ 'hover:bg-gray-200 dark:hover:bg-gray-600': !wordObj.color }"
+                        :class="[
+                            wordObj.color 
+                                ? getHighlightClass(wordObj.color) 
+                                : 'hover:bg-gray-200 dark:hover:bg-gray-600'
+                        ]"
                     >{{ wordObj.text }} </span>
                 </p>
 
