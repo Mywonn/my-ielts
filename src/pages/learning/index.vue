@@ -44,7 +44,6 @@ const highlightMenu = reactive({
     end: null
 })
 
-// 处理文本选中松开后的事件
 const handleTextSelection = () => {
     // 稍微延迟，等待原生 selection 完成
     setTimeout(() => {
@@ -59,11 +58,9 @@ const handleTextSelection = () => {
 
         try {
             const range = selection.getRangeAt(0)
-            // 获取起点和终点的 DOM 节点 (文本节点的父级 span)
             const startNode = range.startContainer.nodeType === 3 ? range.startContainer.parentElement : range.startContainer
             const endNode = range.endContainer.nodeType === 3 ? range.endContainer.parentElement : range.endContainer
 
-            // 从绑定的 data 属性中读取句子 ID 和单词 ID
             const s1 = parseInt(startNode.dataset.sIdx)
             const w1 = parseInt(startNode.dataset.wIdx)
             const s2 = parseInt(endNode.dataset.sIdx)
@@ -71,10 +68,22 @@ const handleTextSelection = () => {
 
             if (isNaN(s1) || isNaN(w1) || isNaN(s2) || isNaN(w2)) return
 
-            // 计算弹出菜单的位置
+            // --- 优化后的弹出位置计算逻辑开始 ---
             const rect = range.getBoundingClientRect()
-            highlightMenu.x = rect.left + rect.width / 2
-            highlightMenu.y = rect.top > 80 ? rect.top - 50 : rect.bottom + 10 // 空间不够就在下方显示
+            const isMobile = window.innerWidth < 768
+
+            // X 轴居中，但限制最小和最大值，防止菜单超出屏幕左右边缘 (假设菜单宽约 180px)
+            let targetX = rect.left + rect.width / 2
+            highlightMenu.x = Math.max(100, Math.min(targetX, window.innerWidth - 100))
+
+            if (isMobile) {
+                // 手机端：系统原生菜单在上方，所以强制把自定义高亮菜单放到【下方】防重叠，并多留点间距
+                highlightMenu.y = rect.bottom + 20
+            } else {
+                // 电脑端：没有系统原生菜单干扰，上方空间够就在上方，不够就在下方
+                highlightMenu.y = rect.top > 80 ? rect.top - 50 : rect.bottom + 15
+            }
+            // --- 优化后的弹出位置计算逻辑结束 ---
 
             // 处理从右向左滑动的反向选择
             const isBackward = s1 > s2 || (s1 === s2 && w1 > w2)
@@ -87,6 +96,7 @@ const handleTextSelection = () => {
         }
     }, 50)
 }
+
 
 // 应用颜色
 const applyHighlightColor = (hexColor) => {
@@ -932,7 +942,7 @@ onUnmounted(() => {
                 :key="index"
                 :id="`sent-${index}`"
                 @click="setActiveSentence(index)"
-                :class="['p-3 rounded-lg border transition-all duration-500 ease-in-out cursor-pointer flex gap-3 select-none transform origin-left',
+                :class="['p-3 rounded-lg border transition-all duration-500 ease-in-out cursor-pointer flex gap-3 transform origin-left',
                 activeSentenceIndex === index
                 ? 'bg-blue-50/80 dark:bg-blue-900/30 border-blue-300 dark:border-blue-600 shadow-lg ring-1 ring-blue-300/50 dark:ring-blue-500/50 scale-[1.02] opacity-100 z-10'
                 : 'bg-white dark:bg-gray-800 border-gray-100 dark:border-gray-800 hover:border-blue-200 dark:hover:border-blue-700 scale-100 opacity-60 hover:opacity-100']"
