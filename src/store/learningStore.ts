@@ -6,9 +6,9 @@ export const useLearningStore = createGlobalState(() => {
   // Settings
   const apiKey = useStorage('my_ielts_gemini_key', '')
   const apiBaseUrl = useStorage('my_ielts_api_base_url', 'https://generativelanguage.googleapis.com')
-  const apiModel = useStorage('my_ielts_api_model', 'gemini-1.5-flash')
+  const apiModel = useStorage('my_ielts_api_model', 'gemini-2.5-flash')
   const groqApiKey = useStorage('my_ielts_groq_key', '')
-  const groqModel = useStorage('my_ielts_groq_model', 'distil-whisper-large-v3-en')
+  const groqModel = useStorage('my_ielts_groq_model', 'whisper-large-v3-turbo')
 
   // GitHub Sync (Gist)
   const githubToken = useStorage('my_ielts_gh_token', '') // Reuse existing key
