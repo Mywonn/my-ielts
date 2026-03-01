@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, watch, onMounted, reactive, nextTick, onUnmounted } from 'vue'
+import { useStorage } from '@vueuse/core'
 import vocabularyData from './vocabulary'
 // 🔥🔥🔥【新增】引入 marked 解析器 (直接从 CDN 加载，无需安装)
 import { marked } from 'https://cdn.jsdelivr.net/npm/marked/lib/marked.esm.js'
@@ -26,17 +27,18 @@ const STAGE_COLORS = [
 ]
 
 // 2. 存储
-const useMyStorage = (key, defaultVal) => {
-  const val = ref(defaultVal)
-  onMounted(() => {
-    try {
-      const local = localStorage.getItem(key)
-      if (local) val.value = JSON.parse(local)
-    } catch (e) {}
-  })
-  watch(val, (v) => localStorage.setItem(key, JSON.stringify(v)), { deep: true })
-  return val
-}
+const useMyStorage = useStorage
+// const useMyStorage = (key, defaultVal) => {
+//   const val = ref(defaultVal)
+//   onMounted(() => {
+//     try {
+//       const local = localStorage.getItem(key)
+//       if (local) val.value = JSON.parse(local)
+//     } catch (e) {}
+//   })
+//   watch(val, (v) => localStorage.setItem(key, JSON.stringify(v)), { deep: true })
+//   return val
+// }
 
 const chapters = vocabularyData ? Object.keys(vocabularyData) : []
 const currentChapter = useMyStorage('my_ielts_chapter', chapters[0] || '')
@@ -103,7 +105,7 @@ const handleJumpNext = (word, e) => {
       inputs[currentIdx + 1].focus()
     } else {
       // 是最后一个词了
-      e.target.blur() 
+      e.target.blur()
       setTimeout(() => {
         if (isReviewMode.value && isDictation.value) {
           // 结算前最后的校验
@@ -114,7 +116,7 @@ const handleJumpNext = (word, e) => {
              }
              processFailure(word)
           }
-          
+
           isDictationFinished.value = true
           isDictation.value = false
           revealedZh.clear()
@@ -255,7 +257,7 @@ const currentStory = computed(() => {
 const stageCounts = computed(() => {
   // 索引0对应阶段1，索引5对应阶段6
   const counts = [0, 0, 0, 0, 0, 0]
-  
+
   reviewList.value.forEach(item => {
     // 获取阶段，默认为0 (阶段1)
     let s = item.stage || 0
@@ -263,7 +265,7 @@ const stageCounts = computed(() => {
     if (s > 5) s = 5
     counts[s]++
   })
-  
+
   return counts
 })
 
@@ -317,7 +319,7 @@ watch([currentChapter, chunkIndex, isReviewMode, isDictation], () => {
   peekedWords.clear()      // 清空偷看记录
   revealedSource.clear()   // 清空出处显示状态
   isDictationFinished.value = false
-  
+
   // 🔥🔥🔥【核心修复】：切换章节、模式或开关听写时，强行清空所有单词的对错(红绿)状态
   for (const key in statusMap) {
     delete statusMap[key]
@@ -351,7 +353,7 @@ const extractText = (val) => {
 const getPosStyle = (posStr) => {
   if (!posStr) return {}
   const p = posStr.toLowerCase()
-  
+
   // 包含动词成分 (v. / vt. / vi.) -> 红色系
   if (p.includes('v.') || p === 'v' || p.includes('vt') || p.includes('vi')) {
     return { color: '#ef4444', backgroundColor: '#fef2f2', border: '1px solid #fee2e2' }
@@ -368,7 +370,7 @@ const getPosStyle = (posStr) => {
   if (p.includes('n.') || p === 'n') {
     return { color: '#3b82f6', backgroundColor: '#eff6ff', border: '1px solid #dbeafe' }
   }
-  
+
   // 其他/未知词性 -> 默认高级灰
   return { color: '#6b7280', backgroundColor: '#f3f4f6', border: '1px solid #e5e7eb' }
 }
@@ -414,10 +416,10 @@ const findWordDetail = (wordText) => {
       en: wordText,
       zh: customDict.value[wordText].zh,
       pos: customDict.value[wordText].pos || '自选', // 🔥【修改】读取独立词性
-      example: '',
+      example: customDict.value[wordText].example || '', // 🔥【修改】读取例句
       notation: '我的生词本',
       id: '★',
-      source: '生词本'
+      source: customDict.value[wordText].source || '生词本' // 🔥【修改】读取来源
     }
   }
 
@@ -648,13 +650,13 @@ const displayData = computed(() => {
   if (isReviewMode.value) {
     const sourceList = reviewStaticList.value
     const groups = { 5:[], 4:[], 3:[], 2:[], 1:[], 0:[] }
-    
+
     sourceList.forEach((item, i) => {
       const stage = item.stage >= 6 ? 5 : (item.stage || 0)
       if (groups[stage]) {
-        groups[stage].push({ 
-          ...findWordDetail(item.w), 
-          _review: item, 
+        groups[stage].push({
+          ...findWordDetail(item.w),
+          _review: item,
           _id: i + 1,
           // 🔥 新增：为每个单词生成一个固定的随机权重
           // 这里的 i 是 reviewStaticList 的索引，保证了只要列表不刷新，权重就不变
@@ -662,7 +664,7 @@ const displayData = computed(() => {
         })
       }
     })
-    
+
     const blocks = []
     const titles = [
       '阶段 1 - 新手/重来 (5分钟)',
@@ -677,17 +679,17 @@ const displayData = computed(() => {
       if (groups[s].length > 0) {
         // 🔥 【核心修改】：如果不是阶段 1 (s > 0)，则打乱顺序
         const listToDisplay = s > 0 ? shuffleArray([...groups[s]]) : groups[s]
-        
-        blocks.push({ 
-          color: STAGE_COLORS[s], 
-          title: `🔥 ${titles[s]} [${groups[s].length}个]`, 
+
+        blocks.push({
+          color: STAGE_COLORS[s],
+          title: `🔥 ${titles[s]} [${groups[s].length}个]`,
           list: listToDisplay // 使用处理后的列表
         })
       }
     }
     return blocks
   }
-   
+
 
   // 👇👇👇 修改 else 部分 (非复习模式) 👇👇👇
   const currentPartList = chunkedParts.value[chunkIndex.value] || []
@@ -756,11 +758,11 @@ const retryCounts = reactive({})
 function clearAllPendingFailures() {
   Object.keys(pendingFailures).forEach(wordEn => {
     clearTimeout(pendingFailures[wordEn])
-    
+
     // 🔥 这里的词都是“写了但写错”的，退出时必须判负！
     // 至于“空着没写”的词，因为 checkInput 把它过滤了，所以这里不会误伤。
-    processFailure({ en: wordEn }) 
-    
+    processFailure({ en: wordEn })
+
     delete pendingFailures[wordEn]
   })
   for(const key in retryCounts) delete retryCounts[key]
@@ -1093,7 +1095,7 @@ function checkInput(word, e) {
        delete pendingFailures[word.en]
        delete retryCounts[word.en]
     }
-    return 
+    return
   }
 
   // 2. 获取正确答案
@@ -1178,7 +1180,7 @@ function checkInput(word, e) {
       if (pendingFailures[word.en]) clearTimeout(pendingFailures[word.en])
       delete pendingFailures[word.en]
       delete retryCounts[word.en]
-      
+
       processFailure(word)
       showCustomAlert(`"${word.en}" 修改已达 2 次上限，直接判错！🚫`)
       return // 结束执行，不再重新计时
@@ -1528,7 +1530,7 @@ function confirmMeaningAdd() {
   if (!zh) return // 必须输入中文
 
   const pos = posInput.value.trim() || '自选' // 🔥【新增】获取词性，不填默认"自选"
-  
+
   // ★ 关键修复 2：立刻关闭中文窗口
   showMeaningModal.value = false
 
@@ -1599,7 +1601,7 @@ const confirmEdit = () => {
   } else {
     if (customDict.value[oldW]) {
       const newDict = { ...customDict.value }
-      delete newDict[oldW] 
+      delete newDict[oldW]
       newDict[newW] = { zh: newZ, pos: newP } // 🔥 建新
       customDict.value = newDict
     } else {
@@ -3092,7 +3094,7 @@ const togglePartCompletion = () => {
       ...completedParts.value,
       [chap]: newList
     }
-    
+
     // 计算本章进度，给个特殊的反馈
     const totalParts = getChapterPartCount(chap)
     if (newList.length >= totalParts) {
@@ -3147,8 +3149,8 @@ const filteredCustomDictList = computed(() => {
   let list = customDictList.value
   const q = customDictSearch.value.trim().toLowerCase()
   if (q) {
-    list = list.filter(item => 
-      item.en.toLowerCase().includes(q) || 
+    list = list.filter(item =>
+      item.en.toLowerCase().includes(q) ||
       item.zh.includes(q)
     )
   }
@@ -3171,7 +3173,7 @@ const totalCustomDictPages = computed(() => {
 
 const removeCustomWord = (wordEn) => {
   if (!confirm(`确定要从生词本中删除 "${wordEn}" 吗？这也会丢失该词的复习进度。`)) return
-  
+
   // 从词典中删除
   const newDict = { ...customDict.value }
   delete newDict[wordEn]
@@ -3181,7 +3183,7 @@ const removeCustomWord = (wordEn) => {
   reviewList.value = reviewList.value.filter(i => i.w !== wordEn)
   killedList.value = killedList.value.filter(w => w !== wordEn)
   masteredList.value = masteredList.value.filter(w => w !== wordEn)
-  
+
   if (isReviewMode.value) refreshReviewData()
   showCustomAlert(`已删除 "${wordEn}"`)
 }
@@ -3323,10 +3325,10 @@ const removeCustomWord = (wordEn) => {
 
     <div class="content-container">
       <div v-if="isReviewMode" class="mobile-only stage-dashboard">
-        <div v-for="(count, idx) in stageCounts" :key="idx" 
+        <div v-for="(count, idx) in stageCounts" :key="idx"
              class="stage-dash-item"
-             :style="{ 
-               borderColor: STAGE_COLORS[idx], 
+             :style="{
+               borderColor: STAGE_COLORS[idx],
                backgroundColor: STAGE_COLORS[idx] + '10',
                color: STAGE_COLORS[idx]
              }">
@@ -3334,7 +3336,7 @@ const removeCustomWord = (wordEn) => {
           <div class="dash-count">{{ count }}</div>
         </div>
       </div>
-     
+
       <div v-if="displayData.length === 0" class="empty-tip">{{ isReviewMode ? '暂无错题 🎉' : '本章数据加载中' }}</div>
 
       <div v-for="(block, bIdx) in displayData" :key="bIdx" class="vocab-block" :style="{ borderLeftColor: block.color }">
@@ -3482,7 +3484,7 @@ const removeCustomWord = (wordEn) => {
                       @input="statusMap[word.en] = ''"
                       @focus="playOnFocus(word.en)"
                       @keydown.space.stop
-                      @keydown.tab.prevent="handleJumpNext(word, $event)" 
+                      @keydown.tab.prevent="handleJumpNext(word, $event)"
                       @keydown.enter.prevent="handleJumpNext(word, $event)"
                       autocomplete="off">
                       <div v-if="statusMap[word.en] === 'error'" class="error-hint">❌ {{ word.en }}</div>
@@ -3541,9 +3543,9 @@ const removeCustomWord = (wordEn) => {
         <button class="page-btn big-btn" :disabled="chunkIndex === 0" @click="changePage(-1)">⬅️ 上一页</button>
         <div class="finish-control">
           <span class="page-info">{{ chunkIndex + 1 }} / {{ chunkedParts.length }}</span>
-          <button class="finish-btn" 
-                  :class="{ 'done': isCurrentPartCompleted }" 
-                  @click="togglePartCompletion" 
+          <button class="finish-btn"
+                  :class="{ 'done': isCurrentPartCompleted }"
+                  @click="togglePartCompletion"
                   title="标记本页为已完成">
             {{ isCurrentPartCompleted ? '✅ 已完成' : '⭕ 标记完成' }}
           </button>
@@ -3576,12 +3578,12 @@ const removeCustomWord = (wordEn) => {
     </div>
     <div v-show="isFloatingGroupVisible" class="floating-action-group" :class="{ 'pos-left': isFloatBtnLeft }">
     <div v-if="isReviewMode" class="side-stats-wrapper desktop-only">
-        
+
         <Transition name="accordion-up">
           <div v-if="isStageStatsOpen" class="side-stats-list" style="margin-bottom: 8px;">
-            <div v-for="(count, idx) in stageCounts" :key="idx" 
+            <div v-for="(count, idx) in stageCounts" :key="idx"
                  class="side-stat-pill"
-                 :style="{ 
+                 :style="{
                    borderLeftColor: STAGE_COLORS[idx],
                    color: STAGE_COLORS[idx]
                  }"
@@ -3592,8 +3594,8 @@ const removeCustomWord = (wordEn) => {
           </div>
         </Transition>
 
-        <button @click="isStageStatsOpen = !isStageStatsOpen" 
-                class="floating-btn stats-toggle-btn" 
+        <button @click="isStageStatsOpen = !isStageStatsOpen"
+                class="floating-btn stats-toggle-btn"
                 :class="{ 'active': isStageStatsOpen }"
                 :title="isStageStatsOpen ? '收起统计' : '展开复习分布'">
           {{ isStageStatsOpen ? '✕' : '📊' }}
@@ -3622,7 +3624,7 @@ const removeCustomWord = (wordEn) => {
           <path d="M512 64C264.512 64 64 264.576 64 512s200.512 448 448 448c247.424 0 448-200.576 448-448S759.424 64 512 64zM712.448 664.512c-11.776 0-22.784-3.072-32.448-8.384l-1.984 1.984L511.936 512l-162.112 145.472-1.344-1.344c-9.6 5.248-20.544 8.32-32.192 8.32-36.736 0-66.496-29.76-66.496-66.432 0-11.712 3.072-22.656 8.32-32.192L255.936 563.584l10.752-9.664c3.328-3.712 7.04-7.104 11.136-9.984l188.544-169.216 1.28 0C479.296 363.456 495.168 356.544 512.64 356.544s33.408 6.912 45.12 18.176l0.768 0 191.872 168.832c4.032 2.816 7.68 6.08 11.072 9.728l11.392 10.048-2.368 2.304c5.376 9.6 8.448 20.672 8.448 32.448C778.88 634.752 749.12 664.512 712.448 664.512z" fill="currentColor"></path>
         </svg>
       </button>
-    
+
     <div v-show="showHiddenButtons" class="cloud-wrapper">
          <button @click="toggleCloudMenu" class="floating-btn sync-btn main-cloud-trigger" :class="{ 'active': isCloudMenuOpen }" title="云同步菜单">
            <svg v-if="isSyncing" class="animate-spin" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
@@ -3665,15 +3667,15 @@ const removeCustomWord = (wordEn) => {
                 </button>
                <button @click="showSyncModal = true" class="floating-btn sync-btn sub-btn" title="配置云同步" style="font-size: 20px;">⚙️</button>
           </div>
-          
+
         </Transition>
-        
+
 
       </div>
-    
+
 
     </div>
-    
+
 
     <div v-if="showAddWordModal" class="modal-overlay" @click.self="showAddWordModal = false">
       <div class="modal-box" style="max-width: 360px;">
@@ -3700,7 +3702,7 @@ const removeCustomWord = (wordEn) => {
           <input type="text" v-model="posInput"
                  class="modal-input-field" placeholder="词性 (如 n. / v. / adj.)"
                  style="margin-bottom: 10px; font-family: monospace;" autocomplete="off">
-                 
+
           <input id="custom-meaning-input" type="text" v-model="meaningInput"
                  class="modal-input-field" placeholder="中文释义 (例如：开阔眼界...)"
                  @keydown.enter="confirmMeaningAdd" autocomplete="off">
@@ -4024,12 +4026,12 @@ const removeCustomWord = (wordEn) => {
 
 <div v-if="showCustomDictModal" class="modal-overlay" @click.self="showCustomDictModal = false">
   <div class="modal-box read-card-modal" style="height: 75vh; display:flex; flex-direction:column; padding:0; width: clamp(320px, 95vw, 800px) !important;">
-    
+
     <div class="read-header" style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center;">
       <h3 class="read-title" style="margin: 0;">📓 我的生词本</h3>
       <div style="flex: 1; min-width: 150px; text-align: right;">
-        <input type="text" v-model="customDictSearch" placeholder="🔍 搜索单词或释义..." 
-               class="modal-input-field" 
+        <input type="text" v-model="customDictSearch" placeholder="🔍 搜索单词或释义..."
+               class="modal-input-field"
                style="width: 100%; max-width: 250px; padding: 6px 12px; margin: 0; font-size: 13px; border-radius: 20px;">
       </div>
       <div class="read-actions">
@@ -4068,7 +4070,7 @@ const removeCustomWord = (wordEn) => {
               </button>
             </td>
           </tr>
-          
+
           <tr v-if="currentCustomDictPageData.length === 0">
             <td colspan="4" style="text-align: center; padding: 60px 20px; color: #9ca3af;">
               <div style="font-size: 40px; margin-bottom: 10px;">📭</div>
@@ -6268,10 +6270,10 @@ const removeCustomWord = (wordEn) => {
   .stage-dashboard {
     /* ⚡️ 核心修复：加 !important，强制覆盖 mobile-only 的 display: block */
     display: grid !important;
-    
+
     /* 强制一行 6 列 */
     grid-template-columns: repeat(6, 1fr);
-    
+
     gap: 3px;          /* 极小间距 */
     margin: 10px 5px;  /* 上下留白 */
     padding: 0;
@@ -6282,17 +6284,17 @@ const removeCustomWord = (wordEn) => {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    
+
     border-width: 1px;
     border-style: solid;
     border-radius: 6px;
-    
+
     /* 紧凑内边距 */
-    padding: 4px 1px; 
+    padding: 4px 1px;
     background-color: #fff;
-    
+
     /* 防止被压缩变形 */
-    min-width: 0; 
+    min-width: 0;
     overflow: hidden;
   }
 
@@ -6329,7 +6331,7 @@ const removeCustomWord = (wordEn) => {
   align-items: center;
   /* 🔴 修复：删除了 margin-bottom: 12px; */
   /* 现在它会完全复用父级 floating-action-group 的 gap: 15px，与其他按钮间距一致 */
-  margin-bottom: 0; 
+  margin-bottom: 0;
   position: relative;
   z-index: 1600;
 }
@@ -6338,7 +6340,7 @@ const removeCustomWord = (wordEn) => {
 .side-stats-list {
   display: flex;
   flex-direction: column-reverse; /* S1 在最下面 */
-  gap: 8px; 
+  gap: 8px;
   padding-bottom: 10px; /* 给按钮留出一点呼吸空间，防止列表紧贴按钮 */
 }
 
@@ -6349,19 +6351,19 @@ const removeCustomWord = (wordEn) => {
   /* 🔴 修复：改为居中对齐 + 间距控制，比 space-between 更稳 */
   justify-content: center;
   gap: 4px;
-  
+
   /* 🔴 修复：宽度改为 50px，与下方圆形按钮直径严格一致 */
-  width: 50px;         
+  width: 50px;
   height: 28px;
   padding: 0 2px;      /* 减小内边距，防止数字被挤 */
-  
+
   background: #ffffff;
   border-radius: 14px;
-  
+
   border: 1px solid #f3f4f6;
   border-left-width: 4px; /* 左侧色条 */
   /* border-left-color 由内联样式控制 */
-  
+
   box-shadow: 0 2px 6px rgba(0,0,0,0.08);
   cursor: default;
   transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
