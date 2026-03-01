@@ -855,7 +855,7 @@ onUnmounted(() => {
                     <div class="i-carbon-music w-4 h-4"></div>
                     <span class="hidden sm:inline">{{ audioUrl ? 'Change Audio' : 'Import Audio' }}</span>
                     <span class="sm:hidden">Audio</span>
-                    <input type="file" @change="handleAudioChange" accept="audio/*" class="hidden">
+                    <input type="file" @change="handleAudioChange" accept="audio/*, audio/mpeg, audio/mp3, .mp3, .m4a" class="hidden">
                 </label>
             </div>
 
