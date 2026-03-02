@@ -2869,8 +2869,6 @@ const isCheckingCloud = ref(false)
 // 修改后的 checkCloudStatus
 const checkCloudStatus = async () => {
   if (!syncConfig.token || !syncConfig.gistId) return
-
-  // 安全起见，开始检测时也清除一下旧定时器
   if (cloudMenuTimer) clearTimeout(cloudMenuTimer)
 
   isCheckingCloud.value = true
@@ -2881,40 +2879,32 @@ const checkCloudStatus = async () => {
 
     if (res.ok) {
       const data = await res.json()
-      const serverDate = new Date(data.updated_at)
 
-      const m = String(serverDate.getMonth() + 1).padStart(2, '0')
-      const d = String(serverDate.getDate()).padStart(2, '0')
-      const h = String(serverDate.getHours()).padStart(2, '0')
-      const min = String(serverDate.getMinutes()).padStart(2, '0')
-      serverTime.value = `${m}/${d} ${h}:${min}`
+      // 🔥 核心隔离：只读取 Vocabulary 专属的时间文件
+      const metaFile = data.files['vocab-meta.txt']
+      if (metaFile && metaFile.content) {
+         serverTime.value = metaFile.content
+      } else {
+         const serverDate = new Date(data.updated_at)
+         const m = String(serverDate.getMonth() + 1).padStart(2, '0')
+         const d = String(serverDate.getDate()).padStart(2, '0')
+         const h = String(serverDate.getHours()).padStart(2, '0')
+         const min = String(serverDate.getMinutes()).padStart(2, '0')
+         serverTime.value = `${m}/${d} ${h}:${min}`
+      }
 
       // 智能对比
       if (lastSyncTime.value && serverTime.value > lastSyncTime.value) {
         isNewVersionAvailable.value = true
-
-        // 🔥 情况 A：有更新 -> 停留 10 秒，给用户时间反应去点下载
-        console.log('有更新，弹窗停留 10s')
-        cloudMenuTimer = setTimeout(() => {
-          isCloudMenuOpen.value = false
-        }, 10000)
-
+        cloudMenuTimer = setTimeout(() => { isCloudMenuOpen.value = false }, 10000)
       } else {
         isNewVersionAvailable.value = false
-
-        // 🔥 情况 B：无需更新 -> 停留 2 秒，看完即走
-        console.log('无更新，弹窗停留 2s')
-        cloudMenuTimer = setTimeout(() => {
-          isCloudMenuOpen.value = false
-        }, 2000)
+        cloudMenuTimer = setTimeout(() => { isCloudMenuOpen.value = false }, 2000)
       }
     }
   } catch (e) {
     console.error('检测云端失败', e)
-    // 🔥 情况 C：出错 -> 停留 3 秒让用户看清错误（可选）
-    cloudMenuTimer = setTimeout(() => {
-      isCloudMenuOpen.value = false
-    }, 3000)
+    cloudMenuTimer = setTimeout(() => { isCloudMenuOpen.value = false }, 3000)
   } finally {
     isCheckingCloud.value = false
   }
@@ -2950,7 +2940,6 @@ const uploadToCloud = async () => {
 
   isSyncing.value = true
   try {
-    // 1. 准备数据 (复用你之前的导出逻辑)
     const data = {
       k: killedList.value,
       r: reviewList.value,
@@ -2959,35 +2948,39 @@ const uploadToCloud = async () => {
       d: customDict.value,
       s: statsHistory.value,
       n: groupNotes.value,
-      // 新增：故事列表
       st: pageStories.value,
-      // 新增：听觉依赖
-      ap: audioPeekHistory.value ,
+      ap: audioPeekHistory.value,
       f: globalFailHistory.value
     }
     const content = JSON.stringify(data)
 
-    // 2. 调用 GitHub API
+    // 🔥 生成专属同步时间
+    const now = new Date()
+    const m = String(now.getMonth() + 1).padStart(2, '0')
+    const d = String(now.getDate()).padStart(2, '0')
+    const h = String(now.getHours()).padStart(2, '0')
+    const min = String(now.getMinutes()).padStart(2, '0')
+    const currentSyncStr = `${m}/${d} ${h}:${min}`
+
+    // 🔥 同时提交数据与 metadata 时间戳
     const url = `https://api.github.com/gists/${syncConfig.gistId}`
     const res = await fetch(url, {
-      method: 'PATCH', // Gist 更新用 PATCH
+      method: 'PATCH',
       headers: {
         'Authorization': `token ${syncConfig.token}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
         files: {
-          'data.json': { content: content } // 必须对应你Gist里的文件名
+          'data.json': { content: content },
+          'vocab-meta.txt': { content: currentSyncStr } // <-- 记录专属时间
         }
       })
     })
 
     if (res.ok) {
-      updateSyncTime() // 更新本地时间
-
-      // 🔥🔥🔥【新增】上传成功后，手动更新界面上的云端时间状态
-      // 让系统知道现在“云端”和“本地”已经一样新了
-      serverTime.value = lastSyncTime.value
+      lastSyncTime.value = currentSyncStr
+      serverTime.value = currentSyncStr
       isNewVersionAvailable.value = false
 
       alert('☁️ 上传成功！数据已安全保存到 Gist。')
