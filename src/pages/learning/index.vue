@@ -118,9 +118,26 @@ const handleTextSelection = () => {
             }
 
             const isBackward = s1 > s2 || (s1 === s2 && w1 > w2)
-            highlightMenu.start = isBackward ? { s: s2, w: w2 } : { s: s1, w: w1 }
-            highlightMenu.end = isBackward ? { s: s1, w: w1 } : { s: s2, w: w2 }
-            highlightMenu.text = text
+            const start = isBackward ? { s: s2, w: w2 } : { s: s1, w: w1 }
+            const end = isBackward ? { s: s1, w: w1 } : { s: s2, w: w2 }
+
+            // 【核心修复 1】：放弃 iOS 有 bug 的 toString() 取词
+            // 我们直接根据算出的起始和结束索引，从原数组中提取词组，手动拼接空格
+            let exactText = ''
+            for (let i = start.s; i <= end.s; i++) {
+                if (!sentences.value[i] || !sentences.value[i].words) continue
+                const words = sentences.value[i].words
+                const startIdx = (i === start.s) ? start.w : 0
+                const endIdx = (i === end.s) ? end.w : words.length - 1
+                
+                const phraseArr = words.slice(startIdx, endIdx + 1).map(w => w.text)
+                exactText += phraseArr.join(' ') + ' '
+            }
+            
+            highlightMenu.start = start
+            highlightMenu.end = end
+            // 如果我们拼接成功就用完美的字符串，否则兜底用原生获取的
+            highlightMenu.text = exactText.trim() || text 
             highlightMenu.visible = true
         } catch (e) {
             console.error('Selection calculation failed', e)
@@ -189,9 +206,21 @@ const lookupSelectedPhrase = async () => {
     const sIdx = highlightMenu.start?.s ?? activeSentenceIndex.value
     const context = sentences.value[sIdx]?.text || ''
 
-    // 让弹出层跟随菜单位置
-    popoverPosition.x = highlightMenu.x
-    popoverPosition.y = highlightMenu.y
+    // 【核心修复 2】：防止弹窗越界被物理挤压变形
+    const isMobile = window.innerWidth < 768
+    if (isMobile) {
+        // 手机端：直接水平居中，彻底告别左右挤压
+        const boxW = 320 // 对应 Tailwind w-80 的宽度
+        popoverPosition.x = (window.innerWidth - boxW) / 2
+        // y 轴在菜单下方一点，并确保不会掉出屏幕底部
+        popoverPosition.y = Math.min(highlightMenu.y + 15, window.innerHeight - 300)
+    } else {
+        // 电脑端：调用我们写好的 clampPopoverPosition 方法安全定位
+        const pos = clampPopoverPosition(highlightMenu.x, highlightMenu.y)
+        popoverPosition.x = pos.x
+        popoverPosition.y = pos.y
+    }
+
     currentWord.value = { word: highlightMenu.text, context }
     showPopover.value = true
 
@@ -942,30 +971,24 @@ const checkCloudStatus = async () => {
 
     if (res.ok) {
       const data = await res.json()
-
-      // 🔥 读取 Learning 专属的时间文件
       const metaFile = data.files['learning-meta.txt']
+      
+      // 【修复点 1】：只读取专属 meta 文件，不使用全局 updated_at
       if (metaFile && metaFile.content) {
-         serverTime.value = metaFile.content
+        serverTime.value = metaFile.content
+        // 【修复点 2】：优化判断逻辑，如果本地没记录但云端有，也应提示更新
+        isNewVersionAvailable.value = !lastSyncTime.value || serverTime.value > lastSyncTime.value
       } else {
-         const serverDate = new Date(data.updated_at)
-         const m = String(serverDate.getMonth() + 1).padStart(2, '0')
-         const d = String(serverDate.getDate()).padStart(2, '0')
-         const h = String(serverDate.getHours()).padStart(2, '0')
-         const min = String(serverDate.getMinutes()).padStart(2, '0')
-         serverTime.value = `${m}/${d} ${h}:${min}`
+        serverTime.value = ''
+        isNewVersionAvailable.value = false
       }
 
-      if (lastSyncTime.value && serverTime.value > lastSyncTime.value) {
-        isNewVersionAvailable.value = true
-        cloudMenuTimer = setTimeout(() => { isCloudMenuOpen.value = false }, 10000)
-      } else {
-        isNewVersionAvailable.value = false
-        cloudMenuTimer = setTimeout(() => { isCloudMenuOpen.value = false }, 2000)
-      }
+      // 根据是否有更新调整菜单自动关闭时间
+      const delay = isNewVersionAvailable.value ? 10000 : 2000
+      cloudMenuTimer = setTimeout(() => { isCloudMenuOpen.value = false }, delay)
     }
   } catch (e) {
-    console.error('Cloud check failed', e)
+    console.error('Learning cloud check failed', e)
     cloudMenuTimer = setTimeout(() => { isCloudMenuOpen.value = false }, 3000)
   } finally {
     isCheckingCloud.value = false
@@ -1074,7 +1097,7 @@ const handleWordClick = async (event, word, context) => {
   // 【新增拦截】如果正在划选文字，阻止查词弹窗
     if (window.getSelection().toString().trim().length > 0) return
     // Clean word
-    const cleanWord = word.replace(/[^a-zA-Z0-9-]/g, '')
+    const cleanWord = word.replace(/^[^a-zA-Z0-9]+|[^a-zA-Z0-9]+$/g, '')
     if (cleanWord.length < 2) return
 
     currentWord.value = { word: cleanWord, context }
