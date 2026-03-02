@@ -5,7 +5,6 @@ import * as pdfjsLib from 'pdfjs-dist'
 import { useWordBank } from '../../composables/useWordBank'
 import { lookupWord } from '../../services/aiService'
 import { transcribeAudio } from '../../services/transcriptionService'
-import { fetchGistFile, updateGistFile } from '../../services/githubService'
 import { get, set } from 'idb-keyval'
 
 // Set PDF worker
@@ -129,15 +128,15 @@ const handleTextSelection = () => {
                 const words = sentences.value[i].words
                 const startIdx = (i === start.s) ? start.w : 0
                 const endIdx = (i === end.s) ? end.w : words.length - 1
-                
+
                 const phraseArr = words.slice(startIdx, endIdx + 1).map(w => w.text)
                 exactText += phraseArr.join(' ') + ' '
             }
-            
+
             highlightMenu.start = start
             highlightMenu.end = end
             // 如果我们拼接成功就用完美的字符串，否则兜底用原生获取的
-            highlightMenu.text = exactText.trim() || text 
+            highlightMenu.text = exactText.trim() || text
             highlightMenu.visible = true
         } catch (e) {
             console.error('Selection calculation failed', e)
@@ -933,167 +932,6 @@ const changeSpeed = () => {
     if (audioPlayer.value) audioPlayer.value.playbackRate = playbackRate.value
 }
 
-const isSyncing = ref(false)
-
-// --- Cloud Sync Logic (Aligned with Vocabulary Page) ---
-const showSyncModal = ref(false)
-const syncConfig = reactive({
-  token: localStorage.getItem('my_ielts_gh_token') || '',
-  gistId: localStorage.getItem('my_ielts_gh_gist_id') || ''
-})
-
-// Learning-specific sync time (isolated from Vocabulary)
-const lastSyncTime = useStorage('my_ielts_learning_last_sync_time', '')
-const serverTime = ref('')
-const isNewVersionAvailable = ref(false)
-const isCheckingCloud = ref(false)
-const isCloudMenuOpen = ref(false)
-let cloudMenuTimer = null
-
-const updateSyncTime = () => {
-  const now = new Date()
-  const m = String(now.getMonth() + 1).padStart(2, '0')
-  const d = String(now.getDate()).padStart(2, '0')
-  const h = String(now.getHours()).padStart(2, '0')
-  const min = String(now.getMinutes()).padStart(2, '0')
-  lastSyncTime.value = `${m}/${d} ${h}:${min}`
-}
-
-const checkCloudStatus = async () => {
-  if (!syncConfig.token || !syncConfig.gistId) return
-  if (cloudMenuTimer) clearTimeout(cloudMenuTimer)
-
-  isCheckingCloud.value = true
-  try {
-    const res = await fetch(`https://api.github.com/gists/${syncConfig.gistId}`, {
-      headers: { 'Authorization': `token ${syncConfig.token}` }
-    })
-
-    if (res.ok) {
-      const data = await res.json()
-      // 这里的标识文件必须是 learning-meta.txt
-      const metaFile = data.files['learning-meta.txt']
-      
-      if (metaFile && metaFile.content) {
-        serverTime.value = metaFile.content
-        // 判断逻辑：本地无记录或云端时间更新则触发红点
-        isNewVersionAvailable.value = !lastSyncTime.value || serverTime.value > lastSyncTime.value
-      } else {
-        // 核心修复：找不到文件时给明确反馈，防止 UI 误判
-        serverTime.value = '云端无备份'
-        isNewVersionAvailable.value = false
-      }
-
-      // 核心修复：延长自动关闭时间至 8 秒，若有更新则不自动关闭（或设为更长）
-      const delay = isNewVersionAvailable.value ? 15000 : 8000
-      cloudMenuTimer = setTimeout(() => { 
-        isCloudMenuOpen.value = false 
-      }, delay)
-    }
-  } catch (e) {
-    console.error('Learning cloud check failed', e)
-    serverTime.value = '检测失败'
-    cloudMenuTimer = setTimeout(() => { isCloudMenuOpen.value = false }, 3000)
-  } finally {
-    isCheckingCloud.value = false
-  }
-}
-
-const toggleCloudMenu = () => {
-  if (cloudMenuTimer) clearTimeout(cloudMenuTimer)
-  isCloudMenuOpen.value = !isCloudMenuOpen.value
-  if (isCloudMenuOpen.value) {
-    checkCloudStatus()
-  }
-}
-
-const uploadToCloud = async () => {
-  if (!syncConfig.token || !syncConfig.gistId) {
-    alert('Please configure GitHub Token and Gist ID in Settings first.')
-    showSettings.value = true
-    return
-  }
-
-  if (!confirm('This will OVERWRITE the cloud backup with your local history. Are you sure?')) return
-
-  isSyncing.value = true
-  try {
-    const fileName = 'learning-history.json'
-    const contentStr = JSON.stringify(historyPairs.value)
-
-    const now = new Date()
-    const m = String(now.getMonth() + 1).padStart(2, '0')
-    const d = String(now.getDate()).padStart(2, '0')
-    const h = String(now.getHours()).padStart(2, '0')
-    const min = String(now.getMinutes()).padStart(2, '0')
-    const currentSyncStr = `${m}/${d} ${h}:${min}`
-
-    const url = `https://api.github.com/gists/${syncConfig.gistId}`
-    const res = await fetch(url, {
-      method: 'PATCH',
-      headers: {
-        'Authorization': `token ${syncConfig.token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        files: {
-          [fileName]: { content: contentStr },
-          // 🚨 核心修复：这里只存极短的时间戳字符串
-          'learning-meta.txt': { content: currentSyncStr }
-        }
-      })
-    })
-
-    if (!res.ok) throw new Error('Upload failed')
-
-    lastSyncTime.value = currentSyncStr
-    serverTime.value = currentSyncStr
-    isNewVersionAvailable.value = false
-    alert('Upload successful! Cloud data updated.')
-  } catch (error) {
-    console.error(error)
-    alert('Upload failed: ' + error.message)
-  } finally {
-    isSyncing.value = false
-  }
-}
-
-const downloadFromCloud = async () => {
-  if (!syncConfig.token || !syncConfig.gistId) {
-    alert('Please configure GitHub Token and Gist ID in Settings first.')
-    showSettings.value = true
-    return
-  }
-
-  if (!confirm('This will REPLACE your local history with the cloud backup. Are you sure?')) return
-
-  isSyncing.value = true
-  try {
-    const fileName = 'learning-history.json'
-    const remoteData = await fetchGistFile(syncConfig.token, syncConfig.gistId, fileName)
-
-    if (remoteData && Array.isArray(remoteData)) {
-      historyPairs.value = remoteData
-      updateSyncTime()
-      alert('Download successful! Local history updated.')
-      // No reload needed for Vue reactivity, but if needed: location.reload()
-    } else {
-      alert('No valid history found in cloud.')
-    }
-  } catch (error) {
-    console.error(error)
-    alert('Download failed: ' + error.message)
-  } finally {
-    isSyncing.value = false
-  }
-}
-
-const isDownloadDisabled = computed(() => {
-  if (isSyncing.value) return true
-  if (!serverTime.value) return true
-  if (lastSyncTime.value && lastSyncTime.value >= serverTime.value) return true
-  return false
-})
 
 
 // --- Interaction Logic ---
@@ -1418,65 +1256,6 @@ onUnmounted(() => {
                  <button @click="showSettings = true" class="text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700" title="Settings">
                      <div class="i-carbon-settings w-5 h-5"></div>
                  </button>
-
-                 <!-- Cloud Sync Dropdown -->
-                 <div class="relative">
-                     <button @click="toggleCloudMenu" class="text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 relative" :class="{ 'text-blue-600 bg-blue-50': isCloudMenuOpen }" title="Cloud Sync">
-                         <div v-if="isSyncing || isCheckingCloud" class="i-carbon-circle-dash w-5 h-5 animate-spin"></div>
-                         <div v-else class="i-carbon-cloud w-5 h-5"></div>
-                         <!-- Update Indicator -->
-                         <div v-if="isNewVersionAvailable" class="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full border border-white"></div>
-                     </button>
-
-                     <Transition name="cloud-pop">
-                        <div v-if="isCloudMenuOpen" class="absolute right-0 top-full mt-2 w-72 bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-100 dark:border-gray-700 p-4 z-[100] origin-top-right">
-                             <div class="sync-dashboard mb-4" :class="{ 'has-update': isNewVersionAvailable }">
-                                <div class="flex justify-between items-center mb-3 text-xs text-gray-500 dark:text-gray-400">
-                                    <span class="font-bold uppercase tracking-wider">Sync Status</span>
-                                    <span v-if="isCheckingCloud" class="flex items-center gap-1 text-blue-500">
-                                        <div class="i-carbon-circle-dash w-3 h-3 animate-spin"></div> Checking...
-                                    </span>
-                                </div>
-
-                                <div class="flex items-center justify-between gap-2 text-sm">
-                                    <div class="flex flex-col items-center p-2 bg-gray-50 dark:bg-gray-700 rounded-lg flex-1">
-                                        <span class="text-xs text-gray-400 mb-1">Local</span>
-                                        <span class="font-mono font-medium text-gray-700 dark:text-gray-200">{{ lastSyncTime || '--/--' }}</span>
-                                    </div>
-
-                                    <div class="flex flex-col items-center justify-center">
-                                        <div v-if="isNewVersionAvailable" class="i-carbon-arrow-left text-red-500 w-5 h-5 animate-pulse"></div>
-                                        <div v-else class="i-carbon-checkmark text-green-500 w-5 h-5"></div>
-                                    </div>
-
-                                    <div class="flex flex-col items-center p-2 bg-gray-50 dark:bg-gray-700 rounded-lg flex-1" :class="{ 'ring-1 ring-red-200 bg-red-50 dark:bg-red-900/20': isNewVersionAvailable }">
-                                        <span class="text-xs text-gray-400 mb-1">Cloud</span>
-                                        <span class="font-mono font-medium text-gray-700 dark:text-gray-200">{{ serverTime || 'Checking' }}</span>
-                                    </div>
-                                </div>
-
-                                <div v-if="isNewVersionAvailable" class="mt-3 text-xs text-center text-red-500 font-medium bg-red-50 dark:bg-red-900/20 py-1 rounded">
-                                    ✨ New version available!
-                                </div>
-                                <div v-else-if="serverTime" class="mt-3 text-xs text-center text-green-500 font-medium bg-green-50 dark:bg-green-900/20 py-1 rounded">
-                                    ✅ Up to date
-                                </div>
-                             </div>
-
-                             <div class="grid grid-cols-2 gap-2">
-                                 <button @click="uploadToCloud" :disabled="isSyncing" class="flex flex-col items-center justify-center gap-1 p-3 rounded-lg border border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-gray-700 dark:text-gray-300">
-                                     <div class="i-carbon-cloud-upload w-5 h-5 text-blue-500"></div>
-                                     <span class="text-xs font-medium">Backup</span>
-                                 </button>
-
-                                 <button @click="downloadFromCloud" :disabled="isDownloadDisabled" class="flex flex-col items-center justify-center gap-1 p-3 rounded-lg border border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-gray-700 dark:text-gray-300 disabled:opacity-50 disabled:cursor-not-allowed">
-                                     <div class="i-carbon-cloud-download w-5 h-5 text-green-500"></div>
-                                     <span class="text-xs font-medium">Restore</span>
-                                 </button>
-                             </div>
-                        </div>
-                     </Transition>
-                 </div>
             </div>
         </div>
 
