@@ -10,6 +10,10 @@ export const useLearningStore = createGlobalState(() => {
   const groqApiKey = useStorage('my_ielts_groq_key', '')
   const groqModel = useStorage('my_ielts_groq_model', 'whisper-large-v3-turbo')
 
+  // Supabase Sync
+  const supabaseUrl = useStorage('my_ielts_supabase_url', '')
+  const supabaseKey = useStorage('my_ielts_supabase_key', '')
+
   // GitHub Sync (Gist)
   const githubToken = useStorage('my_ielts_gh_token', '') // Reuse existing key
   const githubGistId = useStorage('my_ielts_gh_gist_id', '') // Reuse existing key
@@ -54,6 +58,8 @@ export const useLearningStore = createGlobalState(() => {
     apiModel,
     groqApiKey,
     groqModel,
+    supabaseUrl,
+    supabaseKey,
     githubToken,
     githubGistId,
     pdfName,
