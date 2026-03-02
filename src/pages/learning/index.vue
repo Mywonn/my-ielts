@@ -957,95 +957,108 @@ const changeSpeed = () => {
 
 const uploadToSupabase = async () => {
     if (!supabaseUrl.value || !supabaseKey.value) {
-        alert('Please configure Supabase URL and Key in Settings first.')
-        return
+        alert('Please configure Supabase URL and Key in Settings first.');
+        return;
     }
-    isSyncing.value = true
-    syncMessage.value = 'Starting upload...'
-    try {
-        const recordsToSync = []
-        for (const pair of historyPairs.value) {
-            let audio_path = pair.audio_path || null
-            let pdf_path = pair.pdf_path || null
+    isSyncing.value = true;
+    syncMessage.value = 'Starting upload...';
 
-            // Upload audio if it exists and doesn't have a path yet
+    try {
+        const recordsToSync = [];
+        for (const pair of historyPairs.value) {
+            let audio_path = pair.audio_path || null;
+            let pdf_path = pair.pdf_path || null;
+
+            // 【路径优化】：直接以 ID 作为文件夹，避免出现 public/public 这种嵌套
             if (pair.audio && !audio_path) {
-                const audioBlob = await getAudioBlob(pair.audio.id)
+                const audioBlob = await getAudioBlob(pair.audio.id);
                 if (audioBlob) {
-                    const newPath = `public/${pair.id}/${pair.audio.name}`
-                    await uploadFileToSupabase(supabaseUrl.value, supabaseKey.value, newPath, audioBlob)
-                    audio_path = newPath
+                    const newPath = `${pair.id}/${pair.audio.name}`;
+                    await uploadFileToSupabase(supabaseUrl.value, supabaseKey.value, newPath, audioBlob);
+                    audio_path = newPath;
                 }
             }
 
-            // Upload PDF if it exists and doesn't have a path yet
             if (pair.pdf && !pdf_path) {
-                const pdfBlob = await getPdfBlob(pair.pdf.id)
+                const pdfBlob = await getPdfBlob(pair.pdf.id);
                 if (pdfBlob) {
-                    const newPath = `public/${pair.id}/${pair.pdf.name}`
-                    await uploadFileToSupabase(supabaseUrl.value, supabaseKey.value, newPath, pdfBlob)
-                    pdf_path = newPath
+                    const newPath = `${pair.id}/${pair.pdf.name}`;
+                    await uploadFileToSupabase(supabaseUrl.value, supabaseKey.value, newPath, pdfBlob);
+                    pdf_path = newPath;
                 }
             }
 
             recordsToSync.push({
                 id: pair.id,
-                user_id: 'anonymous', // Replace with actual user ID if you have auth
+                user_id: 'anonymous',
                 audio_name: pair.audio?.name,
                 audio_path: audio_path,
                 pdf_name: pair.pdf?.name,
                 pdf_path: pdf_path,
-                subtitles: pair.sentences,
+                // 【字段对齐】：确保使用数据库里的 subtitles 字段名
+                subtitles: pair.subtitles || pair.sentences || [],
                 created_at: new Date(pair.date).toISOString()
-            })
+            });
         }
 
-        syncMessage.value = `Uploading ${recordsToSync.length} records...`
-        await syncHistoryToSupabase(supabaseUrl.value, supabaseKey.value, recordsToSync)
+        syncMessage.value = `Uploading ${recordsToSync.length} records...`;
+        await syncHistoryToSupabase(supabaseUrl.value, supabaseKey.value, recordsToSync);
 
-        syncMessage.value = 'Upload successful!'
+        syncMessage.value = 'Upload successful!';
     } catch (error) {
-        console.error('Supabase upload error:', error)
-        syncMessage.value = `Error: ${error.message}`
+        console.error('Supabase upload error:', error);
+        syncMessage.value = `Error: ${error.message}`;
     } finally {
-        isSyncing.value = false
-        setTimeout(() => { syncMessage.value = '' }, 4000)
+        isSyncing.value = false;
+        setTimeout(() => { syncMessage.value = '' }, 4000);
     }
-}
+};
 
 const downloadFromSupabase = async () => {
     if (!supabaseUrl.value || !supabaseKey.value) {
-        alert('Please configure Supabase URL and Key in Settings first.')
-        return
+        alert('Please configure Supabase URL and Key in Settings first.');
+        return;
     }
-    isSyncing.value = true
-    syncMessage.value = 'Fetching remote history...'
-    try {
-        const remoteHistory = await fetchHistoryFromSupabase(supabaseUrl.value, supabaseKey.value)
-        syncMessage.value = `Found ${remoteHistory.length} records. Syncing...`
+    isSyncing.value = true;
+    syncMessage.value = 'Fetching remote history...';
 
-        const localHistoryMap = new Map(historyPairs.value.map(p => [p.id, p]))
+    try {
+        const remoteHistory = await fetchHistoryFromSupabase(supabaseUrl.value, supabaseKey.value);
+        syncMessage.value = `Found ${remoteHistory.length} records. Syncing...`;
 
         for (const remoteRecord of remoteHistory) {
-            const localRecord = localHistoryMap.get(remoteRecord.id)
+            const index = historyPairs.value.findIndex(p => p.id === remoteRecord.id);
+            const localRecord = index > -1 ? historyPairs.value[index] : null;
 
-            // If local record doesn't exist or is older, download/update it
+            // 如果本地没有或者云端更新，则执行下载/更新
             if (!localRecord || new Date(remoteRecord.created_at) > new Date(localRecord.date)) {
-                let audio = null
-                let pdf = null
+                let audio = null;
+                let pdf = null;
 
-                // Download audio
+                // 下载音频并强制设置 key
                 if (remoteRecord.audio_path) {
-                    const audioBlob = await downloadFileFromSupabase(supabaseUrl.value, supabaseKey.value, remoteRecord.audio_path)
-                    audio = { id: remoteRecord.id + '-audio', name: remoteRecord.audio_name, size: audioBlob.size }
-                    await saveAudioBlob(audio.id, audioBlob)
+                    const audioBlob = await downloadFileFromSupabase(supabaseUrl.value, supabaseKey.value, remoteRecord.audio_path);
+                    const audioKey = `audio_blob_${remoteRecord.id}`; // 构造唯一的本地存储键
+                    audio = {
+                        id: remoteRecord.id + '-audio',
+                        key: audioKey, // 【核心修复】：必须有 key，restorePair 才能找到它
+                        name: remoteRecord.audio_name,
+                        size: audioBlob.size
+                    };
+                    await set(audioKey, audioBlob); // 直接存入 IndexedDB
                 }
 
-                // Download PDF
+                // 下载 PDF 并强制设置 key
                 if (remoteRecord.pdf_path) {
-                    const pdfBlob = await downloadFileFromSupabase(supabaseUrl.value, supabaseKey.value, remoteRecord.pdf_path)
-                    pdf = { id: remoteRecord.id + '-pdf', name: remoteRecord.pdf_name, size: pdfBlob.size }
-                    await savePdfBlob(pdf.id, pdfBlob)
+                    const pdfBlob = await downloadFileFromSupabase(supabaseUrl.value, supabaseKey.value, remoteRecord.pdf_path);
+                    const pdfKey = `pdf_blob_${remoteRecord.id}`;
+                    pdf = {
+                        id: remoteRecord.id + '-pdf',
+                        key: pdfKey, // 【核心修复】：必须有 key
+                        name: remoteRecord.pdf_name,
+                        size: pdfBlob.size
+                    };
+                    await set(pdfKey, pdfBlob);
                 }
 
                 const newPair = {
@@ -1053,32 +1066,28 @@ const downloadFromSupabase = async () => {
                     date: new Date(remoteRecord.created_at).toLocaleString(),
                     audio,
                     pdf,
-                    sentences: remoteRecord.subtitles,
+                    subtitles: remoteRecord.subtitles,
                     audio_path: remoteRecord.audio_path,
                     pdf_path: remoteRecord.pdf_path
-                }
+                };
 
                 if (localRecord) {
-                    // Update existing record
-                    const index = historyPairs.value.findIndex(p => p.id === remoteRecord.id)
-                    historyPairs.value.splice(index, 1, newPair)
+                    historyPairs.value.splice(index, 1, newPair);
                 } else {
-                    // Add new record
-                    historyPairs.value.push(newPair)
+                    historyPairs.value.push(newPair);
                 }
             }
         }
-        // Sort history by date after sync
-        historyPairs.value.sort((a, b) => new Date(b.date) - new Date(a.date))
-        syncMessage.value = 'Download and sync complete!'
+        historyPairs.value.sort((a, b) => new Date(b.date) - new Date(a.date));
+        syncMessage.value = 'Download and sync complete!';
     } catch (error) {
-        console.error('Supabase download error:', error)
-        syncMessage.value = `Error: ${error.message}`
+        console.error('Supabase download error:', error);
+        syncMessage.value = `Error: ${error.message}`;
     } finally {
-        isSyncing.value = false
-        setTimeout(() => { syncMessage.value = '' }, 4000)
+        isSyncing.value = false;
+        setTimeout(() => { syncMessage.value = '' }, 4000);
     }
-}
+};
 
 // --- Interaction Logic ---
 const handleWordClick = async (event, word, context) => {
