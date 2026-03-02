@@ -2881,23 +2881,31 @@ const checkCloudStatus = async () => {
 
     if (res.ok) {
       const data = await res.json()
-      const metaFile = data.files['vocab-meta.txt']
 
-      // 【修复点 1】：只读取专属 meta 文件
+      // 🔥 读取 Vocabulary 专属的时间文件
+      const metaFile = data.files['vocab-meta.txt']
       if (metaFile && metaFile.content) {
-        serverTime.value = metaFile.content
-        // 【修复点 2】：优化判断逻辑
-        isNewVersionAvailable.value = !lastSyncTime.value || serverTime.value > lastSyncTime.value
+         serverTime.value = metaFile.content
       } else {
-        serverTime.value = ''
-        isNewVersionAvailable.value = false
+         const serverDate = new Date(data.updated_at)
+         const m = String(serverDate.getMonth() + 1).padStart(2, '0')
+         const d = String(serverDate.getDate()).padStart(2, '0')
+         const h = String(serverDate.getHours()).padStart(2, '0')
+         const min = String(serverDate.getMinutes()).padStart(2, '0')
+         serverTime.value = `${m}/${d} ${h}:${min}`
       }
 
-      const delay = isNewVersionAvailable.value ? 10000 : 2000
-      cloudMenuTimer = setTimeout(() => { isCloudMenuOpen.value = false }, delay)
+      // 智能对比
+      if (lastSyncTime.value && serverTime.value > lastSyncTime.value) {
+        isNewVersionAvailable.value = true
+        cloudMenuTimer = setTimeout(() => { isCloudMenuOpen.value = false }, 10000)
+      } else {
+        isNewVersionAvailable.value = false
+        cloudMenuTimer = setTimeout(() => { isCloudMenuOpen.value = false }, 2000)
+      }
     }
   } catch (e) {
-    console.error('Vocab cloud check failed', e)
+    console.error('检测云端失败', e)
     cloudMenuTimer = setTimeout(() => { isCloudMenuOpen.value = false }, 3000)
   } finally {
     isCheckingCloud.value = false
