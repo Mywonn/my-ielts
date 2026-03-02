@@ -768,12 +768,20 @@ const checkCloudStatus = async () => {
 
     if (res.ok) {
       const data = await res.json()
-      const serverDate = new Date(data.updated_at)
-      const m = String(serverDate.getMonth() + 1).padStart(2, '0')
-      const d = String(serverDate.getDate()).padStart(2, '0')
-      const h = String(serverDate.getHours()).padStart(2, '0')
-      const min = String(serverDate.getMinutes()).padStart(2, '0')
-      serverTime.value = `${m}/${d} ${h}:${min}`
+
+      // 🔥 核心隔离：只读取属于 Learning 的独立时间文件
+      const metaFile = data.files['learning-meta.txt']
+      if (metaFile && metaFile.content) {
+         serverTime.value = metaFile.content
+      } else {
+         // 兜底方案（第一次没有这个文件时，使用全局时间）
+         const serverDate = new Date(data.updated_at)
+         const m = String(serverDate.getMonth() + 1).padStart(2, '0')
+         const d = String(serverDate.getDate()).padStart(2, '0')
+         const h = String(serverDate.getHours()).padStart(2, '0')
+         const min = String(serverDate.getMinutes()).padStart(2, '0')
+         serverTime.value = `${m}/${d} ${h}:${min}`
+      }
 
       if (lastSyncTime.value && serverTime.value > lastSyncTime.value) {
         isNewVersionAvailable.value = true
@@ -811,28 +819,36 @@ const uploadToCloud = async () => {
   isSyncing.value = true
   try {
     const fileName = 'learning-history.json'
-    const content = historyPairs.value
+    const contentStr = JSON.stringify(historyPairs.value)
 
-    // Gist API requires content to be a string
-    const contentStr = JSON.stringify(content)
+    // 先计算好当前时间
+    const now = new Date()
+    const m = String(now.getMonth() + 1).padStart(2, '0')
+    const d = String(now.getDate()).padStart(2, '0')
+    const h = String(now.getHours()).padStart(2, '0')
+    const min = String(now.getMinutes()).padStart(2, '0')
+    const currentSyncStr = `${m}/${d} ${h}:${min}`
 
-    await updateGistFile(syncConfig.token, syncConfig.gistId, fileName, contentStr) // Pass stringified content if updateGistFile expects raw content, or check implementation.
-    // Wait, updateGistFile in services/githubService.ts might handle stringification?
-    // Let's check the service implementation if possible, but based on previous usage "content" was passed directly.
-    // In previous code: "const content = historyPairs.value; await updateGistFile(..., content)"
-    // If updateGistFile handles object->string, then fine.
-    // Actually, updateGistFile usually takes an object and JSON.stringifies it inside, or takes a string.
-    // I will assume it handles it or I should stringify it.
-    // Looking at previous usage: "const content = historyPairs.value ... updateGistFile(..., content)"
-    // I will stick to passing the object if the service handles it, OR stringify it myself.
-    // To be safe and consistent with Vocabulary page (which stringifies it manually: const content = JSON.stringify(data)), I should stringify it.
-    // BUT, the `updateGistFile` helper I wrote might be doing it.
-    // Let's assume for now I should pass the object because the previous working code did.
-    // Re-reading previous code: "const content = historyPairs.value ... await updateGistFile(..., content)"
-    // Okay, I will revert to passing the object to match previous working state.
+    // 🔥 改用原生 fetch，一次性同时提交"数据"和"专属时间戳"两个文件
+    const url = `https://api.github.com/gists/${syncConfig.gistId}`
+    const res = await fetch(url, {
+      method: 'PATCH',
+      headers: {
+        'Authorization': `token ${syncConfig.token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        files: {
+          [fileName]: { content: contentStr },
+          'learning-meta.txt': { content: currentSyncStr } // <-- 记录专属时间
+        }
+      })
+    })
 
-    updateSyncTime()
-    serverTime.value = lastSyncTime.value
+    if (!res.ok) throw new Error('Upload failed')
+
+    lastSyncTime.value = currentSyncStr
+    serverTime.value = currentSyncStr
     isNewVersionAvailable.value = false
     alert('Upload successful! Cloud data updated.')
   } catch (error) {
@@ -1404,7 +1420,7 @@ onUnmounted(() => {
                         >
                             <div v-if="isTranscribing" class="i-carbon-circle-dash animate-spin w-5 h-5"></div>
                             <div v-else class="i-carbon-closed-caption-alt w-5 h-5"></div>
-                            <span>{{ isTranscribing ? 'Transcribing Audio...' : 'Generate Subtitles (Groq)' }}</span>
+                            <span>{{ isTranscribing ? 'Transcribing Audio...' : '生成字幕(Groq)' }}</span>
                         </button>
                     </div>
                     <p class="text-xs mt-3 text-gray-400">Powered by Whisper on Groq</p>
