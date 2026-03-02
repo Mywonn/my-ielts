@@ -3017,9 +3017,24 @@ const downloadFromCloud = async () => {
     if (!res.ok) throw new Error(res.statusText)
 
     const json = await res.json()
-    // 获取文件内容
-    const fileContent = json.files['data.json'].content
-    const d = JSON.parse(fileContent)
+    const file = json.files['data.json']
+    let fileContent = file?.content || ''
+    // 如果内容被截断，改用 raw_url 拉取完整内容
+    if (file?.truncated && file?.raw_url) {
+      const rawRes = await fetch(file.raw_url, { headers: { 'Authorization': `token ${syncConfig.token}` } })
+      if (!rawRes.ok) throw new Error('拉取原始内容失败')
+      fileContent = await rawRes.text()
+    }
+    // 兼容意外 BOM 与尾随空白
+    fileContent = fileContent.replace(/^\uFEFF/, '').trim()
+    let d
+    try {
+      d = JSON.parse(fileContent)
+    } catch (err) {
+      // 输出更明确的错误信息，便于定位
+      console.error('JSON 解析失败，原始长度:', fileContent.length, '前200字:', fileContent.slice(0, 200))
+      throw new Error('云端 data.json 内容损坏或未完整，请重新上传后再试')
+    }
 
     // 恢复数据 (复用你之前的导入逻辑)
     if(d.k) killedList.value = d.k;
