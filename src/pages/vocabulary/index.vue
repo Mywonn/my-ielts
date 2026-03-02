@@ -412,12 +412,14 @@ const getNotation = (item) => {
 const findWordDetail = (wordText) => {
   // 1. 先查自定义词典
   if (customDict.value[wordText]) {
+    const syn = customDict.value[wordText].synonyms
+    const notationText = Array.isArray(syn) && syn.length > 0 ? syn.join('; ') : '我的生词本'
     return {
       en: wordText,
       zh: customDict.value[wordText].zh,
       pos: customDict.value[wordText].pos || '自选', // 🔥【修改】读取独立词性
       example: customDict.value[wordText].example || '', // 🔥【修改】读取例句
-      notation: '我的生词本',
+      notation: notationText,
       id: '★',
       source: customDict.value[wordText].source || '生词本' // 🔥【修改】读取来源
     }
@@ -2879,31 +2881,23 @@ const checkCloudStatus = async () => {
 
     if (res.ok) {
       const data = await res.json()
-
-      // 🔥 读取 Vocabulary 专属的时间文件
       const metaFile = data.files['vocab-meta.txt']
+
+      // 【修复点 1】：只读取专属 meta 文件
       if (metaFile && metaFile.content) {
-         serverTime.value = metaFile.content
+        serverTime.value = metaFile.content
+        // 【修复点 2】：优化判断逻辑
+        isNewVersionAvailable.value = !lastSyncTime.value || serverTime.value > lastSyncTime.value
       } else {
-         const serverDate = new Date(data.updated_at)
-         const m = String(serverDate.getMonth() + 1).padStart(2, '0')
-         const d = String(serverDate.getDate()).padStart(2, '0')
-         const h = String(serverDate.getHours()).padStart(2, '0')
-         const min = String(serverDate.getMinutes()).padStart(2, '0')
-         serverTime.value = `${m}/${d} ${h}:${min}`
+        serverTime.value = ''
+        isNewVersionAvailable.value = false
       }
 
-      // 智能对比
-      if (lastSyncTime.value && serverTime.value > lastSyncTime.value) {
-        isNewVersionAvailable.value = true
-        cloudMenuTimer = setTimeout(() => { isCloudMenuOpen.value = false }, 10000)
-      } else {
-        isNewVersionAvailable.value = false
-        cloudMenuTimer = setTimeout(() => { isCloudMenuOpen.value = false }, 2000)
-      }
+      const delay = isNewVersionAvailable.value ? 10000 : 2000
+      cloudMenuTimer = setTimeout(() => { isCloudMenuOpen.value = false }, delay)
     }
   } catch (e) {
-    console.error('检测云端失败', e)
+    console.error('Vocab cloud check failed', e)
     cloudMenuTimer = setTimeout(() => { isCloudMenuOpen.value = false }, 3000)
   } finally {
     isCheckingCloud.value = false
