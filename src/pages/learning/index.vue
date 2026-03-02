@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, onMounted, nextTick, watch, onUnmounted, computed, } from 'vue'
+import { ref, reactive, onMounted, nextTick, watch, onUnmounted, computed, onActivated, onDeactivated } from 'vue'
 import { useStorage } from '@vueuse/core'
 import * as pdfjsLib from 'pdfjs-dist'
 import { useWordBank } from '../../composables/useWordBank'
@@ -35,22 +35,45 @@ const isAiLoading = ref(false)
 const aiResult = ref(null)
 const showSettings = ref(false)
 
+// 弹窗位置收敛，避免超出屏幕
+const clampPopoverPosition = (x, y) => {
+    const margin = 12
+    const boxW = 320
+    const boxH = 260
+    const vw = window.innerWidth
+    const vh = window.innerHeight
+    let nx = Math.max(margin, Math.min(x, vw - boxW - margin))
+    let ny = Math.max(margin, Math.min(y, vh - boxH - margin))
+    return { x: nx, y: ny }
+}
+
+// 外部点击/滚动关闭 AI 弹窗
+const handleOutsideClose = (e) => {
+    if (!showPopover.value) return
+    const pop = document.querySelector('.ai-popover-box')
+    if (pop && !pop.contains(e.target)) {
+        closePopover()
+    }
+}
+const handleScrollClose = () => {
+    if (showPopover.value) closePopover()
+}
+
 // --- 高亮划线状态 ---
 const highlightMenu = reactive({
     visible: false,
     x: 0,
     y: 0,
     start: null,
-    end: null
+    end: null,
+    text: ''
 })
 
 const handleTextSelection = () => {
-    // 稍微延迟，等待原生 selection 完成
     setTimeout(() => {
         const selection = window.getSelection()
         const text = selection.toString().trim()
 
-        // 如果没有选中文字，隐藏菜单
         if (!text) {
             highlightMenu.visible = false
             return
@@ -58,38 +81,46 @@ const handleTextSelection = () => {
 
         try {
             const range = selection.getRangeAt(0)
-            const startNode = range.startContainer.nodeType === 3 ? range.startContainer.parentElement : range.startContainer
-            const endNode = range.endContainer.nodeType === 3 ? range.endContainer.parentElement : range.endContainer
+            let startSpan = range.startContainer.nodeType === 3 ? range.startContainer.parentElement : range.startContainer
+            let endSpan = range.endContainer.nodeType === 3 ? range.endContainer.parentElement : range.endContainer
 
-            const s1 = parseInt(startNode.dataset.sIdx)
-            const w1 = parseInt(startNode.dataset.wIdx)
-            const s2 = parseInt(endNode.dataset.sIdx)
-            const w2 = parseInt(endNode.dataset.wIdx)
+            // 【核心修复 1】：iOS Safari 边界选取问题
+            // 如果光标刚好停在上一个元素的末尾（比如空格后），iOS 会判定起点在上一个元素，强行推到下一个
+            if (range.startContainer.nodeType === 3 && range.startOffset === range.startContainer.textContent.length) {
+                startSpan = startSpan.nextElementSibling || startSpan
+            }
+            // 同理，如果光标恰好在下一个元素的开头，把它拉回上一个元素
+            if (range.endContainer.nodeType === 3 && range.endOffset === 0) {
+                endSpan = endSpan.previousElementSibling || endSpan
+            }
+
+            const s1 = parseInt(startSpan.dataset.sIdx)
+            const w1 = parseInt(startSpan.dataset.wIdx)
+            const s2 = parseInt(endSpan.dataset.sIdx)
+            const w2 = parseInt(endSpan.dataset.wIdx)
 
             if (isNaN(s1) || isNaN(w1) || isNaN(s2) || isNaN(w2)) return
 
-            // --- 优化后的弹出位置计算逻辑开始 ---
             const rect = range.getBoundingClientRect()
             const isMobile = window.innerWidth < 768
 
-            // X 轴居中，但限制最小和最大值，防止菜单超出屏幕左右边缘 (假设菜单宽约 180px)
             let targetX = rect.left + rect.width / 2
-            highlightMenu.x = Math.max(100, Math.min(targetX, window.innerWidth - 100))
+
+            // 【核心修复 2】：防止弹窗超出屏幕左右边缘
+            // 弹窗总宽约 260px，由于使用了 -translate-x-1/2 居中，其左右各占 130px
+            // 因此中心点 X 必须在 140 到 屏幕宽度-140 之间，否则就会像图3那样被切掉或挤压变形
+            highlightMenu.x = Math.max(140, Math.min(targetX, window.innerWidth - 140))
 
             if (isMobile) {
-                // 手机端：系统原生菜单在上方，所以强制把自定义高亮菜单放到【下方】防重叠，并多留点间距
                 highlightMenu.y = rect.bottom + 20
             } else {
-                // 电脑端：没有系统原生菜单干扰，上方空间够就在上方，不够就在下方
                 highlightMenu.y = rect.top > 80 ? rect.top - 50 : rect.bottom + 15
             }
-            // --- 优化后的弹出位置计算逻辑结束 ---
 
-            // 处理从右向左滑动的反向选择
             const isBackward = s1 > s2 || (s1 === s2 && w1 > w2)
             highlightMenu.start = isBackward ? { s: s2, w: w2 } : { s: s1, w: w1 }
             highlightMenu.end = isBackward ? { s: s1, w: w1 } : { s: s2, w: w2 }
-
+            highlightMenu.text = text
             highlightMenu.visible = true
         } catch (e) {
             console.error('Selection calculation failed', e)
@@ -135,6 +166,47 @@ const getHighlightClass = (hexColor) => {
     return colorMap[hexColor] || 'bg-gray-300 text-gray-900 dark:bg-gray-600 dark:text-gray-100'
 }
 
+// 选中短语触发 AI 查词
+const lookupSelectedPhrase = async () => {
+    if (!highlightMenu.text) return
+    if (!apiKey.value) {
+        alert('Please set your API Key in Settings first.')
+        showSettings.value = true
+        return
+    }
+    highlightMenu.visible = false
+
+    // 暂停音频并记录状态
+    if (audioPlayer.value && isPlaying.value) {
+        wasPlayingBeforeLookup.value = true
+        audioPlayer.value.pause()
+        isPlaying.value = false
+    } else {
+        wasPlayingBeforeLookup.value = false
+    }
+
+    // 选中短语所在句子作为上下文
+    const sIdx = highlightMenu.start?.s ?? activeSentenceIndex.value
+    const context = sentences.value[sIdx]?.text || ''
+
+    // 让弹出层跟随菜单位置
+    popoverPosition.x = highlightMenu.x
+    popoverPosition.y = highlightMenu.y
+    currentWord.value = { word: highlightMenu.text, context }
+    showPopover.value = true
+
+    isAiLoading.value = true
+    aiResult.value = null
+    try {
+        const res = await lookupWord(highlightMenu.text, context, apiKey.value, apiBaseUrl.value, apiModel.value)
+        aiResult.value = res
+    } catch (e) {
+        alert(e.message)
+    } finally {
+        isAiLoading.value = false
+    }
+}
+
 // 新增：API 提供商状态与切换逻辑
 const apiProvider = ref('gemini')
 
@@ -160,6 +232,7 @@ const audioUrl = ref('')
 const audioPlayer = ref(null)
 const isManualSeeking = ref(false)
 const isPlaying = ref(false)
+const isRestoringTime = ref(false)
 const playbackRate = ref(1.0)
 const autoPause = ref(false)
 const loopMode = ref('none')
@@ -177,6 +250,10 @@ watch(audioUrl, (val) => sessionAudioUrl.value = val)
 
 // Watch audio time (throttled save)
 watch(currentTime, (newTime) => {
+    // 初始恢复阶段忽略 timeupdate 的 0.0 回调，避免把旧的播放进度覆盖为 0
+    if (isRestoringTime.value) return
+    // 如果当前是 0 而之前有有效时间，也跳过
+    if (newTime === 0 && sessionAudioTime.value > 0) return
     if (Math.abs(newTime - sessionAudioTime.value) > 2) {
         sessionAudioTime.value = newTime
     }
@@ -204,6 +281,21 @@ onMounted(async () => {
     }
     if (sessionAudioUrl.value) {
         audioUrl.value = sessionAudioUrl.value
+        // 兼容返回页面后旧的 objectURL 失效的问题：用 IDB 里的 Blob 重新生成
+        try {
+            const blob = await getAudioBlob()
+            if (blob) {
+                const freshUrl = URL.createObjectURL(blob)
+                audioUrl.value = freshUrl
+                sessionAudioUrl.value = freshUrl
+                nextTick(() => {
+                    if (audioPlayer.value) audioPlayer.value.load()
+                    setTimeout(ensureSeekRestore, 60)
+                    // 加入恢复阶段，避免 0.0 覆盖旧时间
+                    isRestoringTime.value = true
+                })
+            }
+        } catch (e) {}
     }
 
     // 初次加载稍微等一下 DOM
@@ -277,12 +369,41 @@ const generateSubtitles = async () => {
 
 // 3. KeepAlive 切回时瞬间恢复
 onActivated(() => {
-    // 使用 requestAnimationFrame 确保切回时浏览器已经把盒子撑开了
+    isPageActive.value = true
+    seekRestored.value = false // 核心：重置锁，允许由于浏览器释放资源导致的二次 canplay 恢复时间
+
     requestAnimationFrame(() => {
         if (contentRef.value && sessionScrollY.value > 0) {
             contentRef.value.scrollTop = sessionScrollY.value
         }
     })
+    isRestoringTime.value = true
+
+    if (audioPlayer.value && sessionAudioTime.value > 0) {
+        try {
+            // readyState >= 1 表示媒体元数据健在，可以直接设时间
+            if (audioPlayer.value.readyState >= 1) {
+                audioPlayer.value.currentTime = sessionAudioTime.value
+                isRestoringTime.value = false
+            } else {
+                // 如果被浏览器彻底卸载，重新 load()，等待 @canplay 触发 ensureSeekRestore
+                audioPlayer.value.load()
+            }
+        } catch (e) {
+            console.warn('Audio restore failed:', e)
+        }
+    }
+})
+
+// 4. 新增：切走时保存现场，防止后台资源被杀
+onDeactivated(() => {
+    isPageActive.value = false
+    if (audioPlayer.value) {
+        // 锁定离开时的精准时间，并暂停播放（防止后台继续偷跑导致错乱）
+        sessionAudioTime.value = audioPlayer.value.currentTime
+        audioPlayer.value.pause()
+        isPlaying.value = false
+    }
 })
 
 const showHistory = ref(false)
@@ -613,8 +734,17 @@ const scrollToSentence = (index) => {
 }
 
 const onTimeUpdate = () => {
+    // 【核心拦截】：如果页面被 KeepAlive 切入后台，屏蔽一切底层抛出的异常 timeupdate 事件
+    if (!isPageActive.value) return;
+
     if (audioPlayer.value) {
         currentTime.value = audioPlayer.value.currentTime
+
+        // 【核心防御】：防止因为网络卡顿或 DOM 卸载导致瞬间回弹到 0，除非是用户手动拖拽到 0
+        if (currentTime.value === 0 && sessionAudioTime.value > 2 && !isManualSeeking.value) {
+            return
+        }
+
         if (Math.abs(currentTime.value - sessionAudioTime.value) > 2) {
              sessionAudioTime.value = currentTime.value
         }
@@ -659,13 +789,54 @@ const onLoadedMetadata = () => {
         duration.value = audioPlayer.value.duration
         if (sessionAudioTime.value > 0 && sessionAudioTime.value < duration.value) {
             audioPlayer.value.currentTime = sessionAudioTime.value
+            // 进入恢复阶段，直到 ensureSeekRestore 完成
+            isRestoringTime.value = true
         }
+    }
+}
+
+// 新增：标识页面是否处于活跃状态
+const isPageActive = ref(true)
+
+// 兼容：加载就绪后二次定位到上次时间（仅一次）
+const seekRestored = ref(false)
+const ensureSeekRestore = () => {
+    if (seekRestored.value) return
+    if (audioPlayer.value && sessionAudioTime.value > 0) {
+        try {
+            audioPlayer.value.currentTime = sessionAudioTime.value
+            seekRestored.value = true
+            // 恢复完成，允许后续 timeupdate 写入
+            isRestoringTime.value = false
+        } catch (e) {}
+    }
+}
+
+// 音频错误回退：IDB Blob 重新生成 URL
+const onAudioError = async () => {
+    try {
+        const blob = await getAudioBlob()
+        if (blob) {
+            if (audioUrl.value) URL.revokeObjectURL(audioUrl.value)
+            const freshUrl = URL.createObjectURL(blob)
+            audioUrl.value = freshUrl
+            sessionAudioUrl.value = freshUrl
+            nextTick(() => {
+                if (audioPlayer.value) {
+                    audioPlayer.value.load()
+                    ensureSeekRestore()
+                }
+            })
+        }
+    } catch (e) {
+        console.error('Audio reload failed', e)
     }
 }
 
 const onAudioEnded = () => {
     isPlaying.value = false
     if (loopMode.value === 'one') {
+        isManualSeeking.value = true // <--- 新增这句
         audioPlayer.value.currentTime = 0
         audioPlayer.value.play()
         isPlaying.value = true
@@ -678,6 +849,7 @@ const toggleLoop = () => {
 
 const restartTrack = () => {
     if (audioPlayer.value) {
+        isManualSeeking.value = true // <--- 新增这句，发给 timeupdate 通行证
         audioPlayer.value.currentTime = 0
         if (!isPlaying.value) audioPlayer.value.play()
         isPlaying.value = true
@@ -704,6 +876,8 @@ const togglePlay = () => {
         isPlaying.value = false
         return
     }
+    // 进入播放，允许 timeupdate 正常写入
+    isRestoringTime.value = false
     if (trainingMode.value && sentences.value.length > 0) {
         let idx = activeSentenceIndex.value >= 0 ? activeSentenceIndex.value : 0
         const s = sentences.value[idx]
@@ -958,12 +1132,17 @@ const closePopover = () => {
 
 const saveWord = () => {
   if (aiResult.value && currentWord.value) {
+    const syns = (aiResult.value.synonyms || '')
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean)
     addWord({
       word: currentWord.value.word,
       pos: aiResult.value.pos,
       definition: aiResult.value.definition,
       example: currentWord.value.context,
-      source: pdfName.value || 'Audio Learning'
+      source: pdfName.value || 'Audio Learning',
+      synonyms: syns
     })
     closePopover()
     alert('已加入生词本 (S1)')
@@ -1154,9 +1333,13 @@ const handleKeydown = (e) => {
 
 onMounted(() => {
     document.addEventListener('keydown', handleKeydown)
+    document.addEventListener('click', handleOutsideClose, true)
+    document.addEventListener('scroll', handleScrollClose, true)
 })
 onUnmounted(() => {
     document.removeEventListener('keydown', handleKeydown)
+    document.removeEventListener('click', handleOutsideClose, true)
+    document.removeEventListener('scroll', handleScrollClose, true)
 })
 onUnmounted(() => {
     // Note: Do NOT revoke object URL here. We want it to persist across route changes.
@@ -1307,6 +1490,8 @@ onUnmounted(() => {
                 :src="audioUrl"
                 @timeupdate="onTimeUpdate"
                 @loadedmetadata="onLoadedMetadata"
+                @canplay="ensureSeekRestore"
+                @error="onAudioError"
                 @ended="onAudioEnded"
                 @seeked="isManualSeeking = false"
                 class="hidden"
@@ -1376,16 +1561,25 @@ onUnmounted(() => {
         </div>
         <div
             v-if="highlightMenu.visible"
-            class="fixed z-[60] bg-gray-800 rounded-lg shadow-xl px-3 py-2 flex gap-3 items-center -translate-x-1/2 transition-all duration-200"
+            class="fixed z-[60] bg-gray-800 rounded-xl shadow-xl px-3 py-2 flex items-center gap-2 -translate-x-1/2 w-max transition-all duration-200"
             :style="{ top: highlightMenu.y + 'px', left: highlightMenu.x + 'px' }"
         >
-            <button @click.stop="applyHighlightColor('#fef08a')" class="w-6 h-6 rounded-full bg-yellow-200 border-2 border-white hover:scale-110 shadow-sm"></button>
-            <button @click.stop="applyHighlightColor('#bbf7d0')" class="w-6 h-6 rounded-full bg-green-200 border-2 border-white hover:scale-110 shadow-sm"></button>
-            <button @click.stop="applyHighlightColor('#bfdbfe')" class="w-6 h-6 rounded-full bg-blue-200 border-2 border-white hover:scale-110 shadow-sm"></button>
-            <button @click.stop="applyHighlightColor('#fbcfe8')" class="w-6 h-6 rounded-full bg-pink-200 border-2 border-white hover:scale-110 shadow-sm"></button>
-            <div class="w-px h-5 bg-gray-600 mx-1"></div>
-            <button @click.stop="applyHighlightColor(null)" class="text-white hover:text-red-400 p-1 rounded" title="清除高亮">
+            <button @click.stop="applyHighlightColor('#fef08a')" class="w-6 h-6 rounded-full bg-yellow-200 border-2 border-transparent hover:border-white hover:scale-110 shadow-sm transition-all shrink-0"></button>
+            <button @click.stop="applyHighlightColor('#bbf7d0')" class="w-6 h-6 rounded-full bg-green-200 border-2 border-transparent hover:border-white hover:scale-110 shadow-sm transition-all shrink-0"></button>
+            <button @click.stop="applyHighlightColor('#bfdbfe')" class="w-6 h-6 rounded-full bg-blue-200 border-2 border-transparent hover:border-white hover:scale-110 shadow-sm transition-all shrink-0"></button>
+            <button @click.stop="applyHighlightColor('#fbcfe8')" class="w-6 h-6 rounded-full bg-pink-200 border-2 border-transparent hover:border-white hover:scale-110 shadow-sm transition-all shrink-0"></button>
+
+            <div class="w-px h-5 bg-gray-600 shrink-0 mx-0.5"></div>
+
+            <button @click.stop="applyHighlightColor(null)" class="text-gray-200 hover:text-red-400 p-1.5 rounded-md hover:bg-gray-700 transition-colors shrink-0" title="清除高亮">
                 <div class="i-carbon-trash-can w-4 h-4"></div>
+            </button>
+
+            <div class="w-px h-5 bg-gray-600 shrink-0 mx-0.5"></div>
+
+            <button @click.stop="lookupSelectedPhrase" class="text-gray-200 hover:text-blue-400 p-1.5 rounded-md hover:bg-gray-700 text-sm flex items-center gap-1.5 transition-colors shrink-0" title="AI 查词">
+
+                <span class="font-medium">AI查词</span>
             </button>
         </div>
         <!-- Empty State -->
@@ -1546,7 +1740,7 @@ onUnmounted(() => {
     <!-- AI Popover -->
     <div
       v-if="showPopover"
-      class="fixed bg-white border rounded-lg shadow-xl p-4 w-80 z-50 transition-all duration-200"
+      class="ai-popover-box fixed bg-white border rounded-lg shadow-xl p-4 w-80 z-[100] transition-all duration-200"
       :style="{ top: popoverPosition.y + 'px', left: popoverPosition.x + 'px' }"
     >
       <div class="flex justify-between items-start">
