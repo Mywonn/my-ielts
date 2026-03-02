@@ -7,6 +7,13 @@ import { lookupWord } from '../../services/aiService'
 import { transcribeAudio } from '../../services/transcriptionService'
 import { get, set } from 'idb-keyval'
 
+import {
+    syncHistoryToSupabase,
+    fetchHistoryFromSupabase,
+    uploadFileToSupabase,
+    downloadFileFromSupabase
+} from '../../services/supabaseService'
+
 // Set PDF worker
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker
@@ -18,6 +25,7 @@ const store = useLearningStore()
 const {
   apiKey, apiBaseUrl, apiModel,
   groqApiKey, groqModel,
+  supabaseUrl, supabaseKey, // Supabase
   githubToken, githubGistId,
   hasAudio, hasPdf,
   saveAudioBlob, getAudioBlob, savePdfBlob, getPdfBlob,
@@ -290,6 +298,19 @@ watch(currentTime, (newTime) => {
 // 1. 正常记录滚动
 const handleScroll = (e) => {
     sessionScrollY.value = e.target.scrollTop
+}
+
+const isSyncing = ref(false)
+const syncMessage = ref('')
+const isSyncMenuOpen = ref(false)
+const syncMenuTimer = ref(null)
+
+const toggleSyncMenu = () => {
+    isSyncMenuOpen.value = !isSyncMenuOpen.value
+    if (isSyncMenuOpen.value) {
+        if (syncMenuTimer.value) clearTimeout(syncMenuTimer.value)
+        syncMenuTimer.value = setTimeout(() => { isSyncMenuOpen.value = false }, 5000)
+    }
 }
 
 // 2. 页面初次加载时
@@ -934,6 +955,131 @@ const changeSpeed = () => {
 
 
 
+const uploadToSupabase = async () => {
+    if (!supabaseUrl.value || !supabaseKey.value) {
+        alert('Please configure Supabase URL and Key in Settings first.')
+        return
+    }
+    isSyncing.value = true
+    syncMessage.value = 'Starting upload...'
+    try {
+        const recordsToSync = []
+        for (const pair of historyPairs.value) {
+            let audio_path = pair.audio_path || null
+            let pdf_path = pair.pdf_path || null
+
+            // Upload audio if it exists and doesn't have a path yet
+            if (pair.audio && !audio_path) {
+                const audioBlob = await getAudioBlob(pair.audio.id)
+                if (audioBlob) {
+                    const newPath = `public/${pair.id}/${pair.audio.name}`
+                    await uploadFileToSupabase(supabaseUrl.value, supabaseKey.value, newPath, audioBlob)
+                    audio_path = newPath
+                }
+            }
+
+            // Upload PDF if it exists and doesn't have a path yet
+            if (pair.pdf && !pdf_path) {
+                const pdfBlob = await getPdfBlob(pair.pdf.id)
+                if (pdfBlob) {
+                    const newPath = `public/${pair.id}/${pair.pdf.name}`
+                    await uploadFileToSupabase(supabaseUrl.value, supabaseKey.value, newPath, pdfBlob)
+                    pdf_path = newPath
+                }
+            }
+
+            recordsToSync.push({
+                id: pair.id,
+                user_id: 'anonymous', // Replace with actual user ID if you have auth
+                audio_name: pair.audio?.name,
+                audio_path: audio_path,
+                pdf_name: pair.pdf?.name,
+                pdf_path: pdf_path,
+                subtitles: pair.sentences,
+                created_at: new Date(pair.date).toISOString()
+            })
+        }
+
+        syncMessage.value = `Uploading ${recordsToSync.length} records...`
+        await syncHistoryToSupabase(supabaseUrl.value, supabaseKey.value, recordsToSync)
+
+        syncMessage.value = 'Upload successful!'
+    } catch (error) {
+        console.error('Supabase upload error:', error)
+        syncMessage.value = `Error: ${error.message}`
+    } finally {
+        isSyncing.value = false
+        setTimeout(() => { syncMessage.value = '' }, 4000)
+    }
+}
+
+const downloadFromSupabase = async () => {
+    if (!supabaseUrl.value || !supabaseKey.value) {
+        alert('Please configure Supabase URL and Key in Settings first.')
+        return
+    }
+    isSyncing.value = true
+    syncMessage.value = 'Fetching remote history...'
+    try {
+        const remoteHistory = await fetchHistoryFromSupabase(supabaseUrl.value, supabaseKey.value)
+        syncMessage.value = `Found ${remoteHistory.length} records. Syncing...`
+
+        const localHistoryMap = new Map(historyPairs.value.map(p => [p.id, p]))
+
+        for (const remoteRecord of remoteHistory) {
+            const localRecord = localHistoryMap.get(remoteRecord.id)
+
+            // If local record doesn't exist or is older, download/update it
+            if (!localRecord || new Date(remoteRecord.created_at) > new Date(localRecord.date)) {
+                let audio = null
+                let pdf = null
+
+                // Download audio
+                if (remoteRecord.audio_path) {
+                    const audioBlob = await downloadFileFromSupabase(supabaseUrl.value, supabaseKey.value, remoteRecord.audio_path)
+                    audio = { id: remoteRecord.id + '-audio', name: remoteRecord.audio_name, size: audioBlob.size }
+                    await saveAudioBlob(audio.id, audioBlob)
+                }
+
+                // Download PDF
+                if (remoteRecord.pdf_path) {
+                    const pdfBlob = await downloadFileFromSupabase(supabaseUrl.value, supabaseKey.value, remoteRecord.pdf_path)
+                    pdf = { id: remoteRecord.id + '-pdf', name: remoteRecord.pdf_name, size: pdfBlob.size }
+                    await savePdfBlob(pdf.id, pdfBlob)
+                }
+
+                const newPair = {
+                    id: remoteRecord.id,
+                    date: new Date(remoteRecord.created_at).toLocaleString(),
+                    audio,
+                    pdf,
+                    sentences: remoteRecord.subtitles,
+                    audio_path: remoteRecord.audio_path,
+                    pdf_path: remoteRecord.pdf_path
+                }
+
+                if (localRecord) {
+                    // Update existing record
+                    const index = historyPairs.value.findIndex(p => p.id === remoteRecord.id)
+                    historyPairs.value.splice(index, 1, newPair)
+                } else {
+                    // Add new record
+                    historyPairs.value.push(newPair)
+                }
+            }
+        }
+        // Sort history by date after sync
+        historyPairs.value.sort((a, b) => new Date(b.date) - new Date(a.date))
+        syncMessage.value = 'Download and sync complete!'
+    } catch (error) {
+        console.error('Supabase download error:', error)
+        syncMessage.value = `Error: ${error.message}`
+    } finally {
+        isSyncing.value = false
+        setTimeout(() => { syncMessage.value = '' }, 4000)
+    }
+}
+
 // --- Interaction Logic ---
 const handleWordClick = async (event, word, context) => {
   // 【新增拦截】如果正在划选文字，阻止查词弹窗
@@ -1226,7 +1372,7 @@ onUnmounted(() => {
   <div class="h-full flex flex-col bg-gray-50 dark:bg-gray-900 overflow-hidden relative">
 
 
-    <div class="bg-white/90 dark:bg-gray-800/90 backdrop-blur-md border-b dark:border-gray-700 shadow-md z-50 fixed left-0 right-0 px-4 py-3 transition-colors" style="top:56px">
+    <div class="bg-white/90 dark:bg-gray-800/90 backdrop-blur-md border-b dark:border-gray-700 shadow-md z-50 fixed left-0 right-0 px-4 py-3 transition-colors" style="top:60px">
       <div class="max-w-[1170px] mx-auto w-full flex flex-col gap-2">
         <!-- Row 1: Files & Settings -->
         <div class="flex justify-between items-center gap-2">
@@ -1254,8 +1400,31 @@ onUnmounted(() => {
                      <div class="i-carbon-time w-5 h-5"></div>
                  </button>
                  <button @click="showSettings = true" class="text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700" title="Settings">
-                     <div class="i-carbon-settings w-5 h-5"></div>
-                 </button>
+                    <div class="i-carbon-settings w-5 h-5"></div>
+                </button>
+
+                <!-- Supabase Sync Button -->
+                <div class="relative flex items-center">
+                    <button @click="toggleSyncMenu" class="text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700" title="Supabase Sync">
+                        <div class="i-carbon-cloud-upload w-5 h-5" :class="{ 'animate-spin': isSyncing }"></div>
+                    </button>
+                    <!-- Sync Dropdown Menu -->
+                    <div v-if="isSyncMenuOpen" class="absolute right-0 top-full mt-2 w-48 bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-md shadow-lg z-20">
+                        <div class="py-1">
+                            <button @click.stop="uploadToSupabase" class="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2">
+                                <span class="i-carbon-upload w-4 h-4"></span>
+                                <span>Upload to Supabase</span>
+                            </button>
+                            <button @click.stop="downloadFromSupabase" class="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2">
+                                <span class="i-carbon-download w-4 h-4"></span>
+                                <span>Download from Supabase</span>
+                            </button>
+                        </div>
+                        <div v-if="syncMessage" class="px-4 py-2 text-xs text-gray-500 dark:text-gray-400 border-t dark:border-gray-700">
+                            {{ syncMessage }}
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -1483,6 +1652,18 @@ onUnmounted(() => {
                 <div>
                     <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">API Key</label>
                     <input v-model="apiKey" type="password" class="w-full border dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 dark:text-gray-100" placeholder="Enter your API Key">
+                </div>
+
+                <div class="border-t pt-4 mt-4">
+                    <h4 class="font-bold text-gray-800 dark:text-gray-200 mb-2">Supabase Sync</h4>
+                    <div class="mb-2">
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Project URL</label>
+                        <input v-model="supabaseUrl" type="text" class="w-full border dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 dark:text-gray-100" placeholder="https://<project-id>.supabase.co">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Anon Key</label>
+                        <input v-model="supabaseKey" type="password" class="w-full border dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 dark:text-gray-100" placeholder="Enter Supabase Anon Key">
+                    </div>
                 </div>
 
                 <div class="border-t pt-4 mt-4">
