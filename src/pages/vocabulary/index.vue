@@ -3021,7 +3021,9 @@ const downloadFromCloud = async () => {
     let fileContent = file?.content || ''
     // 如果内容被截断，改用 raw_url 拉取完整内容
     if (file?.truncated && file?.raw_url) {
-      const rawRes = await fetch(file.raw_url, { headers: { 'Authorization': `token ${syncConfig.token}` } })
+      // 关键修复：raw_url 是公开资源，带 Authorization 会触发 CORS 预检并被拒绝
+      // 因此不要携带任何自定义 Header
+      const rawRes = await fetch(file.raw_url)
       if (!rawRes.ok) throw new Error('拉取原始内容失败')
       fileContent = await rawRes.text()
     }
