@@ -7,7 +7,7 @@ export function useWordBank() {
   const reviewList = useStorage('my_ielts_review', [])
 
   const addWord = (wordData) => {
-    const { word, pos, definition, example, source } = wordData
+    const { word, pos, definition, example, source, synonyms } = wordData
 
     // 1. Update Custom Dict (Use spread to ensure reactivity trigger)
     customDict.value = {
@@ -17,6 +17,8 @@ export function useWordBank() {
         pos,
         example,
         source,
+        // 可选：同义词数组，供词汇页“拓展”显示
+        synonyms: Array.isArray(synonyms) ? synonyms : undefined,
         addedAt: Date.now()
       }
     }
