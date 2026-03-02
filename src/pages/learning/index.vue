@@ -819,17 +819,16 @@ const uploadToCloud = async () => {
   isSyncing.value = true
   try {
     const fileName = 'learning-history.json'
-    const contentStr = JSON.stringify(historyPairs.value)
+    const contentStr = JSON.stringify(historyPairs.value) // 这是海量数据
 
-    // 先计算好当前时间
+    // 生成时间戳
     const now = new Date()
     const m = String(now.getMonth() + 1).padStart(2, '0')
     const d = String(now.getDate()).padStart(2, '0')
     const h = String(now.getHours()).padStart(2, '0')
     const min = String(now.getMinutes()).padStart(2, '0')
-    const currentSyncStr = `${m}/${d} ${h}:${min}`
+    const currentSyncStr = `${m}/${d} ${h}:${min}` // 这是极短的时间
 
-    // 🔥 改用原生 fetch，一次性同时提交"数据"和"专属时间戳"两个文件
     const url = `https://api.github.com/gists/${syncConfig.gistId}`
     const res = await fetch(url, {
       method: 'PATCH',
@@ -840,7 +839,8 @@ const uploadToCloud = async () => {
       body: JSON.stringify({
         files: {
           [fileName]: { content: contentStr },
-          'learning-meta.txt': { content: currentSyncStr } // <-- 记录专属时间
+          // 🚨 核心修复：这里必须是 currentSyncStr，绝对不能是 contentStr！
+          'learning-meta.txt': { content: currentSyncStr } 
         }
       })
     })
