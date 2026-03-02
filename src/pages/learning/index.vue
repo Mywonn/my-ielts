@@ -971,24 +971,28 @@ const checkCloudStatus = async () => {
 
     if (res.ok) {
       const data = await res.json()
+      // 这里的标识文件必须是 learning-meta.txt
       const metaFile = data.files['learning-meta.txt']
       
-      // 【修复点 1】：只读取专属 meta 文件，不使用全局 updated_at
       if (metaFile && metaFile.content) {
         serverTime.value = metaFile.content
-        // 【修复点 2】：优化判断逻辑，如果本地没记录但云端有，也应提示更新
+        // 判断逻辑：本地无记录或云端时间更新则触发红点
         isNewVersionAvailable.value = !lastSyncTime.value || serverTime.value > lastSyncTime.value
       } else {
-        serverTime.value = ''
+        // 核心修复：找不到文件时给明确反馈，防止 UI 误判
+        serverTime.value = '云端无备份'
         isNewVersionAvailable.value = false
       }
 
-      // 根据是否有更新调整菜单自动关闭时间
-      const delay = isNewVersionAvailable.value ? 10000 : 2000
-      cloudMenuTimer = setTimeout(() => { isCloudMenuOpen.value = false }, delay)
+      // 核心修复：延长自动关闭时间至 8 秒，若有更新则不自动关闭（或设为更长）
+      const delay = isNewVersionAvailable.value ? 15000 : 8000
+      cloudMenuTimer = setTimeout(() => { 
+        isCloudMenuOpen.value = false 
+      }, delay)
     }
   } catch (e) {
     console.error('Learning cloud check failed', e)
+    serverTime.value = '检测失败'
     cloudMenuTimer = setTimeout(() => { isCloudMenuOpen.value = false }, 3000)
   } finally {
     isCheckingCloud.value = false
@@ -1276,6 +1280,9 @@ const handleLrcFile = async (e) => {
     }
     sentences.value = parsed
     sessionSentences.value = parsed
+
+    ensureSession()
+    upsertHistoryPair({ id: currentSessionId.value, subtitles: parsed })
 }
 
 const toggleLrcEdit = () => {
@@ -1303,6 +1310,8 @@ const saveEditSentence = (index) => {
     s.words = txt.split(' ').map(w => ({ text: w, color: null }))
     sentences.value = [...sentences.value]
     sessionSentences.value = sentences.value
+    ensureSession()
+    upsertHistoryPair({ id: currentSessionId.value, subtitles: sentences.value })
     editingSentenceIndex.value = -1
     editingText.value = ''
 }
