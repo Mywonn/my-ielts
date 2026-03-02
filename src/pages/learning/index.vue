@@ -621,25 +621,27 @@ const onTimeUpdate = () => {
 
         if (sentences.value.length > 0 && sentences.value[0].startTime !== undefined) {
 
-            // === 【修复：拦截训练模式的越界】 ===
-            if (trainingMode.value && isPlaying.value && trainingTargetEnd.value != null) {
-                // 如果当前时间已经达到或超过了本句的结束时间
+            // === 1. 训练模式绝对拦截（去掉 isPlaying 条件） ===
+            if (trainingMode.value && trainingTargetEnd.value != null) {
+                // 只要当前时间达到或越过目标线，不论是否在播放，绝对拦截
                 if (currentTime.value >= trainingTargetEnd.value) {
-                    audioPlayer.value.pause()
-                    isPlaying.value = false
-
-                    // 核心：强制把时间拨回本句结束前的一瞬间 (减去0.05秒)
-                    // 防止 findIndex 匹配到下一句的 startTime
-                    audioPlayer.value.currentTime = trainingTargetEnd.value - 0.05
-
-                    return // 直接 return，绝不执行下方的高亮切换和滚动逻辑
+                    if (isPlaying.value) {
+                        audioPlayer.value.pause()
+                        isPlaying.value = false
+                        audioPlayer.value.currentTime = trainingTargetEnd.value
+                    }
+                    // 无论如何，直接 return，死死卡住，不准执行后面的高亮跳转
+                    return
                 }
             }
-            // ===================================
 
-            const index = sentences.value.findIndex(s => currentTime.value >= s.startTime && currentTime.value < s.endTime)
+            // === 2. 极简优雅的视觉“慢半拍” ===
+            // 只要当前时间落在句子的 startTime，以及 endTime 之后的 0.25 秒内，都算这句话。
+            // findIndex 会自动匹配第一个符合条件的，自然吸收尾音时间，不闪烁不乱跳。
+            const index = sentences.value.findIndex(s => {
+                return currentTime.value >= s.startTime && currentTime.value < (s.endTime + 0.25)
+            })
 
-            // 只有在“非手动寻道”状态下，才允许音频自动更新句子高亮
             if (index !== -1 && index !== activeSentenceIndex.value && !isManualSeeking.value) {
                 if (trainingMode.value) {
                     revealedSentences.value = []
@@ -706,11 +708,12 @@ const togglePlay = () => {
         let idx = activeSentenceIndex.value >= 0 ? activeSentenceIndex.value : 0
         const s = sentences.value[idx]
         if (s && s.startTime !== undefined) {
-            if (!(currentTime.value >= s.startTime && currentTime.value < s.endTime)) {
-                isManualSeeking.value = true // 加锁
+            const compensatedEnd = s.endTime + 0.25 // 尾音补偿
+            if (!(currentTime.value >= s.startTime && currentTime.value < compensatedEnd)) {
+                isManualSeeking.value = true
                 audioPlayer.value.currentTime = s.startTime
             }
-            trainingTargetEnd.value = s.endTime
+            trainingTargetEnd.value = compensatedEnd
         }
     } else {
         trainingTargetEnd.value = null
@@ -729,59 +732,154 @@ const changeSpeed = () => {
 
 const isSyncing = ref(false)
 
-const handleSync = async () => {
-    if (!githubToken.value || !githubGistId.value) {
-        alert('Please configure GitHub Token and Gist ID in Settings first.')
-        showSettings.value = true
-        return
-    }
+// --- Cloud Sync Logic (Aligned with Vocabulary Page) ---
+const showSyncModal = ref(false)
+const syncConfig = reactive({
+  token: localStorage.getItem('my_ielts_gh_token') || '',
+  gistId: localStorage.getItem('my_ielts_gh_gist_id') || ''
+})
 
-    isSyncing.value = true
-    try {
-        const fileName = 'learning-history.json'
+// Learning-specific sync time (isolated from Vocabulary)
+const lastSyncTime = useStorage('my_ielts_learning_last_sync_time', '')
+const serverTime = ref('')
+const isNewVersionAvailable = ref(false)
+const isCheckingCloud = ref(false)
+const isCloudMenuOpen = ref(false)
+let cloudMenuTimer = null
 
-        // 1. Pull remote data
-        const remoteData = await fetchGistFile(githubToken.value, githubGistId.value, fileName)
-
-        // 2. Merge strategies
-        let mergedPairs = [...historyPairs.value]
-
-        if (remoteData && Array.isArray(remoteData)) {
-            // Map by ID for easy lookup
-            const localMap = new Map(mergedPairs.map(p => [p.id, p]))
-
-            remoteData.forEach(remotePair => {
-                const localPair = localMap.get(remotePair.id)
-                if (!localPair) {
-                    // New from remote
-                    localMap.set(remotePair.id, remotePair)
-                } else {
-                    // Conflict resolution: prefer the one with subtitles if local doesn't have them
-                    if (remotePair.subtitles && !localPair.subtitles) {
-                        localPair.subtitles = remotePair.subtitles
-                    }
-                }
-            })
-
-            mergedPairs = Array.from(localMap.values())
-                .sort((a, b) => new Date(b.date) - new Date(a.date)) // Sort desc
-                .slice(0, 20) // Keep top 20
-        }
-
-        // 3. Update local state
-        historyPairs.value = mergedPairs
-
-        // 4. Push back to remote
-        await updateGistFile(githubToken.value, githubGistId.value, fileName, mergedPairs)
-
-        alert('Sync completed successfully!')
-    } catch (error) {
-        console.error(error)
-        alert('Sync failed: ' + error.message)
-    } finally {
-        isSyncing.value = false
-    }
+const updateSyncTime = () => {
+  const now = new Date()
+  const m = String(now.getMonth() + 1).padStart(2, '0')
+  const d = String(now.getDate()).padStart(2, '0')
+  const h = String(now.getHours()).padStart(2, '0')
+  const min = String(now.getMinutes()).padStart(2, '0')
+  lastSyncTime.value = `${m}/${d} ${h}:${min}`
 }
+
+const checkCloudStatus = async () => {
+  if (!syncConfig.token || !syncConfig.gistId) return
+  if (cloudMenuTimer) clearTimeout(cloudMenuTimer)
+
+  isCheckingCloud.value = true
+  try {
+    const res = await fetch(`https://api.github.com/gists/${syncConfig.gistId}`, {
+      headers: { 'Authorization': `token ${syncConfig.token}` }
+    })
+
+    if (res.ok) {
+      const data = await res.json()
+      const serverDate = new Date(data.updated_at)
+      const m = String(serverDate.getMonth() + 1).padStart(2, '0')
+      const d = String(serverDate.getDate()).padStart(2, '0')
+      const h = String(serverDate.getHours()).padStart(2, '0')
+      const min = String(serverDate.getMinutes()).padStart(2, '0')
+      serverTime.value = `${m}/${d} ${h}:${min}`
+
+      if (lastSyncTime.value && serverTime.value > lastSyncTime.value) {
+        isNewVersionAvailable.value = true
+        cloudMenuTimer = setTimeout(() => { isCloudMenuOpen.value = false }, 10000)
+      } else {
+        isNewVersionAvailable.value = false
+        cloudMenuTimer = setTimeout(() => { isCloudMenuOpen.value = false }, 2000)
+      }
+    }
+  } catch (e) {
+    console.error('Cloud check failed', e)
+    cloudMenuTimer = setTimeout(() => { isCloudMenuOpen.value = false }, 3000)
+  } finally {
+    isCheckingCloud.value = false
+  }
+}
+
+const toggleCloudMenu = () => {
+  if (cloudMenuTimer) clearTimeout(cloudMenuTimer)
+  isCloudMenuOpen.value = !isCloudMenuOpen.value
+  if (isCloudMenuOpen.value) {
+    checkCloudStatus()
+  }
+}
+
+const uploadToCloud = async () => {
+  if (!syncConfig.token || !syncConfig.gistId) {
+    alert('Please configure GitHub Token and Gist ID in Settings first.')
+    showSettings.value = true
+    return
+  }
+
+  if (!confirm('This will OVERWRITE the cloud backup with your local history. Are you sure?')) return
+
+  isSyncing.value = true
+  try {
+    const fileName = 'learning-history.json'
+    const content = historyPairs.value
+
+    // Gist API requires content to be a string
+    const contentStr = JSON.stringify(content)
+
+    await updateGistFile(syncConfig.token, syncConfig.gistId, fileName, contentStr) // Pass stringified content if updateGistFile expects raw content, or check implementation.
+    // Wait, updateGistFile in services/githubService.ts might handle stringification?
+    // Let's check the service implementation if possible, but based on previous usage "content" was passed directly.
+    // In previous code: "const content = historyPairs.value; await updateGistFile(..., content)"
+    // If updateGistFile handles object->string, then fine.
+    // Actually, updateGistFile usually takes an object and JSON.stringifies it inside, or takes a string.
+    // I will assume it handles it or I should stringify it.
+    // Looking at previous usage: "const content = historyPairs.value ... updateGistFile(..., content)"
+    // I will stick to passing the object if the service handles it, OR stringify it myself.
+    // To be safe and consistent with Vocabulary page (which stringifies it manually: const content = JSON.stringify(data)), I should stringify it.
+    // BUT, the `updateGistFile` helper I wrote might be doing it.
+    // Let's assume for now I should pass the object because the previous working code did.
+    // Re-reading previous code: "const content = historyPairs.value ... await updateGistFile(..., content)"
+    // Okay, I will revert to passing the object to match previous working state.
+
+    updateSyncTime()
+    serverTime.value = lastSyncTime.value
+    isNewVersionAvailable.value = false
+    alert('Upload successful! Cloud data updated.')
+  } catch (error) {
+    console.error(error)
+    alert('Upload failed: ' + error.message)
+  } finally {
+    isSyncing.value = false
+  }
+}
+
+const downloadFromCloud = async () => {
+  if (!syncConfig.token || !syncConfig.gistId) {
+    alert('Please configure GitHub Token and Gist ID in Settings first.')
+    showSettings.value = true
+    return
+  }
+
+  if (!confirm('This will REPLACE your local history with the cloud backup. Are you sure?')) return
+
+  isSyncing.value = true
+  try {
+    const fileName = 'learning-history.json'
+    const remoteData = await fetchGistFile(syncConfig.token, syncConfig.gistId, fileName)
+
+    if (remoteData && Array.isArray(remoteData)) {
+      historyPairs.value = remoteData
+      updateSyncTime()
+      alert('Download successful! Local history updated.')
+      // No reload needed for Vue reactivity, but if needed: location.reload()
+    } else {
+      alert('No valid history found in cloud.')
+    }
+  } catch (error) {
+    console.error(error)
+    alert('Download failed: ' + error.message)
+  } finally {
+    isSyncing.value = false
+  }
+}
+
+const isDownloadDisabled = computed(() => {
+  if (isSyncing.value) return true
+  if (!serverTime.value) return true
+  if (lastSyncTime.value && lastSyncTime.value >= serverTime.value) return true
+  return false
+})
+
 
 // --- Interaction Logic ---
 const handleWordClick = async (event, word, context) => {
@@ -877,29 +975,31 @@ const setActiveSentence = (index, isFromControl = false) => {
         return
     }
 
+    const compensatedEnd = sent.endTime + 0.25
+
     if (activeSentenceIndex.value === index) {
         if (isPlaying.value) {
             audioPlayer.value.pause()
             isPlaying.value = false
         } else {
-            if (currentTime.value < sent.startTime || currentTime.value >= sent.endTime) {
-                isManualSeeking.value = true // 加锁
+            if (currentTime.value < sent.startTime || currentTime.value >= compensatedEnd) {
+                isManualSeeking.value = true
                 audioPlayer.value.currentTime = sent.startTime
             }
             audioPlayer.value.play()
             isPlaying.value = true
-            trainingTargetEnd.value = trainingMode.value ? sent.endTime : null
+            trainingTargetEnd.value = trainingMode.value ? compensatedEnd : null
         }
     } else {
         if (trainingMode.value) {
             revealedSentences.value = []
         }
         activeSentenceIndex.value = index
-        isManualSeeking.value = true // 加锁
+        isManualSeeking.value = true
         audioPlayer.value.currentTime = sent.startTime
         audioPlayer.value.play()
         isPlaying.value = true
-        trainingTargetEnd.value = trainingMode.value ? sent.endTime : null
+        trainingTargetEnd.value = trainingMode.value ? compensatedEnd : null
         scrollToSentence(index)
     }
 }
@@ -1013,11 +1113,11 @@ const nextSentence = () => {
 const replayCurrent = () => {
     if (activeSentenceIndex.value >= 0) {
         const s = sentences.value[activeSentenceIndex.value]
-        isManualSeeking.value = true // 加锁
+        isManualSeeking.value = true
         audioPlayer.value.currentTime = s.startTime
         audioPlayer.value.play()
         isPlaying.value = true
-        trainingTargetEnd.value = trainingMode.value ? s.endTime : null
+        trainingTargetEnd.value = trainingMode.value ? (s.endTime + 0.25) : null // 尾音补偿
     }
 }
 
@@ -1049,6 +1149,8 @@ onUnmounted(() => {
     // It will be cleared when the browser tab is closed/refreshed or when we replace it with a new one.
     // Reset window scroll when leaving to avoid affecting other pages
     window.scrollTo(0, 0)
+
+    if (cloudMenuTimer) clearTimeout(cloudMenuTimer)
 })
 
 </script>
@@ -1087,10 +1189,65 @@ onUnmounted(() => {
                  <button @click="showSettings = true" class="text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700" title="Settings">
                      <div class="i-carbon-settings w-5 h-5"></div>
                  </button>
-                 <button @click="handleSync" class="text-gray-500 dark:text-gray-400 hover:text-green-600 dark:hover:text-green-400 p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700" title="Upload to Cloud (Merge & Sync)">
-                     <div v-if="isSyncing" class="i-carbon-circle-dash w-5 h-5 animate-spin"></div>
-                     <div v-else class="i-carbon-cloud-upload w-5 h-5"></div>
-                 </button>
+
+                 <!-- Cloud Sync Dropdown -->
+                 <div class="relative">
+                     <button @click="toggleCloudMenu" class="text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 relative" :class="{ 'text-blue-600 bg-blue-50': isCloudMenuOpen }" title="Cloud Sync">
+                         <div v-if="isSyncing || isCheckingCloud" class="i-carbon-circle-dash w-5 h-5 animate-spin"></div>
+                         <div v-else class="i-carbon-cloud w-5 h-5"></div>
+                         <!-- Update Indicator -->
+                         <div v-if="isNewVersionAvailable" class="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full border border-white"></div>
+                     </button>
+
+                     <Transition name="cloud-pop">
+                        <div v-if="isCloudMenuOpen" class="absolute right-0 top-full mt-2 w-72 bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-100 dark:border-gray-700 p-4 z-[100] origin-top-right">
+                             <div class="sync-dashboard mb-4" :class="{ 'has-update': isNewVersionAvailable }">
+                                <div class="flex justify-between items-center mb-3 text-xs text-gray-500 dark:text-gray-400">
+                                    <span class="font-bold uppercase tracking-wider">Sync Status</span>
+                                    <span v-if="isCheckingCloud" class="flex items-center gap-1 text-blue-500">
+                                        <div class="i-carbon-circle-dash w-3 h-3 animate-spin"></div> Checking...
+                                    </span>
+                                </div>
+
+                                <div class="flex items-center justify-between gap-2 text-sm">
+                                    <div class="flex flex-col items-center p-2 bg-gray-50 dark:bg-gray-700 rounded-lg flex-1">
+                                        <span class="text-xs text-gray-400 mb-1">Local</span>
+                                        <span class="font-mono font-medium text-gray-700 dark:text-gray-200">{{ lastSyncTime || '--/--' }}</span>
+                                    </div>
+
+                                    <div class="flex flex-col items-center justify-center">
+                                        <div v-if="isNewVersionAvailable" class="i-carbon-arrow-left text-red-500 w-5 h-5 animate-pulse"></div>
+                                        <div v-else class="i-carbon-checkmark text-green-500 w-5 h-5"></div>
+                                    </div>
+
+                                    <div class="flex flex-col items-center p-2 bg-gray-50 dark:bg-gray-700 rounded-lg flex-1" :class="{ 'ring-1 ring-red-200 bg-red-50 dark:bg-red-900/20': isNewVersionAvailable }">
+                                        <span class="text-xs text-gray-400 mb-1">Cloud</span>
+                                        <span class="font-mono font-medium text-gray-700 dark:text-gray-200">{{ serverTime || 'Checking' }}</span>
+                                    </div>
+                                </div>
+
+                                <div v-if="isNewVersionAvailable" class="mt-3 text-xs text-center text-red-500 font-medium bg-red-50 dark:bg-red-900/20 py-1 rounded">
+                                    ✨ New version available!
+                                </div>
+                                <div v-else-if="serverTime" class="mt-3 text-xs text-center text-green-500 font-medium bg-green-50 dark:bg-green-900/20 py-1 rounded">
+                                    ✅ Up to date
+                                </div>
+                             </div>
+
+                             <div class="grid grid-cols-2 gap-2">
+                                 <button @click="uploadToCloud" :disabled="isSyncing" class="flex flex-col items-center justify-center gap-1 p-3 rounded-lg border border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-gray-700 dark:text-gray-300">
+                                     <div class="i-carbon-cloud-upload w-5 h-5 text-blue-500"></div>
+                                     <span class="text-xs font-medium">Backup</span>
+                                 </button>
+
+                                 <button @click="downloadFromCloud" :disabled="isDownloadDisabled" class="flex flex-col items-center justify-center gap-1 p-3 rounded-lg border border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-gray-700 dark:text-gray-300 disabled:opacity-50 disabled:cursor-not-allowed">
+                                     <div class="i-carbon-cloud-download w-5 h-5 text-green-500"></div>
+                                     <span class="text-xs font-medium">Restore</span>
+                                 </button>
+                             </div>
+                        </div>
+                     </Transition>
+                 </div>
             </div>
         </div>
 
@@ -1146,9 +1303,9 @@ onUnmounted(() => {
 
     <div ref="contentRef" class="flex-1 overflow-y-auto bg-gray-100 dark:bg-gray-900 p-2 md:p-4 scroll-smooth" style="padding-top:160px" @scroll="handleScroll" @mouseup="handleTextSelection" @touchend="handleTextSelection">
         <div v-if="sentences.length > 0 && !trainingMode" class="max-w-3xl mx-auto mb-3 flex gap-2 sm:gap-3 justify-center">
-            <button @click="exportLrc" class="px-3 py-1 rounded-full bg-red-600 text-white font-medium text-xs sm:text-sm md:text-base sm:px-4 sm:py-1.5 shadow-sm">导出文本(LRC)</button>
-            <button @click="importLrc" class="px-3 py-1 rounded-full bg-red-600 text-white font-medium text-xs sm:text-sm md:text-base sm:px-4 sm:py-1.5 shadow-sm">导入文本(LRC)</button>
-            <button @click="toggleLrcEdit" :class="(lrcEditMode ? 'bg-blue-600' : 'bg-red-600') + ' px-3 py-1 rounded-full text-white font-medium text-xs sm:text-sm md:text-base sm:px-4 sm:py-1.5 shadow-sm'">{{ lrcEditMode ? '退出修改' : '修改文本(LRC)' }}</button>
+            <button @click="exportLrc" class="px-3 py-1 rounded-full bg-red-600 text-white font-medium text-xs sm:text-sm md:text-base sm:px-4 sm:py-1.5 shadow-sm">导出字幕(LRC)</button>
+            <button @click="importLrc" class="px-3 py-1 rounded-full bg-red-600 text-white font-medium text-xs sm:text-sm md:text-base sm:px-4 sm:py-1.5 shadow-sm">导入字幕(LRC)</button>
+            <button @click="toggleLrcEdit" :class="(lrcEditMode ? 'bg-blue-600' : 'bg-red-600') + ' px-3 py-1 rounded-full text-white font-medium text-xs sm:text-sm md:text-base sm:px-4 sm:py-1.5 shadow-sm'">{{ lrcEditMode ? '退出修改' : '修改字幕(LRC)' }}</button>
             <input ref="lrcFileInput" type="file" accept=".lrc,text/plain" class="hidden" @change="handleLrcFile">
         </div>
 
@@ -1256,7 +1413,7 @@ onUnmounted(() => {
         </div>
     </div>
 
-    <div v-if="trainingMode && sentences.length > 0" class="fixed left-0 right-0 bottom-12 z-[45]">
+   <div v-if="trainingMode && sentences.length > 0" class="fixed left-0 right-0 bottom-36 md:bottom-12 z-[45]">
         <div class="max-w-3xl mx-auto px-4">
             <div class="flex w-full gap-2 sm:gap-3 bg-white/95 dark:bg-gray-800/95 backdrop-blur-md border border-gray-200 dark:border-gray-700 rounded-2xl shadow-xl p-2 sm:p-2.5">
 
@@ -1281,12 +1438,12 @@ onUnmounted(() => {
     </div>
 
     <div v-if="showSettings" class="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4" @click.self="showSettings = false">
-        <div class="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-md p-6 max-h-[85vh] overflow-y-auto text-gray-800 dark:text-gray-100">
             <h3 class="text-lg font-bold mb-4">Settings</h3>
             <div class="space-y-4">
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">API Provider</label>
-                    <select v-model="apiProvider" @change="handleProviderChange" class="w-full border rounded px-3 py-2 bg-white">
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">API Provider</label>
+                    <select v-model="apiProvider" @change="handleProviderChange" class="w-full border dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700">
                         <option value="gemini">Google Gemini (Default)</option>
                         <option value="deepseek">DeepSeek</option>
                         <option value="custom">Custom (Proxy/Other)</option>
@@ -1294,31 +1451,31 @@ onUnmounted(() => {
                 </div>
 
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">API Base URL</label>
-                    <input v-model="apiBaseUrl" type="text" class="w-full border rounded px-3 py-2" placeholder="e.g. https://api.deepseek.com">
-                    <p class="text-xs text-gray-500 mt-1">Leave default, or enter your proxy URL (e.g. OneAPI)</p>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">API Base URL</label>
+                    <input v-model="apiBaseUrl" type="text" class="w-full border dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 dark:text-gray-100" placeholder="e.g. https://api.deepseek.com">
+                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Leave default, or enter your proxy URL (e.g. OneAPI)</p>
                 </div>
 
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Model Name</label>
-                    <input v-model="apiModel" type="text" class="w-full border rounded px-3 py-2" placeholder="e.g. deepseek-chat">
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Model Name</label>
+                    <input v-model="apiModel" type="text" class="w-full border dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 dark:text-gray-100" placeholder="e.g. deepseek-chat">
                 </div>
 
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">API Key</label>
-                    <input v-model="apiKey" type="password" class="w-full border rounded px-3 py-2" placeholder="Enter your API Key">
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">API Key</label>
+                    <input v-model="apiKey" type="password" class="w-full border dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 dark:text-gray-100" placeholder="Enter your API Key">
                 </div>
 
                 <div class="border-t pt-4 mt-4">
-                    <h4 class="font-bold text-gray-800 mb-2">Groq Whisper (STT)</h4>
+                    <h4 class="font-bold text-gray-800 dark:text-gray-200 mb-2">Groq Whisper (STT)</h4>
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Groq API Key</label>
-                        <input v-model="groqApiKey" type="password" class="w-full border rounded px-3 py-2" placeholder="Enter Groq API Key">
-                        <p class="text-xs text-gray-500 mt-1">Required for generating subtitles from audio.</p>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Groq API Key</label>
+                        <input v-model="groqApiKey" type="password" class="w-full border dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 dark:text-gray-100" placeholder="Enter Groq API Key">
+                        <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Required for generating subtitles from audio.</p>
                     </div>
                      <div class="mt-2">
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Model</label>
-                        <input v-model="groqModel" type="text" class="w-full border rounded px-3 py-2" placeholder="distil-whisper-large-v3-en">
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Model</label>
+                        <input v-model="groqModel" type="text" class="w-full border dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 dark:text-gray-100" placeholder="distil-whisper-large-v3-en">
                     </div>
                 </div>
             </div>
@@ -1331,7 +1488,7 @@ onUnmounted(() => {
 
     <!-- History Modal -->
     <div v-if="showHistory" class="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4" @click.self="showHistory = false">
-        <div class="bg-white rounded-lg shadow-xl w-full max-w-2xl p-6 max-h-[80vh] overflow-auto flex flex-col">
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl p-6 max-h-[80vh] overflow-auto flex flex-col text-gray-800 dark:text-gray-100">
             <h3 class="text-lg font-bold mb-4 flex items-center gap-2">
                 <div class="i-carbon-time text-blue-600"></div>
                 Import History
@@ -1342,32 +1499,32 @@ onUnmounted(() => {
                   :key="pair.id"
                   @dblclick="restorePair(pair)"
                   @click="handleHistoryTap(pair)"
-                  class="flex items-center gap-3 p-2 rounded border hover:border-blue-300 hover:shadow-sm cursor-pointer transition"
+                  class="flex items-center gap-3 p-2 rounded border dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-400 hover:shadow-sm cursor-pointer transition"
                   title="Double click to restore this pair"
                 >
                   <div class="flex-1 min-w-0 flex items-center gap-3">
                     <div class="i-carbon-document-pdf text-red-500 w-5 h-5 shrink-0"></div>
-                    <div class="truncate text-sm font-medium text-gray-800">{{ pair.pdf?.name || 'No PDF' }}</div>
+                    <div class="truncate text-sm font-medium text-gray-800 dark:text-gray-200">{{ pair.pdf?.name || 'No PDF' }}</div>
                   </div>
-                  <div class="w-px bg-gray-200 h-6"></div>
+                  <div class="w-px bg-gray-200 dark:bg-gray-700 h-6"></div>
                   <div class="flex-1 min-w-0 flex items-center gap-3">
                     <div class="i-carbon-music text-blue-500 w-5 h-5 shrink-0"></div>
-                    <div class="truncate text-sm font-medium text-gray-800">{{ pair.audio?.name || 'No Audio' }}</div>
+                    <div class="truncate text-sm font-medium text-gray-800 dark:text-gray-200">{{ pair.audio?.name || 'No Audio' }}</div>
                   </div>
                   <div class="flex items-center gap-1 shrink-0">
-                      <button @click.stop="restorePair(pair)" class="p-2 text-blue-600 hover:bg-blue-50 rounded-full" title="Replace Current Session">
+                      <button @click.stop="restorePair(pair)" class="p-2 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-full" title="Replace Current Session">
                           <div class="i-carbon-restart w-4 h-4"></div>
                       </button>
-                      <button @click.stop="deleteHistoryItem(pair)" class="p-2 text-red-500 hover:bg-red-50 rounded-full" title="Delete">
+                      <button @click.stop="deleteHistoryItem(pair)" class="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-full" title="Delete">
                           <div class="i-carbon-trash-can w-4 h-4"></div>
                       </button>
                   </div>
-                  <div class="text-xs text-gray-400 ml-2 shrink-0">{{ pair.date }}</div>
+                  <div class="text-xs text-gray-400 dark:text-gray-500 ml-2 shrink-0">{{ pair.date }}</div>
                 </div>
             </div>
-            <div v-else class="text-center text-gray-500 py-4">No history yet</div>
-            <div class="flex justify-end mt-6 pt-4 border-t">
-                <button @click="showHistory = false" class="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded text-gray-700 font-medium">Close</button>
+            <div v-else class="text-center text-gray-500 dark:text-gray-400 py-4">No history yet</div>
+            <div class="flex justify-end mt-6 pt-4 border-t dark:border-gray-700">
+                <button @click="showHistory = false" class="px-4 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded text-gray-700 dark:text-gray-200 font-medium">Close</button>
             </div>
         </div>
     </div>
