@@ -133,8 +133,8 @@ const getHighlightClass = (hexColor) => {
     }
     // 返回对应的 Tailwind 类，如果没有匹配到（比如异常数据），回退到默认暗色兼容高亮
     return colorMap[hexColor] || 'bg-gray-300 text-gray-900 dark:bg-gray-600 dark:text-gray-100'
-}  
-  
+}
+
 // 新增：API 提供商状态与切换逻辑
 const apiProvider = ref('gemini')
 
@@ -158,6 +158,7 @@ const pdfName = ref('')
 // Audio Player State
 const audioUrl = ref('')
 const audioPlayer = ref(null)
+const isManualSeeking = ref(false)
 const isPlaying = ref(false)
 const playbackRate = ref(1.0)
 const autoPause = ref(false)
@@ -285,7 +286,13 @@ onActivated(() => {
 })
 
 const showHistory = ref(false)
-const showSentenceReplay = ref(true)
+const showSentenceReplay = ref(false)
+const trainingMode = ref(false)
+const revealedSentences = ref([])
+const lrcEditMode = ref(false)
+const editingSentenceIndex = ref(-1)
+const editingText = ref('')
+const trainingTargetEnd = ref(null)
 const historyList = useStorage('my_ielts_learning_history', [])
 const historyPairs = useStorage('my_ielts_learning_pairs', [])
 const currentSessionId = useStorage('my_ielts_session_id', 0)
@@ -573,46 +580,73 @@ const handleAudioChange = async (e) => {
     }
 }
 
+const scrollToSentence = (index) => {
+    // 换用 setTimeout 替代 nextTick，给 80ms 延迟
+    // 确保 DOM 的 CSS 过渡动画已开始，此时获取的物理坐标才最准确
+    setTimeout(() => {
+        const el = document.getElementById(`sent-${index}`)
+        if (!el) return
+
+        // 1. 目标：停留在当前屏幕视口高度的 40% 处
+        const targetY = window.innerHeight * 0.4
+
+        // 2. 获取元素当前相对屏幕顶部的绝对物理坐标
+        const elRect = el.getBoundingClientRect()
+
+        // 3. 计算需要滚动的差值
+        const offset = elRect.top - targetY
+
+        // 4. 防抖：偏差大于 5px 才执行滚动
+        if (Math.abs(offset) > 5) {
+            const container = contentRef.value
+
+            // 【核心修复】：判断滚动条到底长在谁身上
+            if (container && container.scrollHeight > container.clientHeight) {
+                // 如果 contentRef 内容溢出了，说明滚动条在这个 div 上
+                container.scrollBy({ top: offset, behavior: 'smooth' })
+            } else {
+                // 如果高度塌陷，滚动条实际上跑到了整个网页 (window) 上
+                window.scrollBy({ top: offset, behavior: 'smooth' })
+            }
+        }
+    }, 80)
+}
+
 const onTimeUpdate = () => {
     if (audioPlayer.value) {
         currentTime.value = audioPlayer.value.currentTime
-        // Throttle save to session
         if (Math.abs(currentTime.value - sessionAudioTime.value) > 2) {
              sessionAudioTime.value = currentTime.value
         }
 
-        // Highlight active sentence based on timestamp
         if (sentences.value.length > 0 && sentences.value[0].startTime !== undefined) {
+
+            // === 【修复：拦截训练模式的越界】 ===
+            if (trainingMode.value && isPlaying.value && trainingTargetEnd.value != null) {
+                // 如果当前时间已经达到或超过了本句的结束时间
+                if (currentTime.value >= trainingTargetEnd.value) {
+                    audioPlayer.value.pause()
+                    isPlaying.value = false
+
+                    // 核心：强制把时间拨回本句结束前的一瞬间 (减去0.05秒)
+                    // 防止 findIndex 匹配到下一句的 startTime
+                    audioPlayer.value.currentTime = trainingTargetEnd.value - 0.05
+
+                    return // 直接 return，绝不执行下方的高亮切换和滚动逻辑
+                }
+            }
+            // ===================================
+
             const index = sentences.value.findIndex(s => currentTime.value >= s.startTime && currentTime.value < s.endTime)
-            if (index !== -1 && index !== activeSentenceIndex.value) {
+
+            // 只有在“非手动寻道”状态下，才允许音频自动更新句子高亮
+            if (index !== -1 && index !== activeSentenceIndex.value && !isManualSeeking.value) {
+                if (trainingMode.value) {
+                    revealedSentences.value = []
+                }
+
                 activeSentenceIndex.value = index
-
-                // 自动滚动到当前句子 (聚焦在屏幕 2/5 处)
-                nextTick(() => {
-                    const el = document.getElementById(`sent-${index}`)
-                    if (el) {
-                        // 1. 获取当前高亮句子在屏幕上的真实坐标
-                        const elRect = el.getBoundingClientRect()
-
-                        // 2. 黄金定海神针：直接用屏幕总高度的 40% 作为目标位置
-                        const targetY = window.innerHeight * 0.4
-
-                        // 3. 计算偏差值
-                        const diff = elRect.top - targetY
-
-                        // 4. 只有偏差大于 5px 时才滑动，防止高频抖动
-                        if (Math.abs(diff) > 5) {
-                            // 兼容性双杀：同时触发容器滚动和窗口滚动
-                            // 这样无论是由 div 还是由 body 接管了滚动条，都能百分百生效
-                            if (contentRef.value) {
-                                contentRef.value.scrollBy({ top: diff, behavior: 'smooth' })
-                            }
-                            window.scrollBy({ top: diff, behavior: 'smooth' })
-                        }
-                    }
-                })
-
-
+                scrollToSentence(index)
             }
         }
     }
@@ -665,10 +699,24 @@ const togglePlay = () => {
     if (!audioPlayer.value) return
     if (isPlaying.value) {
         audioPlayer.value.pause()
-    } else {
-        audioPlayer.value.play()
+        isPlaying.value = false
+        return
     }
-    isPlaying.value = !isPlaying.value
+    if (trainingMode.value && sentences.value.length > 0) {
+        let idx = activeSentenceIndex.value >= 0 ? activeSentenceIndex.value : 0
+        const s = sentences.value[idx]
+        if (s && s.startTime !== undefined) {
+            if (!(currentTime.value >= s.startTime && currentTime.value < s.endTime)) {
+                isManualSeeking.value = true // 加锁
+                audioPlayer.value.currentTime = s.startTime
+            }
+            trainingTargetEnd.value = s.endTime
+        }
+    } else {
+        trainingTargetEnd.value = null
+    }
+    audioPlayer.value.play()
+    isPlaying.value = true
 }
 
 const changeSpeed = () => {
@@ -810,32 +858,49 @@ const saveWord = () => {
   }
 }
 
-// 替换原来的 setActiveSentence 函数 (约在第 450 行左右)
-const setActiveSentence = (index) => {
-    const sent = sentences.value[index]
+const setActiveSentence = (index, isFromControl = false) => {
+    if (lrcEditMode.value) {
+        activeSentenceIndex.value = index
+        return
+    }
 
-    // 如果该句子没有时间戳（比如纯 PDF 提取），只做高亮
+    if (trainingMode.value && !revealedSentences.value.includes(index)) {
+        if (!isFromControl) {
+            revealedSentences.value.push(index)
+            return
+        }
+    }
+
+    const sent = sentences.value[index]
     if (!sent || sent.startTime === undefined) {
         activeSentenceIndex.value = index
         return
     }
 
-    // 核心逻辑：判断点击的是不是当前已经高亮的句子
     if (activeSentenceIndex.value === index) {
-        // 点击同一个句子：切换 播放/暂停 状态
         if (isPlaying.value) {
             audioPlayer.value.pause()
             isPlaying.value = false
         } else {
+            if (currentTime.value < sent.startTime || currentTime.value >= sent.endTime) {
+                isManualSeeking.value = true // 加锁
+                audioPlayer.value.currentTime = sent.startTime
+            }
             audioPlayer.value.play()
             isPlaying.value = true
+            trainingTargetEnd.value = trainingMode.value ? sent.endTime : null
         }
     } else {
-        // 点击不同的句子：更新高亮，跳转时间点，并强制播放
+        if (trainingMode.value) {
+            revealedSentences.value = []
+        }
         activeSentenceIndex.value = index
+        isManualSeeking.value = true // 加锁
         audioPlayer.value.currentTime = sent.startTime
         audioPlayer.value.play()
         isPlaying.value = true
+        trainingTargetEnd.value = trainingMode.value ? sent.endTime : null
+        scrollToSentence(index)
     }
 }
 
@@ -848,6 +913,137 @@ const formatTime = (s) => {
     return `${m}:${sec.toString().padStart(2, '0')}`
 }
 
+const formatLrcTime = (t) => {
+    const m = Math.floor(t / 60)
+    const s = Math.floor(t % 60)
+    const cs = Math.floor((t - Math.floor(t)) * 100)
+    return `[${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}.${String(cs).padStart(2,'0')}]`
+}
+
+const exportLrc = () => {
+    if (!sentences.value.length) return
+    const lines = sentences.value.map(s => `${formatLrcTime(s.startTime)}${s.text}`)
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = (pdfName.value || 'subtitles') + '.lrc'
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+}
+
+const lrcFileInput = ref(null)
+const importLrc = () => {
+    if (lrcFileInput.value) lrcFileInput.value.click()
+}
+const handleLrcFile = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const text = await file.text()
+    const lines = text.split(/\r?\n/).filter(Boolean)
+    const parsed = []
+    for (const line of lines) {
+        const m = line.match(/^\[(\d{2}):(\d{2})\.(\d{2})\](.*)$/)
+        if (!m) continue
+        const mm = parseInt(m[1],10)
+        const ss = parseInt(m[2],10)
+        const cs = parseInt(m[3],10)
+        const t = mm*60 + ss + cs/100
+        const txt = m[4].trim()
+        parsed.push({ startTime: t, text: txt })
+    }
+    for (let i=0;i<parsed.length;i++){
+        const end = i < parsed.length-1 ? parsed[i+1].startTime : parsed[i].startTime + 5
+        parsed[i].endTime = end
+        parsed[i].id = i
+        parsed[i].words = parsed[i].text.split(' ').map(w => ({ text: w, color: null }))
+    }
+    sentences.value = parsed
+    sessionSentences.value = parsed
+}
+
+const toggleLrcEdit = () => {
+    lrcEditMode.value = !lrcEditMode.value
+    if (!lrcEditMode.value) {
+        editingSentenceIndex.value = -1
+        editingText.value = ''
+    } else {
+        // 进入编辑模式时，暂停播放，避免误触发
+        if (isPlaying.value && audioPlayer.value) {
+            audioPlayer.value.pause()
+            isPlaying.value = false
+        }
+    }
+}
+const startEditSentence = (index) => {
+    editingSentenceIndex.value = index
+    editingText.value = sentences.value[index].text
+}
+const saveEditSentence = (index) => {
+    const txt = editingText.value.trim()
+    if (!txt) return
+    const s = sentences.value[index]
+    s.text = txt
+    s.words = txt.split(' ').map(w => ({ text: w, color: null }))
+    sentences.value = [...sentences.value]
+    sessionSentences.value = sentences.value
+    editingSentenceIndex.value = -1
+    editingText.value = ''
+}
+
+const toggleTrainingMode = () => {
+    trainingMode.value = !trainingMode.value
+    trainingTargetEnd.value = null
+    // 新增：每次进入训练模式时，重置所有遮罩
+    if (trainingMode.value) {
+        revealedSentences.value = []
+    }
+}
+
+
+const prevSentence = () => {
+    // 传入 true 表示这是来自控制台的指令，自动解开遮罩并强制播放
+    if (activeSentenceIndex.value > 0) setActiveSentence(activeSentenceIndex.value - 1, true)
+}
+
+const nextSentence = () => {
+    if (activeSentenceIndex.value < sentences.value.length - 1) setActiveSentence(activeSentenceIndex.value + 1, true)
+}
+
+const replayCurrent = () => {
+    if (activeSentenceIndex.value >= 0) {
+        const s = sentences.value[activeSentenceIndex.value]
+        isManualSeeking.value = true // 加锁
+        audioPlayer.value.currentTime = s.startTime
+        audioPlayer.value.play()
+        isPlaying.value = true
+        trainingTargetEnd.value = trainingMode.value ? s.endTime : null
+    }
+}
+
+const handleKeydown = (e) => {
+    if (e.code === 'Space') {
+        const tag = (e.target && e.target.tagName) || ''
+        const editable = tag === 'INPUT' || tag === 'TEXTAREA' || (e.target && e.target.isContentEditable)
+        if (!editable) {
+            e.preventDefault()
+            if (isPlaying.value) {
+                audioPlayer.value.pause()
+                isPlaying.value = false
+            } else {
+                audioPlayer.value.play()
+                isPlaying.value = true
+            }
+        }
+    }
+}
+
+onMounted(() => {
+    document.addEventListener('keydown', handleKeydown)
+})
+onUnmounted(() => {
+    document.removeEventListener('keydown', handleKeydown)
+})
 onUnmounted(() => {
     // Note: Do NOT revoke object URL here. We want it to persist across route changes.
     // It will be cleared when the browser tab is closed/refreshed or when we replace it with a new one.
@@ -882,8 +1078,8 @@ onUnmounted(() => {
             </div>
 
             <div class="flex items-center gap-1">
-                 <button @click="showSentenceReplay = !showSentenceReplay" :class="showSentenceReplay ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30' : 'text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700'" class="p-2 rounded-full transition-colors" title="Toggle Sentence Replay Buttons">
-                     <div class="i-carbon-reset w-5 h-5"></div>
+                 <button @click="toggleTrainingMode" :class="trainingMode ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30' : 'text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700'" class="p-2 rounded-full transition-colors" title="Training Mode">
+                     <div :class="trainingMode ? 'i-carbon-task-approved' : 'i-carbon-task'" class="w-5 h-5"></div>
                  </button>
                  <button @click="showHistory = true" class="text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700" title="History">
                      <div class="i-carbon-time w-5 h-5"></div>
@@ -897,6 +1093,7 @@ onUnmounted(() => {
                  </button>
             </div>
         </div>
+
 
         <!-- Row 2: Audio Controls (If loaded) -->
         <div v-if="audioUrl" class="flex items-center gap-4 bg-gray-50 dark:bg-gray-700/50 p-2 rounded-lg border dark:border-gray-600">
@@ -919,7 +1116,7 @@ onUnmounted(() => {
                     min="0"
                     :max="duration"
                     :value="currentTime"
-                    @input="e => audioPlayer.currentTime = e.target.value"
+                    @input="e => { isManualSeeking = true; audioPlayer.currentTime = e.target.value }"
                     class="w-full h-1 bg-gray-300 dark:bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-600"
                 >
             </div>
@@ -940,6 +1137,7 @@ onUnmounted(() => {
                 @timeupdate="onTimeUpdate"
                 @loadedmetadata="onLoadedMetadata"
                 @ended="onAudioEnded"
+                @seeked="isManualSeeking = false"
                 class="hidden"
             ></audio>
           </div>
@@ -947,6 +1145,12 @@ onUnmounted(() => {
     </div>
 
     <div ref="contentRef" class="flex-1 overflow-y-auto bg-gray-100 dark:bg-gray-900 p-2 md:p-4 scroll-smooth" style="padding-top:160px" @scroll="handleScroll" @mouseup="handleTextSelection" @touchend="handleTextSelection">
+        <div v-if="sentences.length > 0 && !trainingMode" class="max-w-3xl mx-auto mb-3 flex gap-2 sm:gap-3 justify-center">
+            <button @click="exportLrc" class="px-3 py-1 rounded-full bg-red-600 text-white font-medium text-xs sm:text-sm md:text-base sm:px-4 sm:py-1.5 shadow-sm">导出文本(LRC)</button>
+            <button @click="importLrc" class="px-3 py-1 rounded-full bg-red-600 text-white font-medium text-xs sm:text-sm md:text-base sm:px-4 sm:py-1.5 shadow-sm">导入文本(LRC)</button>
+            <button @click="toggleLrcEdit" :class="(lrcEditMode ? 'bg-blue-600' : 'bg-red-600') + ' px-3 py-1 rounded-full text-white font-medium text-xs sm:text-sm md:text-base sm:px-4 sm:py-1.5 shadow-sm'">{{ lrcEditMode ? '退出修改' : '修改文本(LRC)' }}</button>
+            <input ref="lrcFileInput" type="file" accept=".lrc,text/plain" class="hidden" @change="handleLrcFile">
+        </div>
 
         <div v-if="sentences.length > 0" class="max-w-3xl mx-auto space-y-2">
             <div
@@ -959,15 +1163,14 @@ onUnmounted(() => {
                 ? 'bg-blue-50/80 dark:bg-blue-900/30 border-blue-300 dark:border-blue-600 shadow-lg ring-1 ring-blue-300/50 dark:ring-blue-500/50 scale-[1.02] opacity-100 z-10'
                 : 'bg-white dark:bg-gray-800 border-gray-100 dark:border-gray-800 hover:border-blue-200 dark:hover:border-blue-700 scale-100 opacity-60 hover:opacity-100']"
             >
-                <button
-                    v-if="showSentenceReplay"
-                    @click.stop="replaySentence(sent)"
-                    class="shrink-0 mt-1 w-6 h-6 flex items-center justify-center rounded-full text-gray-400 hover:text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors"
-                    title="重播本句"
+                <p
+                    class="text-lg leading-relaxed break-words whitespace-pre-wrap flex-1 min-w-0 transition-all duration-300"
+                    :class="[
+                        (trainingMode && !revealedSentences.includes(index))
+                        ? 'blur-[6px] opacity-40 select-none pointer-events-none text-gray-800 dark:text-gray-200'
+                        : 'blur-0 opacity-100 text-gray-800 dark:text-gray-200'
+                    ]"
                 >
-                    <div class="i-carbon-reset w-4 h-4"></div>
-                </button>
-                <p class="text-lg leading-relaxed text-gray-800 dark:text-gray-200 break-words whitespace-pre-wrap flex-1 min-w-0">
                     <span
                         v-for="(wordObj, wIdx) in sent.words"
                         :key="wIdx"
@@ -976,12 +1179,24 @@ onUnmounted(() => {
                         @click.stop="handleWordClick($event, wordObj.text, sent.text)"
                         class="rounded px-[2px] cursor-pointer transition-colors"
                         :class="[
-                            wordObj.color 
-                                ? getHighlightClass(wordObj.color) 
+                            wordObj.color
+                                ? getHighlightClass(wordObj.color)
                                 : 'hover:bg-gray-200 dark:hover:bg-gray-600'
                         ]"
                     >{{ wordObj.text }} </span>
                 </p>
+                <div v-if="lrcEditMode" class="shrink-0 flex items-start">
+                    <button v-if="editingSentenceIndex !== index" @click.stop="startEditSentence(index)" class="p-1 rounded text-gray-500 hover:text-blue-600">
+                        <div class="i-carbon-edit w-4 h-4"></div>
+                    </button>
+                </div>
+                <div v-if="lrcEditMode && editingSentenceIndex === index" class="w-full mt-2">
+                    <input v-model="editingText" class="w-full border rounded px-2 py-1 text-sm bg-white dark:bg-gray-800" />
+                    <div class="mt-2 flex gap-2">
+                        <button @click.stop="saveEditSentence(index)" class="px-3 py-1 rounded bg-blue-600 text-white text-sm">保存</button>
+                        <button @click.stop="editingSentenceIndex = -1" class="px-3 py-1 rounded bg-gray-200 text-gray-700 text-sm">取消</button>
+                    </div>
+                </div>
 
 
                 <!-- Translation Placeholder (Could be expanded later) -->
@@ -1016,19 +1231,51 @@ onUnmounted(() => {
                     Note: Audio sync is manual as PDF files do not contain timestamps.
                 </p>
 
-                <div v-if="audioUrl" class="mt-6 flex flex-col items-center">
+                <div v-if="audioUrl" class="mt-6 flex flex-col items-center w-full max-w-xs mx-auto">
                     <div class="w-full h-px bg-gray-200 mb-6"></div>
-                    <button
-                        @click="generateSubtitles"
-                        :disabled="isTranscribing"
-                        class="bg-blue-600 dark:bg-blue-700 text-white px-6 py-2.5 rounded-full hover:bg-blue-700 dark:hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shadow-lg hover:shadow-xl transition-all active:scale-95 font-medium"
-                    >
-                        <div v-if="isTranscribing" class="i-carbon-circle-dash animate-spin w-5 h-5"></div>
-                        <div v-else class="i-carbon-closed-caption-alt w-5 h-5"></div>
-                        <span>{{ isTranscribing ? 'Transcribing Audio...' : 'Generate Subtitles (Groq)' }}</span>
-                    </button>
-                    <p class="text-xs mt-2 text-gray-400">Powered by Whisper on Groq</p>
+                    <div class="w-full flex flex-col gap-3">
+                        <button @click="importLrc" class="w-full justify-center bg-violet-600 dark:bg-violet-700 text-white px-6 py-2.5 rounded-full hover:bg-violet-700 dark:hover:bg-violet-600 flex items-center gap-2 shadow-lg hover:shadow-xl transition-all active:scale-95 font-medium">
+                            <div class="i-carbon-document-import w-5 h-5"></div>
+                            <span>导入字幕(LRC)</span>
+                        </button>
+                        <input ref="lrcFileInput" type="file" accept=".lrc,text/plain" class="hidden" @change="handleLrcFile">
+
+                        <button
+                            @click="generateSubtitles"
+                            :disabled="isTranscribing"
+                            class="w-full justify-center bg-blue-600 dark:bg-blue-700 text-white px-6 py-2.5 rounded-full hover:bg-blue-700 dark:hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shadow-lg hover:shadow-xl transition-all active:scale-95 font-medium"
+                        >
+                            <div v-if="isTranscribing" class="i-carbon-circle-dash animate-spin w-5 h-5"></div>
+                            <div v-else class="i-carbon-closed-caption-alt w-5 h-5"></div>
+                            <span>{{ isTranscribing ? 'Transcribing Audio...' : 'Generate Subtitles (Groq)' }}</span>
+                        </button>
+                    </div>
+                    <p class="text-xs mt-3 text-gray-400">Powered by Whisper on Groq</p>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <div v-if="trainingMode && sentences.length > 0" class="fixed left-0 right-0 bottom-12 z-[45]">
+        <div class="max-w-3xl mx-auto px-4">
+            <div class="flex w-full gap-2 sm:gap-3 bg-white/95 dark:bg-gray-800/95 backdrop-blur-md border border-gray-200 dark:border-gray-700 rounded-2xl shadow-xl p-2 sm:p-2.5">
+
+                <button @click="prevSentence" class="flex-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm sm:text-base font-medium transition-colors shadow-sm whitespace-nowrap text-center">
+                    上一句
+                </button>
+
+                <button @click="replayCurrent" class="flex-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm sm:text-base font-medium transition-colors shadow-sm whitespace-nowrap text-center">
+                    重播本句
+                </button>
+
+                <button @click="togglePlay" class="flex-1 py-2.5 rounded-xl text-white text-sm sm:text-base font-medium transition-colors shadow-sm whitespace-nowrap text-center" :class="isPlaying ? 'bg-amber-500 hover:bg-amber-600' : 'bg-emerald-500 hover:bg-emerald-600'">
+                    {{ isPlaying ? '暂停' : '继续' }}
+                </button>
+
+                <button @click="nextSentence" class="flex-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm sm:text-base font-medium transition-colors shadow-sm whitespace-nowrap text-center">
+                    下一句
+                </button>
+
             </div>
         </div>
     </div>
