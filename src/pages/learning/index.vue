@@ -769,12 +769,11 @@ const checkCloudStatus = async () => {
     if (res.ok) {
       const data = await res.json()
 
-      // 🔥 核心隔离：只读取属于 Learning 的独立时间文件
+      // 🔥 读取 Learning 专属的时间文件
       const metaFile = data.files['learning-meta.txt']
       if (metaFile && metaFile.content) {
          serverTime.value = metaFile.content
       } else {
-         // 兜底方案（第一次没有这个文件时，使用全局时间）
          const serverDate = new Date(data.updated_at)
          const m = String(serverDate.getMonth() + 1).padStart(2, '0')
          const d = String(serverDate.getDate()).padStart(2, '0')
@@ -819,15 +818,14 @@ const uploadToCloud = async () => {
   isSyncing.value = true
   try {
     const fileName = 'learning-history.json'
-    const contentStr = JSON.stringify(historyPairs.value) // 这是海量数据
+    const contentStr = JSON.stringify(historyPairs.value)
 
-    // 生成时间戳
     const now = new Date()
     const m = String(now.getMonth() + 1).padStart(2, '0')
     const d = String(now.getDate()).padStart(2, '0')
     const h = String(now.getHours()).padStart(2, '0')
     const min = String(now.getMinutes()).padStart(2, '0')
-    const currentSyncStr = `${m}/${d} ${h}:${min}` // 这是极短的时间
+    const currentSyncStr = `${m}/${d} ${h}:${min}`
 
     const url = `https://api.github.com/gists/${syncConfig.gistId}`
     const res = await fetch(url, {
@@ -839,8 +837,8 @@ const uploadToCloud = async () => {
       body: JSON.stringify({
         files: {
           [fileName]: { content: contentStr },
-          // 🚨 核心修复：这里必须是 currentSyncStr，绝对不能是 contentStr！
-          'learning-meta.txt': { content: currentSyncStr } 
+          // 🚨 核心修复：这里只存极短的时间戳字符串
+          'learning-meta.txt': { content: currentSyncStr }
         }
       })
     })
