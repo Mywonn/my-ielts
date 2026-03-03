@@ -295,6 +295,22 @@ watch(currentTime, (newTime) => {
     }
 })
 
+// 全局 Toast 提示状态
+const toast = reactive({
+    visible: false,
+    message: '',
+    type: 'success' // 'success' 或 'error'
+})
+
+const showToast = (message, type = 'success') => {
+    toast.message = message
+    toast.type = type
+    toast.visible = true
+    setTimeout(() => {
+        toast.visible = false
+    }, 3000) // 3秒后自动消失
+}
+
 // 1. 正常记录滚动
 const handleScroll = (e) => {
     sessionScrollY.value = e.target.scrollTop
@@ -781,55 +797,76 @@ const scrollToSentence = (index) => {
         }
     }, 80)
 }
+let rAFId = null
 
-const onTimeUpdate = () => {
-    // 【核心拦截】：如果页面被 KeepAlive 切入后台，屏蔽一切底层抛出的异常 timeupdate 事件
+// --- 重构：将原 onTimeUpdate 的核心逻辑提炼成独立函数 ---
+const syncUIWithAudio = (time) => {
     if (!isPageActive.value) return;
 
+    currentTime.value = time;
+
+    // 【核心防御】：防止瞬间回弹到 0
+    if (currentTime.value === 0 && sessionAudioTime.value > 2 && !isManualSeeking.value) {
+        return;
+    }
+
+    if (Math.abs(currentTime.value - sessionAudioTime.value) > 2) {
+         sessionAudioTime.value = currentTime.value;
+    }
+
+    if (sentences.value.length > 0 && sentences.value[0].startTime !== undefined) {
+        // === 1. 训练模式绝对拦截 ===
+        if (trainingMode.value && trainingTargetEnd.value != null) {
+            if (currentTime.value >= trainingTargetEnd.value) {
+                if (isPlaying.value) {
+                    audioPlayer.value.pause();
+                    isPlaying.value = false;
+                    audioPlayer.value.currentTime = trainingTargetEnd.value;
+                }
+                return;
+            }
+        }
+
+        // === 2. 匹配句子 ===
+        const index = sentences.value.findIndex(s => {
+            return currentTime.value >= s.startTime && currentTime.value < (s.endTime + 0.25);
+        });
+
+        if (index !== -1 && index !== activeSentenceIndex.value && !isManualSeeking.value) {
+            if (trainingMode.value) {
+                revealedSentences.value = [];
+            }
+            activeSentenceIndex.value = index;
+            scrollToSentence(index);
+        }
+    }
+}
+
+// --- 新增：高频刷新循环 (60fps) ---
+const loopSync = () => {
+    if (!isPlaying.value || !audioPlayer.value) return;
+    syncUIWithAudio(audioPlayer.value.currentTime);
+    rAFId = requestAnimationFrame(loopSync);
+}
+
+// --- 新增：监听 isPlaying 状态，自动接管时间轴刷新 ---
+watch(isPlaying, (playing) => {
+    if (playing) {
+        if (rAFId) cancelAnimationFrame(rAFId); // 防止重复注册
+        rAFId = requestAnimationFrame(loopSync);
+    } else {
+        if (rAFId) cancelAnimationFrame(rAFId); // 暂停时停止高频刷新，节省性能
+    }
+})
+
+// --- 改造：原有的 onTimeUpdate 现在只负责在暂停拖拽时兜底 ---
+const onTimeUpdate = () => {
+    // 如果正在播放，UI更新已经交给了高频的 rAF，这里直接 return 避免重复计算
+    if (isPlaying.value) return;
+
+    // 如果是暂停状态下（比如用户拖动进度条），依然依赖 timeupdate 更新 UI
     if (audioPlayer.value) {
-        currentTime.value = audioPlayer.value.currentTime
-
-        // 【核心防御】：防止因为网络卡顿或 DOM 卸载导致瞬间回弹到 0，除非是用户手动拖拽到 0
-        if (currentTime.value === 0 && sessionAudioTime.value > 2 && !isManualSeeking.value) {
-            return
-        }
-
-        if (Math.abs(currentTime.value - sessionAudioTime.value) > 2) {
-             sessionAudioTime.value = currentTime.value
-        }
-
-        if (sentences.value.length > 0 && sentences.value[0].startTime !== undefined) {
-
-            // === 1. 训练模式绝对拦截（去掉 isPlaying 条件） ===
-            if (trainingMode.value && trainingTargetEnd.value != null) {
-                // 只要当前时间达到或越过目标线，不论是否在播放，绝对拦截
-                if (currentTime.value >= trainingTargetEnd.value) {
-                    if (isPlaying.value) {
-                        audioPlayer.value.pause()
-                        isPlaying.value = false
-                        audioPlayer.value.currentTime = trainingTargetEnd.value
-                    }
-                    // 无论如何，直接 return，死死卡住，不准执行后面的高亮跳转
-                    return
-                }
-            }
-
-            // === 2. 极简优雅的视觉“慢半拍” ===
-            // 只要当前时间落在句子的 startTime，以及 endTime 之后的 0.25 秒内，都算这句话。
-            // findIndex 会自动匹配第一个符合条件的，自然吸收尾音时间，不闪烁不乱跳。
-            const index = sentences.value.findIndex(s => {
-                return currentTime.value >= s.startTime && currentTime.value < (s.endTime + 0.25)
-            })
-
-            if (index !== -1 && index !== activeSentenceIndex.value && !isManualSeeking.value) {
-                if (trainingMode.value) {
-                    revealedSentences.value = []
-                }
-
-                activeSentenceIndex.value = index
-                scrollToSentence(index)
-            }
-        }
+        syncUIWithAudio(audioPlayer.value.currentTime);
     }
 }
 
@@ -1005,9 +1042,11 @@ const uploadToSupabase = async () => {
         await syncHistoryToSupabase(supabaseUrl.value, supabaseKey.value, recordsToSync);
 
         syncMessage.value = 'Upload successful!';
+        if (typeof showToast === 'function') showToast('同步成功：数据已上传至云端', 'success');
     } catch (error) {
         console.error('Supabase upload error:', error);
         syncMessage.value = `Error: ${error.message}`;
+        if (typeof showToast === 'function') showToast(`上传失败: ${error.message}`, 'error');
     } finally {
         isSyncing.value = false;
         setTimeout(() => { syncMessage.value = '' }, 4000);
@@ -1080,9 +1119,11 @@ const downloadFromSupabase = async () => {
         }
         historyPairs.value.sort((a, b) => new Date(b.date) - new Date(a.date));
         syncMessage.value = 'Download and sync complete!';
+        if (typeof showToast === 'function') showToast('同步成功：云端数据已下载到本地', 'success');
     } catch (error) {
         console.error('Supabase download error:', error);
         syncMessage.value = `Error: ${error.message}`;
+        if (typeof showToast === 'function') showToast(`下载失败: ${error.message}`, 'error');
     } finally {
         isSyncing.value = false;
         setTimeout(() => { syncMessage.value = '' }, 4000);
@@ -1361,18 +1402,23 @@ onMounted(() => {
     document.addEventListener('click', handleOutsideClose, true)
     document.addEventListener('scroll', handleScrollClose, true)
 })
+
 onUnmounted(() => {
+    // 1. 移除全局事件监听
     document.removeEventListener('keydown', handleKeydown)
     document.removeEventListener('click', handleOutsideClose, true)
     document.removeEventListener('scroll', handleScrollClose, true)
-})
-onUnmounted(() => {
+
+    // 2. 保留状态、重置滚动与清理定时器
     // Note: Do NOT revoke object URL here. We want it to persist across route changes.
     // It will be cleared when the browser tab is closed/refreshed or when we replace it with a new one.
     // Reset window scroll when leaving to avoid affecting other pages
     window.scrollTo(0, 0)
 
-    if (cloudMenuTimer) clearTimeout(cloudMenuTimer)
+    if (syncMenuTimer.value) clearTimeout(syncMenuTimer.value)
+
+    // 3. 停止高频动画帧刷新 (新增)
+    if (rAFId) cancelAnimationFrame(rAFId)
 })
 
 </script>
@@ -1415,7 +1461,17 @@ onUnmounted(() => {
                 <!-- Supabase Sync Button -->
                 <div class="relative flex items-center">
                     <button @click="toggleSyncMenu" class="text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700" title="Supabase Sync">
-                        <div class="i-carbon-cloud-upload w-5 h-5" :class="{ 'animate-spin': isSyncing }"></div>
+                        <div v-if="!isSyncing" class="i-carbon-cloud-upload w-5 h-5"></div>
+                        <svg v-else class="w-5 h-5 animate-spin text-blue-500" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+                            <circle cx="12" cy="3" r="2" opacity="0.9"/>
+                            <circle cx="18.36" cy="5.64" r="2" opacity="0.8"/>
+                            <circle cx="21" cy="12" r="2" opacity="0.6"/>
+                            <circle cx="18.36" cy="18.36" r="2" opacity="0.4"/>
+                            <circle cx="12" cy="21" r="2" opacity="0.2"/>
+                            <circle cx="5.64" cy="18.36" r="2" opacity="0.1"/>
+                            <circle cx="3" cy="12" r="2" opacity="0.3"/>
+                            <circle cx="5.64" cy="5.64" r="2" opacity="0.7"/>
+                        </svg>
                     </button>
                     <!-- Sync Dropdown Menu -->
                     <div v-if="isSyncMenuOpen" class="absolute right-0 top-full mt-2 w-48 bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-md shadow-lg z-20">
@@ -1792,6 +1848,20 @@ onUnmounted(() => {
           </button>
         </div>
       </div>
+    </div>
+    <div
+        class="fixed top-24 left-1/2 transform -translate-x-1/2 z-[200] transition-all duration-300 pointer-events-none"
+        :class="toast.visible ? 'translate-y-0 opacity-100' : '-translate-y-4 opacity-0'"
+    >
+        <div
+            class="flex items-center gap-2 px-5 py-2.5 rounded-full shadow-lg text-sm font-medium border backdrop-blur-md"
+            :class="toast.type === 'success'
+                ? 'bg-green-50/95 text-green-700 border-green-200 dark:bg-green-900/90 dark:text-green-100 dark:border-green-800'
+                : 'bg-red-50/95 text-red-700 border-red-200 dark:bg-red-900/90 dark:text-red-100 dark:border-red-800'"
+        >
+            <div :class="toast.type === 'success' ? 'i-carbon-checkmark-filled text-green-500' : 'i-carbon-error-filled text-red-500'" class="w-4 h-4 shrink-0"></div>
+            <span>{{ toast.message }}</span>
+        </div>
     </div>
   </div>
 </template>
