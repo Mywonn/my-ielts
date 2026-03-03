@@ -437,16 +437,6 @@ onActivated(() => {
     isPageActive.value = true
     seekRestored.value = false // 核心：重置锁，允许由于浏览器释放资源导致的二次 canplay 恢复时间
 
-    if (sessionAudioTime.value > 0) {
-        currentTime.value = sessionAudioTime.value
-    }
-
-    requestAnimationFrame(() => {
-        if (contentRef.value && sessionScrollY.value > 0) {
-            contentRef.value.scrollTop = sessionScrollY.value
-        }
-    })
-
     requestAnimationFrame(() => {
         if (contentRef.value && sessionScrollY.value > 0) {
             contentRef.value.scrollTop = sessionScrollY.value
@@ -812,10 +802,6 @@ let rAFId = null
 // --- 重构：将原 onTimeUpdate 的核心逻辑提炼成独立函数 ---
 const syncUIWithAudio = (time) => {
     if (!isPageActive.value) return;
-
-    if (time === 0 && sessionAudioTime.value > 2 && !isManualSeeking.value) {
-        return;
-    }
 
     currentTime.value = time;
 
@@ -1511,11 +1497,10 @@ onUnmounted(() => {
         <!-- Row 2: Audio Controls (If loaded) -->
         <div v-if="audioUrl" class="flex items-center gap-4 bg-gray-50 dark:bg-gray-700/50 p-2 rounded-lg border dark:border-gray-600">
             <div class="flex items-center gap-2 shrink-0">
-                <button @click.stop.prevent="togglePlay" class="w-10 h-10 flex items-center justify-center rounded-full bg-blue-600 hover:bg-blue-700 text-white shadow-sm">
+                <button @click="togglePlay" class="w-10 h-10 flex items-center justify-center rounded-full bg-blue-600 hover:bg-blue-700 text-white shadow-sm">
                     <div :class="isPlaying ? 'i-carbon-pause' : 'i-carbon-play'" class="w-5 h-5"></div>
                 </button>
-
-                <button @click.stop.prevent="restartTrack" class="w-8 h-8 flex items-center justify-center rounded-full text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors" title="Restart Track">
+                <button @click="restartTrack" class="w-8 h-8 flex items-center justify-center rounded-full text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors" title="Restart Track">
                     <div class="i-carbon-skip-back-filled w-5 h-5"></div>
                 </button>
             </div>
@@ -1536,11 +1521,11 @@ onUnmounted(() => {
             </div>
 
             <div class="flex items-center gap-1 shrink-0">
-                <button @click.stop.prevent="toggleLoop" :class="loopMode === 'one' ? 'text-blue-600 bg-blue-100 dark:bg-blue-900/50' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'" class="p-1.5 rounded" title="Loop Mode">
+                <button @click="toggleLoop" :class="loopMode === 'one' ? 'text-blue-600 bg-blue-100 dark:bg-blue-900/50' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'" class="p-1.5 rounded" title="Loop Mode">
                     <div :class="loopMode === 'one' ? 'i-carbon-repeat-one' : 'i-carbon-repeat'" class="w-5 h-5"></div>
                 </button>
                 <div class="w-px h-4 bg-gray-300 dark:bg-gray-600 mx-1"></div>
-                <button @click.stop.prevent="changeSpeed" class="w-10 text-xs font-bold font-mono p-1.5 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 rounded">
+                <button @click="changeSpeed" class="w-10 text-xs font-bold font-mono p-1.5 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 rounded">
                     {{ playbackRate }}x
                 </button>
             </div>
