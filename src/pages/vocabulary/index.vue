@@ -1089,7 +1089,12 @@ function checkInput(word, e) {
   // 1. 获取输入值
   let val = e.target.value.trim().toLowerCase()
 
-  // 如果内容为空：认为是“暂时跳过”... (保留你的原有代码)
+  // 🔥🔥🔥【核心修复】：拦截 Enter 和 Blur 导致的双重触发
+  // 如果这次输入的值和上一次检查的值一模一样，直接跳过，防止白白消耗修改次数
+  if (e.target._lastCheckedVal === val) return
+  e.target._lastCheckedVal = val
+
+  // 如果内容为空：认为是“暂时跳过”
   if (!val) {
     delete statusMap[word.en]
     if (pendingFailures[word.en]) {
@@ -1110,7 +1115,7 @@ function checkInput(word, e) {
 
   const isCorrect = normalize(val) === normalize(answer)
 
-  // 🔥🔥🔥【核心修复 1】：在更新状态前，先看看它刚才是不是已经答对过了
+  // 在更新状态前，先看看它刚才是不是已经答对过了
   const wasAlreadyCorrect = statusMap[word.en] === 'correct'
 
   // 更新红绿状态映射
@@ -1118,8 +1123,6 @@ function checkInput(word, e) {
 
   if (isCorrect) {
     // --- 答对了 ---
-
-    // 🔥🔥🔥【核心修复 2】：如果刚才已经是绿框了，说明这是被 @change 连带触发的，直接拦截！
     if (wasAlreadyCorrect) return
 
     if (pendingFailures[word.en]) {
@@ -1145,7 +1148,7 @@ function checkInput(word, e) {
     if (idx > -1) {
       updateDailyStats('review', 1)
       const item = reviewList.value[idx]
-      item.stage += 1
+      item.stage += 1 // 正常晋级
       if (item.stage >= INTERVALS.length) {
         reviewList.value.splice(idx, 1)
         if (!killedList.value.includes(word.en)) {
@@ -1160,44 +1163,43 @@ function checkInput(word, e) {
   }  else {
     // --- 答错了 ---
 
-    // 🔥 1. 记录修改次数
+    // 1. 记录修改次数
     if (pendingFailures[word.en]) {
-      // 如果已经在倒计时内，说明这是一次修改
       retryCounts[word.en] = (retryCounts[word.en] || 0) + 1
     } else {
-      // 第一次拼错，初始化修改次数为 0
       retryCounts[word.en] = 0
     }
 
-    // 🔥 2. 震动反馈
+    // 2. 震动反馈
     if (pendingFailures[word.en] && e.target) {
       e.target.classList.remove('shake-animation')
-      void e.target.offsetWidth // 强制重绘，保证每次都能震
+      void e.target.offsetWidth // 强制重绘
       e.target.classList.add('shake-animation')
     }
 
-    // 🔥 3. 检查是否达到上限（最多改 2 次）
+    // 3. 检查是否达到上限（最多改 2 次）
     if (retryCounts[word.en] >= 2) {
-      // 直接判负，不给机会了
+      // 真正达到 2 次上限才判负
       if (pendingFailures[word.en]) clearTimeout(pendingFailures[word.en])
       delete pendingFailures[word.en]
       delete retryCounts[word.en]
 
       processFailure(word)
       showCustomAlert(`"${word.en}" 修改已达 2 次上限，直接判错！🚫`)
-      return // 结束执行，不再重新计时
+      return
     }
 
-    // 🔥 4. 重置计时器为 15 秒
+    // 4. 重置计时器为 15 秒
     if (pendingFailures[word.en]) clearTimeout(pendingFailures[word.en])
 
     pendingFailures[word.en] = setTimeout(() => {
       processFailure(word)
       delete pendingFailures[word.en]
-      delete retryCounts[word.en] // 时间到了也要清理记录
-    }, 15000) // ⚡️ 从 30000 改为 15000
+      delete retryCounts[word.en]
+    }, 15000)
   }
 }
+
 // ==========================================
 // ⚔️ 智能斩杀/恢复逻辑 (Handle Kill/Restore)
 // ==========================================
@@ -1237,12 +1239,17 @@ function doExport() {
     m: masteredList.value,
     d: customDict.value,
     s: statsHistory.value,
-    n: groupNotes,
+    n: groupNotes.value,      // ✅ 补上 .value
+    st: pageStories.value,    // ✅ 补上文章内容
+    ap: audioPeekHistory.value, // ✅ 补上听觉依赖记录
     f: globalFailHistory.value
   }
   const blob = new Blob([JSON.stringify(data)], { type: 'application/json' })
-  const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url;
-  a.download = `ielts_data_${new Date().toISOString().slice(0,10)}.json`; a.click()
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `ielts_full_data_${new Date().toISOString().slice(0,10)}.json`;
+  a.click()
 }
 
 // ★ 新增：复制单词到剪贴板
@@ -1284,6 +1291,8 @@ function onFileChange(e) {
         if(d.s) statsHistory.value = d.s;
         if(d.n) groupNotes.value = d.n;
         if(d.f) globalFailHistory.value = d.f;
+        if(d.st) pageStories.value = d.st;
+        if(d.ap) audioPeekHistory.value = d.ap;
         alert('同步成功'); location.reload()
       }
     } catch(e){ alert('文件格式错误') }
