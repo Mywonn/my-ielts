@@ -354,11 +354,10 @@ onMounted(async () => {
                 audioUrl.value = freshUrl
                 sessionAudioUrl.value = freshUrl
                 nextTick(() => {
-                    if (audioPlayer.value) audioPlayer.value.load()
-                    setTimeout(ensureSeekRestore, 60)
-                    // 加入恢复阶段，避免 0.0 覆盖旧时间
-                    isRestoringTime.value = true
-                })
+                  isRestoringTime.value = true   // ✅ 必须在 load() 之前设置
+                  if (audioPlayer.value) audioPlayer.value.load()
+                  setTimeout(ensureSeekRestore, 60)
+              })
             }
         } catch (e) {}
     }
@@ -437,11 +436,16 @@ onActivated(() => {
     isPageActive.value = true
     seekRestored.value = false // 核心：重置锁，允许由于浏览器释放资源导致的二次 canplay 恢复时间
 
+    if (sessionAudioTime.value > 0) {
+        currentTime.value = sessionAudioTime.value
+    }
+
     requestAnimationFrame(() => {
         if (contentRef.value && sessionScrollY.value > 0) {
             contentRef.value.scrollTop = sessionScrollY.value
         }
     })
+
     isRestoringTime.value = true
 
     if (audioPlayer.value && sessionAudioTime.value > 0) {
@@ -474,7 +478,8 @@ onDeactivated(() => {
 const showHistory = ref(false)
 const showSentenceReplay = ref(false)
 const trainingMode = ref(false)
-const revealedSentences = ref([])
+// 训练模式遮罩：已揭开的句子索引集合，切换到新句子时只清除新句子的记录
+const revealedSet = ref(new Set())
 const lrcEditMode = ref(false)
 const editingSentenceIndex = ref(-1)
 const editingText = ref('')
@@ -803,6 +808,10 @@ let rAFId = null
 const syncUIWithAudio = (time) => {
     if (!isPageActive.value) return;
 
+    if (time === 0 && sessionAudioTime.value > 2 && !isManualSeeking.value) {
+        return;
+    }
+
     currentTime.value = time;
 
     // 【核心防御】：防止瞬间回弹到 0
@@ -821,7 +830,16 @@ const syncUIWithAudio = (time) => {
                 if (isPlaying.value) {
                     audioPlayer.value.pause();
                     isPlaying.value = false;
-                    audioPlayer.value.currentTime = trainingTargetEnd.value;
+                    // 回拨到当前句起点，方便用户直接点"重播本句"
+                    // 必须先加锁，防止 seek 期间 rAF 误判句子切换并清除遮罩
+                    const curSent = sentences.value[activeSentenceIndex.value]
+                    if (curSent && curSent.startTime !== undefined) {
+                        isManualSeeking.value = true
+                        audioPlayer.value.currentTime = curSent.startTime
+                        setTimeout(() => { isManualSeeking.value = false }, 300)
+                    }
+                    // 清除目标，防止 rAF 残留回调重复触发
+                    trainingTargetEnd.value = null
                 }
                 return;
             }
@@ -833,11 +851,11 @@ const syncUIWithAudio = (time) => {
         });
 
         if (index !== -1 && index !== activeSentenceIndex.value && !isManualSeeking.value) {
-            if (trainingMode.value) {
-                revealedSentences.value = [];
+            // 训练模式下，音频不自动切换激活句子，由用户通过上一句/下一句控制
+            if (!trainingMode.value) {
+                activeSentenceIndex.value = index;
+                scrollToSentence(index);
             }
-            activeSentenceIndex.value = index;
-            scrollToSentence(index);
         }
     }
 }
@@ -922,10 +940,11 @@ const onAudioError = async () => {
 const onAudioEnded = () => {
     isPlaying.value = false
     if (loopMode.value === 'one') {
-        isManualSeeking.value = true // <--- 新增这句
+        isManualSeeking.value = true
         audioPlayer.value.currentTime = 0
         audioPlayer.value.play()
         isPlaying.value = true
+        setTimeout(() => { isManualSeeking.value = false }, 300)
     }
 }
 
@@ -935,10 +954,11 @@ const toggleLoop = () => {
 
 const restartTrack = () => {
     if (audioPlayer.value) {
-        isManualSeeking.value = true // <--- 新增这句，发给 timeupdate 通行证
+        isManualSeeking.value = true
         audioPlayer.value.currentTime = 0
         if (!isPlaying.value) audioPlayer.value.play()
         isPlaying.value = true
+        setTimeout(() => { isManualSeeking.value = false }, 300)
     }
 }
 
@@ -968,10 +988,12 @@ const togglePlay = () => {
         let idx = activeSentenceIndex.value >= 0 ? activeSentenceIndex.value : 0
         const s = sentences.value[idx]
         if (s && s.startTime !== undefined) {
-            const compensatedEnd = s.endTime + 0.25 // 尾音补偿
+            const compensatedEnd = s.endTime + 0.4 // 尾音补偿
             if (!(currentTime.value >= s.startTime && currentTime.value < compensatedEnd)) {
+                // 必须先设 isManualSeeking，防止 seek 期间 syncUIWithAudio 误判句子切换并清除遮罩状态
                 isManualSeeking.value = true
                 audioPlayer.value.currentTime = s.startTime
+                setTimeout(() => { isManualSeeking.value = false }, 300)
             }
             trainingTargetEnd.value = compensatedEnd
         }
@@ -1216,9 +1238,11 @@ const setActiveSentence = (index, isFromControl = false) => {
         return
     }
 
-    if (trainingMode.value && !revealedSentences.value.includes(index)) {
+    // 训练模式下点击未揭开的句子：揭开遮罩，不触发播放
+    if (trainingMode.value && !revealedSet.value.has(index)) {
         if (!isFromControl) {
-            revealedSentences.value.push(index)
+            revealedSet.value.add(index)
+            revealedSet.value = new Set(revealedSet.value)
             return
         }
     }
@@ -1229,9 +1253,10 @@ const setActiveSentence = (index, isFromControl = false) => {
         return
     }
 
-    const compensatedEnd = sent.endTime + 0.25
+    const compensatedEnd = sent.endTime + 0.4
 
     if (activeSentenceIndex.value === index) {
+        // 同一句：重播或暂停/继续，不重置遮罩
         if (isPlaying.value) {
             audioPlayer.value.pause()
             isPlaying.value = false
@@ -1239,6 +1264,7 @@ const setActiveSentence = (index, isFromControl = false) => {
             if (currentTime.value < sent.startTime || currentTime.value >= compensatedEnd) {
                 isManualSeeking.value = true
                 audioPlayer.value.currentTime = sent.startTime
+                setTimeout(() => { isManualSeeking.value = false }, 300)
             }
             audioPlayer.value.play()
             isPlaying.value = true
@@ -1246,7 +1272,8 @@ const setActiveSentence = (index, isFromControl = false) => {
         }
     } else {
         if (trainingMode.value) {
-            revealedSentences.value = []
+            // 切换句子时，全部重新模糊
+            revealedSet.value = new Set()
         }
         activeSentenceIndex.value = index
         isManualSeeking.value = true
@@ -1255,6 +1282,7 @@ const setActiveSentence = (index, isFromControl = false) => {
         isPlaying.value = true
         trainingTargetEnd.value = trainingMode.value ? compensatedEnd : null
         scrollToSentence(index)
+        setTimeout(() => { isManualSeeking.value = false }, 300)
     }
 }
 
@@ -1288,7 +1316,9 @@ const exportLrc = () => {
 
 const lrcFileInput = ref(null)
 const importLrc = () => {
-    if (lrcFileInput.value) lrcFileInput.value.click()
+    nextTick(() => {
+        if (lrcFileInput.value) lrcFileInput.value.click()
+    })
 }
 const handleLrcFile = async (e) => {
     const file = e.target.files?.[0]
@@ -1353,9 +1383,13 @@ const saveEditSentence = (index) => {
 const toggleTrainingMode = () => {
     trainingMode.value = !trainingMode.value
     trainingTargetEnd.value = null
-    // 新增：每次进入训练模式时，重置所有遮罩
     if (trainingMode.value) {
-        revealedSentences.value = []
+        revealedSet.value = new Set()
+        // 进入训练模式时，若正在播放则立即暂停，等用户手动控制
+        if (isPlaying.value && audioPlayer.value) {
+            audioPlayer.value.pause()
+            isPlaying.value = false
+        }
     }
 }
 
@@ -1372,11 +1406,14 @@ const nextSentence = () => {
 const replayCurrent = () => {
     if (activeSentenceIndex.value >= 0) {
         const s = sentences.value[activeSentenceIndex.value]
+        // 训练模式下重播本句：revealedSet 保持不变，遮罩状态不重置
         isManualSeeking.value = true
         audioPlayer.value.currentTime = s.startTime
         audioPlayer.value.play()
         isPlaying.value = true
-        trainingTargetEnd.value = trainingMode.value ? (s.endTime + 0.25) : null // 尾音补偿
+        trainingTargetEnd.value = trainingMode.value ? (s.endTime + 0.4) : null
+        // Safari PWA 兜底
+        setTimeout(() => { isManualSeeking.value = false }, 300)
     }
 }
 
@@ -1497,10 +1534,11 @@ onUnmounted(() => {
         <!-- Row 2: Audio Controls (If loaded) -->
         <div v-if="audioUrl" class="flex items-center gap-4 bg-gray-50 dark:bg-gray-700/50 p-2 rounded-lg border dark:border-gray-600">
             <div class="flex items-center gap-2 shrink-0">
-                <button @click="togglePlay" class="w-10 h-10 flex items-center justify-center rounded-full bg-blue-600 hover:bg-blue-700 text-white shadow-sm">
+                <button @click.stop.prevent="togglePlay" class="w-10 h-10 flex items-center justify-center rounded-full bg-blue-600 hover:bg-blue-700 text-white shadow-sm">
                     <div :class="isPlaying ? 'i-carbon-pause' : 'i-carbon-play'" class="w-5 h-5"></div>
                 </button>
-                <button @click="restartTrack" class="w-8 h-8 flex items-center justify-center rounded-full text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors" title="Restart Track">
+
+                <button @click.stop.prevent="restartTrack" class="w-8 h-8 flex items-center justify-center rounded-full text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors" title="Restart Track">
                     <div class="i-carbon-skip-back-filled w-5 h-5"></div>
                 </button>
             </div>
@@ -1515,17 +1553,18 @@ onUnmounted(() => {
                     min="0"
                     :max="duration"
                     :value="currentTime"
-                    @input="e => { isManualSeeking = true; audioPlayer.currentTime = e.target.value }"
+
+                    @input="e => { isManualSeeking = true; audioPlayer.currentTime = parseFloat(e.target.value) }"
                     class="w-full h-1 bg-gray-300 dark:bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-600"
                 >
             </div>
 
             <div class="flex items-center gap-1 shrink-0">
-                <button @click="toggleLoop" :class="loopMode === 'one' ? 'text-blue-600 bg-blue-100 dark:bg-blue-900/50' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'" class="p-1.5 rounded" title="Loop Mode">
+                <button @click.stop.prevent="toggleLoop" :class="loopMode === 'one' ? 'text-blue-600 bg-blue-100 dark:bg-blue-900/50' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'" class="p-1.5 rounded" title="Loop Mode">
                     <div :class="loopMode === 'one' ? 'i-carbon-repeat-one' : 'i-carbon-repeat'" class="w-5 h-5"></div>
                 </button>
                 <div class="w-px h-4 bg-gray-300 dark:bg-gray-600 mx-1"></div>
-                <button @click="changeSpeed" class="w-10 text-xs font-bold font-mono p-1.5 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 rounded">
+                <button @click.stop.prevent="changeSpeed" class="w-10 text-xs font-bold font-mono p-1.5 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 rounded">
                     {{ playbackRate }}x
                 </button>
             </div>
@@ -1567,7 +1606,7 @@ onUnmounted(() => {
                 <p
                     class="text-lg leading-relaxed break-words whitespace-pre-wrap flex-1 min-w-0 transition-all duration-300"
                     :class="[
-                        (trainingMode && !revealedSentences.includes(index))
+                        (trainingMode && !revealedSet.has(index))
                         ? 'blur-[6px] opacity-40 select-none pointer-events-none text-gray-800 dark:text-gray-200'
                         : 'blur-0 opacity-100 text-gray-800 dark:text-gray-200'
                     ]"
