@@ -14,6 +14,31 @@ import {
     downloadFileFromSupabase
 } from '../../services/supabaseService'
 
+// --- 设备判定 ---
+const isMobile = computed(() => {
+    if (typeof window === 'undefined') return false
+    return window.innerWidth < 768 || /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+})
+
+// --- 边界参数配置 (核心修改处) ---
+const BOUNDARY_CONFIG = {
+    NORMAL: {
+        // 正常模式：主要影响高亮显示的同步感
+        desktop: { startOffset: 0.15, endOffset: 0.20 },
+        mobile:  {
+            // 如果觉得太快（走在语音前面），就把 0.25 调小，比如 0.1 或者 0.05
+            // 这个数值越小，高亮框切换就越“迟钝”，越接近实际声音
+            startOffset: 0.10,  // <--- 修改这里：从 0.25 改为 0.10
+            endOffset: 0.35
+        }
+    },
+    TRAINING: {
+        // 训练模式：主要影响播放的起止，防止吞音或听到上一句尾音
+        desktop: { startJump: 0.15, endBuffer: 0.55 },
+        mobile:  { startJump: 0.20, endBuffer: 0.55 } // 手机端稍微多留一点结尾，防止截断感
+    }
+}
+
 // Set PDF worker
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker
@@ -275,6 +300,19 @@ const loopMode = ref('none')
 const currentTime = ref(0)
 const duration = ref(0)
 const wasPlayingBeforeLookup = ref(false) // Track play state for auto-resume
+// 【修复】统一管理 isManualSeeking 解锁定时器，防止多次快速跳转时解锁竞争
+let seekTimer = null
+let sentenceJumpSeq = 0
+const setManualSeeking = (val, delay = 350) => {
+    if (seekTimer) clearTimeout(seekTimer)
+    isManualSeeking.value = val
+    if (val) {
+        seekTimer = setTimeout(() => {
+            isManualSeeking.value = false
+            seekTimer = null
+        }, delay)
+    }
+}
 const canSpeak = typeof window !== 'undefined' && 'speechSynthesis' in window
 
 const { addWord } = useWordBank()
@@ -402,14 +440,21 @@ const generateSubtitles = async () => {
              throw new Error('Invalid response format from Groq (no segments found).')
         }
 
-        // Map to sentences format
-        const newSentences = result.segments.map((seg, index) => ({
-            id: index,
-            text: seg.text.trim(),
-            startTime: seg.start,
-            endTime: seg.end,
-            words: seg.text.trim().split(' ').map(w => ({ text: w, color: null }))
-        }))
+        // --- 核心修复：在生成时净化时间戳 ---
+        const newSentences = result.segments.map((seg, index) => {
+            const text = seg.text.trim();
+            // 策略：将每句的起点稍微往后推 0.02s，终点缩减 0.1s，物理隔离语流
+            const startTime = seg.start ;
+            const endTime = Math.max(startTime + 0.05, seg.end - 0.1);
+
+            return {
+                id: index,
+                text: text,
+                startTime: startTime,
+                endTime: endTime,
+                words: text.split(' ').map(w => ({ text: w, color: null }))
+            };
+        });
 
         sentences.value = newSentences
         pdfName.value = 'Groq Generated Subtitles' // Pseudo name
@@ -804,54 +849,37 @@ const scrollToSentence = (index) => {
 }
 let rAFId = null
 
-// --- 重构：将原 onTimeUpdate 的核心逻辑提炼成独立函数 ---
+// --- 高频同步逻辑 (正常模式核心) ---
 const syncUIWithAudio = (time) => {
-    if (!isPageActive.value) return;
-
-    if (time === 0 && sessionAudioTime.value > 2 && !isManualSeeking.value) {
-        return;
-    }
+    if (!isPageActive.value || isManualSeeking.value) return;
 
     currentTime.value = time;
 
-    // 【核心防御】：防止瞬间回弹到 0
-    if (currentTime.value === 0 && sessionAudioTime.value > 2 && !isManualSeeking.value) {
-        return;
-    }
-
-    if (Math.abs(currentTime.value - sessionAudioTime.value) > 2) {
-         sessionAudioTime.value = currentTime.value;
-    }
-
     if (sentences.value.length > 0 && sentences.value[0].startTime !== undefined) {
-        // === 1. 训练模式绝对拦截 ===
+        // 训练模式的强行截断逻辑
         if (trainingMode.value && trainingTargetEnd.value != null) {
-            if (currentTime.value >= trainingTargetEnd.value) {
-                if (isPlaying.value) {
-                    audioPlayer.value.pause();
-                    isPlaying.value = false;
-                    // 回拨到当前句起点，方便用户直接点"重播本句"
-                    // 必须先加锁，防止 seek 期间 rAF 误判句子切换并清除遮罩
-                    const curSent = sentences.value[activeSentenceIndex.value]
-                    if (curSent && curSent.startTime !== undefined) {
-                        isManualSeeking.value = true
-                        audioPlayer.value.currentTime = curSent.startTime
-                        setTimeout(() => { isManualSeeking.value = false }, 300)
-                    }
-                    // 清除目标，防止 rAF 残留回调重复触发
-                    trainingTargetEnd.value = null
-                }
+            if (time >= trainingTargetEnd.value) {
+                audioPlayer.value.pause();
+                isPlaying.value = false;
+                /* [训练模式回弹]：播放结束后重置到本句开头，方便再次练习 */
+                audioPlayer.value.currentTime = sentences.value[activeSentenceIndex.value].startTime + 0.05;
+                trainingTargetEnd.value = null;
                 return;
             }
         }
 
-        // === 2. 匹配句子 ===
+        // 正常模式的自动跟随逻辑
+        const cfg = isMobile.value ? BOUNDARY_CONFIG.NORMAL.mobile : BOUNDARY_CONFIG.NORMAL.desktop;
+
         const index = sentences.value.findIndex(s => {
-            return currentTime.value >= s.startTime && currentTime.value < (s.endTime + 0.25);
+            /* [正常模式高亮同步]：
+               通过增加 cfg.startOffset 提前量，让 UI 高亮稍微领先于声音或与其同步
+               因为人眼扫视 UI 需要时间，提前 0.15s-0.25s 体验最自然 */
+            const visualTime = time + cfg.startOffset;
+            return visualTime >= s.startTime && visualTime < (s.endTime + cfg.endOffset);
         });
 
         if (index !== -1 && index !== activeSentenceIndex.value && !isManualSeeking.value) {
-            // 训练模式下，音频不自动切换激活句子，由用户通过上一句/下一句控制
             if (!trainingMode.value) {
                 activeSentenceIndex.value = index;
                 scrollToSentence(index);
@@ -859,7 +887,6 @@ const syncUIWithAudio = (time) => {
         }
     }
 }
-
 // --- 新增：高频刷新循环 (60fps) ---
 const loopSync = () => {
     if (!isPlaying.value || !audioPlayer.value) return;
@@ -877,13 +904,10 @@ watch(isPlaying, (playing) => {
     }
 })
 
-// --- 改造：原有的 onTimeUpdate 现在只负责在暂停拖拽时兜底 ---
 const onTimeUpdate = () => {
-    // 如果正在播放，UI更新已经交给了高频的 rAF，这里直接 return 避免重复计算
-    if (isPlaying.value) return;
-
-    // 如果是暂停状态下（比如用户拖动进度条），依然依赖 timeupdate 更新 UI
-    if (audioPlayer.value) {
+    // 移除 if (isPlaying.value) return;
+    // 让 timeupdate 作为 iOS 动画帧降频或休眠时的绝对兜底，确保不会错过暂停点
+    if (!isManualSeeking.value && audioPlayer.value) {
         syncUIWithAudio(audioPlayer.value.currentTime);
     }
 }
@@ -940,11 +964,10 @@ const onAudioError = async () => {
 const onAudioEnded = () => {
     isPlaying.value = false
     if (loopMode.value === 'one') {
-        isManualSeeking.value = true
+        setManualSeeking(true)
         audioPlayer.value.currentTime = 0
         audioPlayer.value.play()
         isPlaying.value = true
-        setTimeout(() => { isManualSeeking.value = false }, 300)
     }
 }
 
@@ -954,11 +977,10 @@ const toggleLoop = () => {
 
 const restartTrack = () => {
     if (audioPlayer.value) {
-        isManualSeeking.value = true
+        setManualSeeking(true)
         audioPlayer.value.currentTime = 0
         if (!isPlaying.value) audioPlayer.value.play()
         isPlaying.value = true
-        setTimeout(() => { isManualSeeking.value = false }, 300)
     }
 }
 
@@ -975,6 +997,43 @@ const replaySentence = (sent) => {
     }
 }
 
+// --- 获取句子结束时间 (训练模式核心) ---
+const getCompensatedEnd = (index) => {
+    const s = sentences.value[index];
+    if (!s || s.startTime === undefined) return 0;
+
+    const cfg = isMobile.value ? BOUNDARY_CONFIG.TRAINING.mobile : BOUNDARY_CONFIG.TRAINING.desktop;
+
+    // [训练模式结尾调整]:
+    // cfg.endBuffer 是为了防止单词最后一个音节没发完就被切断
+    // 同时通过 Math.min 确保不会播到下一句的开头
+    const nextS = sentences.value[index + 1];
+    if (nextS && nextS.startTime !== undefined) {
+        /* [训练模式结尾]：在当前句结尾基础上增加缓冲，但不得进入下一句起始点前 0.05s 的安全区 */
+        return Math.min(s.endTime + cfg.endBuffer, nextS.startTime - 0.05);
+    }
+    return s.endTime + cfg.endBuffer;
+}
+
+
+const handleProgressJump = (val) => {
+    const time = parseFloat(val)
+    setManualSeeking(true, 350)
+
+    if (sentences.value.length > 0 && time > 0) {
+        const index = sentences.value.findIndex(s => time >= s.startTime && time < (s.endTime + 0.4))
+        if (index !== -1 && index !== activeSentenceIndex.value) {
+            activeSentenceIndex.value = index
+            scrollToSentence(index)
+            if (trainingMode.value) {
+                revealedSet.value = new Set([index])
+                // 【修改点】：使用新的 getCompensatedEnd 获取精准终点
+                trainingTargetEnd.value = getCompensatedEnd(index)
+            }
+        }
+    }
+}
+
 const togglePlay = () => {
     if (!audioPlayer.value) return
     if (isPlaying.value) {
@@ -988,12 +1047,11 @@ const togglePlay = () => {
         let idx = activeSentenceIndex.value >= 0 ? activeSentenceIndex.value : 0
         const s = sentences.value[idx]
         if (s && s.startTime !== undefined) {
-            const compensatedEnd = s.endTime + 0.4 // 尾音补偿
+            // 【修改点 3】：调用安全的补偿方法
+            const compensatedEnd = getCompensatedEnd(idx)
             if (!(currentTime.value >= s.startTime && currentTime.value < compensatedEnd)) {
-                // 必须先设 isManualSeeking，防止 seek 期间 syncUIWithAudio 误判句子切换并清除遮罩状态
-                isManualSeeking.value = true
-                audioPlayer.value.currentTime = s.startTime
-                setTimeout(() => { isManualSeeking.value = false }, 300)
+                setManualSeeking(true)
+                audioPlayer.value.currentTime = s.startTime + 0.2
             }
             trainingTargetEnd.value = compensatedEnd
         }
@@ -1233,60 +1291,64 @@ const saveWord = () => {
 }
 
 const setActiveSentence = (index, isFromControl = false) => {
-    if (lrcEditMode.value) {
+    if (lrcEditMode.value) { activeSentenceIndex.value = index; return; }
+
+    const sent = sentences.value[index];
+    if (!sent) return;
+    if (sent.startTime === undefined) {
         activeSentenceIndex.value = index
-        return
-    }
-
-    // 训练模式下点击未揭开的句子：揭开遮罩，不触发播放
-    if (trainingMode.value && !revealedSet.value.has(index)) {
-        if (!isFromControl) {
-            revealedSet.value.add(index)
-            revealedSet.value = new Set(revealedSet.value)
-            return
-        }
-    }
-
-    const sent = sentences.value[index]
-    if (!sent || sent.startTime === undefined) {
-        activeSentenceIndex.value = index
-        return
-    }
-
-    const compensatedEnd = sent.endTime + 0.4
-
-    if (activeSentenceIndex.value === index) {
-        // 同一句：重播或暂停/继续，不重置遮罩
-        if (isPlaying.value) {
-            audioPlayer.value.pause()
-            isPlaying.value = false
-        } else {
-            if (currentTime.value < sent.startTime || currentTime.value >= compensatedEnd) {
-                isManualSeeking.value = true
-                audioPlayer.value.currentTime = sent.startTime
-                setTimeout(() => { isManualSeeking.value = false }, 300)
-            }
-            audioPlayer.value.play()
-            isPlaying.value = true
-            trainingTargetEnd.value = trainingMode.value ? compensatedEnd : null
-        }
-    } else {
-        if (trainingMode.value) {
-            // 切换句子时，全部重新模糊
-            revealedSet.value = new Set()
-        }
-        activeSentenceIndex.value = index
-        isManualSeeking.value = true
-        audioPlayer.value.currentTime = sent.startTime
-        audioPlayer.value.play()
-        isPlaying.value = true
-        trainingTargetEnd.value = trainingMode.value ? compensatedEnd : null
         scrollToSentence(index)
-        setTimeout(() => { isManualSeeking.value = false }, 300)
+        return
     }
-}
+    if (!audioPlayer.value) return;
 
+    const player = audioPlayer.value
+    const cfg = isMobile.value ? BOUNDARY_CONFIG.TRAINING.mobile : BOUNDARY_CONFIG.TRAINING.desktop
+    const jump = trainingMode.value ? cfg.startJump : 0
+    const targetTime = Math.max(0, sent.startTime + jump)
+    const seq = ++sentenceJumpSeq
 
+    if (activeSentenceIndex.value === index && !isFromControl && isPlaying.value) {
+        player.pause()
+        isPlaying.value = false
+        trainingTargetEnd.value = null
+        return
+    }
+
+    if (trainingMode.value) revealedSet.value = new Set([index])
+    activeSentenceIndex.value = index
+
+    player.pause()
+    isPlaying.value = false
+    trainingTargetEnd.value = null
+
+    isManualSeeking.value = true
+    setManualSeeking(true, isMobile.value ? 900 : 450)
+    try {
+        player.currentTime = targetTime
+    } catch (e) {
+        isPlaying.value = false
+        trainingTargetEnd.value = null
+        return
+    }
+
+    trainingTargetEnd.value = trainingMode.value ? getCompensatedEnd(index) : null
+    const playRet = player.play()
+    if (playRet && typeof playRet.then === 'function') {
+        playRet.then(() => {
+            if (seq !== sentenceJumpSeq) return
+            isPlaying.value = true
+            scrollToSentence(index)
+        }).catch(() => {
+            if (seq !== sentenceJumpSeq) return
+            isPlaying.value = false
+        })
+    } else {
+        if (seq !== sentenceJumpSeq) return
+        isPlaying.value = true
+        scrollToSentence(index)
+    }
+};
 
 // Formatting helper
 const formatTime = (s) => {
@@ -1395,25 +1457,142 @@ const toggleTrainingMode = () => {
 
 
 const prevSentence = () => {
-    // 传入 true 表示这是来自控制台的指令，自动解开遮罩并强制播放
-    if (activeSentenceIndex.value > 0) setActiveSentence(activeSentenceIndex.value - 1, true)
-}
+    clearShadowingRecord();
+    if (activeSentenceIndex.value > 0) {
+        // 明确传入 true，强制执行跳转播放
+        setActiveSentence(activeSentenceIndex.value - 1, true);
+    }
+};
 
 const nextSentence = () => {
-    if (activeSentenceIndex.value < sentences.value.length - 1) setActiveSentence(activeSentenceIndex.value + 1, true)
-}
+    clearShadowingRecord();
+    if (activeSentenceIndex.value < sentences.value.length - 1) {
+        // 明确传入 true
+        setActiveSentence(activeSentenceIndex.value + 1, true);
+    }
+};
 
 const replayCurrent = () => {
     if (activeSentenceIndex.value >= 0) {
         const s = sentences.value[activeSentenceIndex.value]
-        // 训练模式下重播本句：revealedSet 保持不变，遮罩状态不重置
-        isManualSeeking.value = true
-        audioPlayer.value.currentTime = s.startTime
-        audioPlayer.value.play()
-        isPlaying.value = true
-        trainingTargetEnd.value = trainingMode.value ? (s.endTime + 0.4) : null
-        // Safari PWA 兜底
-        setTimeout(() => { isManualSeeking.value = false }, 300)
+        setManualSeeking(true)
+        audioPlayer.value.currentTime = s.startTime + 0.05
+
+        // 直接播放并同步状态
+        audioPlayer.value.play().then(() => {
+            isPlaying.value = true
+            trainingTargetEnd.value = trainingMode.value ? getCompensatedEnd(activeSentenceIndex.value) : null
+        }).catch(e => console.warn('iOS Replay prevented:', e))
+    }
+}
+
+// ====== 跟读录音 (Shadowing) 状态与逻辑 ======
+const isRecording = ref(false)
+const userRecordUrl = ref(null)
+let mediaRecorder = null
+let audioStream = null
+let audioChunks = []
+const userAudioPlayer = new Audio()
+
+const toggleRecording = async () => {
+    if (isRecording.value) {
+        stopRecording()
+    } else {
+        await startRecording()
+    }
+}
+
+const startRecording = async () => {
+    // 检查 HTTPS 安全上下文
+    // 允许 https、localhost、127.0.0.1 以及局域网 IP（192.168.x.x / 10.x.x.x）用于本地测试
+    const host = location.hostname
+    const isSecureContext = location.protocol === 'https:' ||
+        host === 'localhost' ||
+        host === '127.0.0.1' ||
+        /^192\.168\./.test(host) ||
+        /^10\./.test(host) ||
+        /^172\.(1[6-9]|2\d|3[01])\./.test(host)
+    if (!isSecureContext) {
+        alert('跟读录音功能需要 HTTPS 环境。请确保网站已启用 HTTPS。')
+        return
+    }
+    try {
+        // Safari 在某些情况下会延迟暴露 mediaDevices，直接尝试调用
+        audioStream = await navigator.mediaDevices.getUserMedia({
+            audio: { echoCancellation: true, noiseSuppression: true, sampleRate: 44100 }
+        })
+        // 按优先级找到浏览器支持的格式（Safari 用 mp4，Chrome 用 webm）
+        const preferredTypes = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg', '']
+        const supportedType = preferredTypes.find(type => {
+            if (!type) return true
+            try { return MediaRecorder.isTypeSupported(type) } catch(e) { return false }
+        })
+        const options = supportedType ? { mimeType: supportedType } : {}
+        mediaRecorder = new MediaRecorder(audioStream, options)
+        audioChunks = []
+        mediaRecorder.ondataavailable = (e) => {
+            if (e.data && e.data.size > 0) audioChunks.push(e.data)
+        }
+        mediaRecorder.onstop = () => {
+            const blobType = mediaRecorder.mimeType || 'audio/mp4'
+            const audioBlob = new Blob(audioChunks, { type: blobType })
+            if (userRecordUrl.value) URL.revokeObjectURL(userRecordUrl.value)
+            userRecordUrl.value = URL.createObjectURL(audioBlob)
+            if (audioStream) { audioStream.getTracks().forEach(t => t.stop()); audioStream = null }
+        }
+        // 每 250ms 收集数据，修复 Safari 只在 stop 时触发的问题
+        mediaRecorder.start(250)
+        isRecording.value = true
+        if (isPlaying.value && audioPlayer.value) {
+            audioPlayer.value.pause()
+            isPlaying.value = false
+        }
+    } catch (err) {
+        console.error('麦克风权限获取失败:', err.name, err.message)
+        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+        if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+            if (isMobile) {
+                alert('未检测到麦克风。\n\n请依次检查：\n① 手机设置 → 隐私与安全 → 麦克风 → 开启 Safari\n② 手机设置 → Safari → 麦克风 → 改为「允许」\n③ 刷新页面后重试')
+            } else {
+                alert('未检测到麦克风设备。\n\n请依次检查：\n① 电脑是否有麦克风（或已连接外置麦克风）\n② 系统设置 → 隐私 → 麦克风 → 允许浏览器\n③ 浏览器地址栏左侧 → 网站权限 → 麦克风 → 允许\n④ 刷新页面后重试')
+            }
+        } else if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+            if (isMobile) {
+                alert('麦克风权限被拒绝。\n\n请依次检查：\n① 手机设置 → 隐私与安全 → 麦克风 → 开启 Safari\n② 手机设置 → Safari → 麦克风 → 改为「允许」\n③ 刷新页面后重试')
+            } else {
+                alert('麦克风权限被拒绝。\n\n请依次检查：\n① 浏览器地址栏左侧点击锁图标 → 麦克风 → 允许\n② 系统设置 → 隐私 → 麦克风 → 允许浏览器\n③ 刷新页面后重试')
+            }
+        } else if (err.name === 'NotReadableError' || err.name === 'AbortError') {
+            alert('麦克风被其他应用占用。\n\n请关闭其他正在使用麦克风的应用（如通话、录音等），然后刷新页面重试。')
+        } else {
+            alert(`录音启动失败 (${err.name})：${err.message}\n\n请刷新页面重试。`)
+        }
+    }
+}
+
+const stopRecording = () => {
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop()
+        isRecording.value = false
+    }
+}
+
+const playUserRecord = () => {
+    if (userRecordUrl.value) {
+        if (isPlaying.value && audioPlayer.value) {
+            audioPlayer.value.pause()
+            isPlaying.value = false
+        }
+        userAudioPlayer.src = userRecordUrl.value
+        userAudioPlayer.play()
+    }
+}
+
+const clearShadowingRecord = () => {
+    if (isRecording.value) stopRecording()
+    if (userRecordUrl.value) {
+        URL.revokeObjectURL(userRecordUrl.value)
+        userRecordUrl.value = null
     }
 }
 
@@ -1456,6 +1635,9 @@ onUnmounted(() => {
 
     // 3. 停止高频动画帧刷新 (新增)
     if (rAFId) cancelAnimationFrame(rAFId)
+
+    // 4. 清理 seek 解锁定时器
+    if (seekTimer) clearTimeout(seekTimer)
 })
 
 </script>
@@ -1553,8 +1735,13 @@ onUnmounted(() => {
                     min="0"
                     :max="duration"
                     :value="currentTime"
-
-                    @input="e => { isManualSeeking = true; audioPlayer.currentTime = parseFloat(e.target.value) }"
+                    @input="e => {
+                        isManualSeeking = true;
+                        const t = parseFloat(e.target.value);
+                        currentTime = t;
+                        if (audioPlayer) audioPlayer.currentTime = t;
+                    }"
+                    @change="e => handleProgressJump(e.target.value)"
                     class="w-full h-1 bg-gray-300 dark:bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-600"
                 >
             </div>
@@ -1577,7 +1764,6 @@ onUnmounted(() => {
                 @canplay="ensureSeekRestore"
                 @error="onAudioError"
                 @ended="onAudioEnded"
-                @seeked="isManualSeeking = false"
                 class="hidden"
             ></audio>
           </div>
@@ -1705,27 +1891,46 @@ onUnmounted(() => {
         </div>
     </div>
 
-   <div v-if="trainingMode && sentences.length > 0" class="fixed left-0 right-0 bottom-36 md:bottom-12 z-[45]">
-        <div class="max-w-3xl mx-auto px-4">
-            <div class="flex w-full gap-2 sm:gap-3 bg-white/95 dark:bg-gray-800/95 backdrop-blur-md border border-gray-200 dark:border-gray-700 rounded-2xl shadow-xl p-2 sm:p-2.5">
+   <div v-if="trainingMode && sentences.length > 0" class="fixed left-0 right-0 bottom-12 md:bottom-12 z-[45] pointer-events-none">
+        <div class="max-w-3xl mx-auto px-4 pointer-events-auto flex flex-col gap-2">
 
-                <button @click="prevSentence" class="flex-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm sm:text-base font-medium transition-colors shadow-sm whitespace-nowrap text-center">
+            <!-- 第一行：原声控制 -->
+            <div class="flex w-full gap-2 sm:gap-3 bg-white/95 dark:bg-gray-800/95 backdrop-blur-md border border-gray-200 dark:border-gray-700 rounded-2xl shadow-xl p-2">
+                <button @click="prevSentence" class="flex-1 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 text-sm font-medium transition-colors shadow-sm text-center">
                     上一句
                 </button>
-
-                <button @click="replayCurrent" class="flex-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm sm:text-base font-medium transition-colors shadow-sm whitespace-nowrap text-center">
-                    重播本句
+                <button @click="replayCurrent" class="flex-1 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors shadow-sm text-center">
+                    听原音
                 </button>
-
-                <button @click="togglePlay" class="flex-1 py-2.5 rounded-xl text-white text-sm sm:text-base font-medium transition-colors shadow-sm whitespace-nowrap text-center" :class="isPlaying ? 'bg-amber-500 hover:bg-amber-600' : 'bg-emerald-500 hover:bg-emerald-600'">
+                <button @click="togglePlay" class="flex-1 py-2 rounded-xl text-white text-sm font-medium transition-colors shadow-sm text-center" :class="isPlaying ? 'bg-amber-500 hover:bg-amber-600' : 'bg-emerald-500 hover:bg-emerald-600'">
                     {{ isPlaying ? '暂停' : '继续' }}
                 </button>
-
-                <button @click="nextSentence" class="flex-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm sm:text-base font-medium transition-colors shadow-sm whitespace-nowrap text-center">
+                <button @click="nextSentence" class="flex-1 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 text-sm font-medium transition-colors shadow-sm text-center">
                     下一句
                 </button>
-
             </div>
+
+            <!-- 第二行：跟读录音 -->
+            <div class="flex w-full gap-2 sm:gap-3 bg-indigo-50/95 dark:bg-indigo-900/40 backdrop-blur-md border border-indigo-200 dark:border-indigo-800 rounded-2xl shadow-xl p-2 items-center">
+                <button
+                    @click="toggleRecording"
+                    class="flex-[2] flex justify-center items-center gap-2 py-2.5 rounded-xl text-white text-sm font-bold transition-all shadow-sm"
+                    :class="isRecording ? 'bg-red-500 hover:bg-red-600 animate-pulse' : 'bg-indigo-600 hover:bg-indigo-700'"
+                >
+                    <div :class="isRecording ? 'i-carbon-stop-outline' : 'i-carbon-microphone'" class="w-5 h-5"></div>
+                    <span>{{ isRecording ? '结束录音...' : '点击跟读' }}</span>
+                </button>
+                <button
+                    @click="playUserRecord"
+                    :disabled="!userRecordUrl || isRecording"
+                    class="flex-1 py-2.5 rounded-xl text-sm font-medium transition-all shadow-sm flex justify-center items-center gap-1"
+                    :class="(userRecordUrl && !isRecording) ? 'bg-emerald-500 hover:bg-emerald-600 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed'"
+                >
+                    <div class="i-carbon-play-outline w-5 h-5"></div>
+                    <span>听跟读</span>
+                </button>
+            </div>
+
         </div>
     </div>
 
