@@ -489,6 +489,75 @@ const generateSubtitles = async () => {
     }
 }
 
+// ─── 优化 4：PDF + 音频自动对齐 (Text Alignment) ─────────────────────────────
+// 当同时拥有「PDF 句子（无时间戳）」和「Whisper 字幕（有时间戳）」时
+// 用 Jaccard 词相似度将 PDF 句子和 Whisper 段落一一映射，自动赋予时间戳
+const isAligning = ref(false)
+
+const jaccardSimilarity = (a, b) => {
+    const setA = new Set(a.toLowerCase().replace(/[^a-z0-9 ]/g, '').split(/\s+/).filter(Boolean))
+    const setB = new Set(b.toLowerCase().replace(/[^a-z0-9 ]/g, '').split(/\s+/).filter(Boolean))
+    if (setA.size === 0 || setB.size === 0) return 0
+    let inter = 0
+    for (const w of setA) { if (setB.has(w)) inter++ }
+    return inter / (setA.size + setB.size - inter)
+}
+
+const alignPdfWithSubtitles = (pdfSentences, whisperSentences) => {
+    const result = []
+    let whisperCursor = 0
+    for (const pdfSent of pdfSentences) {
+        let bestScore = 0
+        let bestIdx = whisperCursor
+        const searchEnd = Math.min(whisperCursor + 8, whisperSentences.length)
+        for (let i = whisperCursor; i < searchEnd; i++) {
+            const score = jaccardSimilarity(pdfSent.text, whisperSentences[i].text)
+            if (score > bestScore) { bestScore = score; bestIdx = i }
+        }
+        if (bestScore > 0.35) {
+            const matched = whisperSentences[bestIdx]
+            result.push({
+                ...pdfSent,
+                startTime: matched.startTime,
+                endTime: matched.endTime,
+                words: pdfSent.words.map((w, wi) => {
+                    const wInfo = matched.words?.[wi]
+                    return wInfo?.start !== undefined ? { ...w, start: wInfo.start, end: wInfo.end } : w
+                }),
+                alignScore: bestScore
+            })
+            whisperCursor = bestIdx + 1
+        } else {
+            result.push(pdfSent)
+        }
+    }
+    return result
+}
+
+const triggerAlignment = () => {
+    const hasPdfSents = sentences.value.length > 0 && sentences.value[0].startTime === undefined
+    const currentWhisper = sentences.value.filter(s => s.startTime !== undefined)
+    const historyWhisper = historyPairs.value.flatMap(p => p.subtitles || []).filter(s => s.startTime !== undefined)
+    const targetWhisper = currentWhisper.length > 0 ? currentWhisper : historyWhisper
+
+    if (!hasPdfSents) { showToast('当前内容已有时间戳，无需对齐', 'error'); return }
+    if (targetWhisper.length === 0) { showToast('未找到 Whisper 字幕，请先生成字幕后再对齐', 'error'); return }
+
+    isAligning.value = true
+    try {
+        const aligned = alignPdfWithSubtitles(sentences.value, targetWhisper)
+        const alignedCount = aligned.filter(s => s.alignScore > 0).length
+        sentences.value = aligned
+        sessionSentences.value = aligned
+        driftSamples.value = []
+        showToast(`对齐完成：${alignedCount}/${aligned.length} 句已匹配时间戳`, 'success')
+    } catch (e) {
+        showToast('对齐失败：' + e.message, 'error')
+    } finally {
+        isAligning.value = false
+    }
+}
+
 // 3. KeepAlive 切回时瞬间恢复
 onActivated(() => {
     isPageActive.value = true
@@ -862,7 +931,43 @@ const scrollToSentence = (index) => {
 }
 let rAFId = null
 
-// --- 高频同步逻辑 (正常模式核心) ---
+// ─── 优化 1：动态漂移补偿 (Auto Drift Correction) ───────────────────────────
+// 统计最近 N 次高亮切换时「音频实际时间 - 句子期望 startTime」的中位数
+// 自动平滑修正 syncOffset，无需手动调节
+const driftSamples = ref([])
+const AUTO_DRIFT_WINDOW = 8
+
+const updateDriftCompensation = (actualTime, expectedStartTime) => {
+    const drift = actualTime - expectedStartTime
+    // 只采样合理范围内的漂移，防止跳转等异常操作污染样本
+    if (Math.abs(drift) > 2.0) return
+    driftSamples.value.push(drift)
+    if (driftSamples.value.length > AUTO_DRIFT_WINDOW) driftSamples.value.shift()
+    // 用中位数排除噪声，步长 0.25 平滑过渡，避免抖动
+    const sorted = [...driftSamples.value].sort((a, b) => a - b)
+    const median = sorted[Math.floor(sorted.length / 2)]
+    syncOffset.value += (median - syncOffset.value) * 0.25
+}
+
+// ─── 优化 2：二分查找替代线性 findIndex，O(log n) ────────────────────────────
+const binaryFindSentence = (visualTime, endOffset) => {
+    const arr = sentences.value
+    let lo = 0, hi = arr.length - 1
+    while (lo <= hi) {
+        const mid = (lo + hi) >> 1
+        const s = arr[mid]
+        if (visualTime < s.startTime) {
+            hi = mid - 1
+        } else if (visualTime >= s.endTime + endOffset) {
+            lo = mid + 1
+        } else {
+            return mid
+        }
+    }
+    return -1
+}
+
+// ─── 高频同步逻辑 (正常模式核心) ─────────────────────────────────────────────
 const syncUIWithAudio = (time) => {
     if (!isPageActive.value || isManualSeeking.value) return;
 
@@ -875,7 +980,7 @@ const syncUIWithAudio = (time) => {
                 audioPlayer.value.pause();
                 isPlaying.value = false;
                 /* [训练模式回弹]：播放结束后重置到本句开头，方便再次练习 */
-                audioPlayer.value.currentTime = sentences.value[activeSentenceIndex.value].startTime + 0.05 - syncOffset.value;
+                audioPlayer.value.currentTime = sentences.value[activeSentenceIndex.value].startTime + 0.05;
                 trainingTargetEnd.value = null;
                 return;
             }
@@ -883,16 +988,31 @@ const syncUIWithAudio = (time) => {
 
         // 正常模式的自动跟随逻辑
         const cfg = isMobile.value ? BOUNDARY_CONFIG.NORMAL.mobile : BOUNDARY_CONFIG.NORMAL.desktop;
+        const visualTime = time + cfg.startOffset + syncOffset.value;
 
-        const index = sentences.value.findIndex(s => {
-            /* [正常模式高亮同步]：
-               通过增加 cfg.startOffset 提前量，让 UI 高亮稍微领先于声音或与其同步
-               因为人眼扫视 UI 需要时间，提前 0.15s-0.25s 体验最自然 */
-            const visualTime = time + cfg.startOffset + syncOffset.value;
-            return visualTime >= s.startTime && visualTime < (s.endTime + cfg.endOffset);
-        });
+        // ─── 优化 2 应用：用二分查找替换 findIndex ───────────────────────────
+        let index = binaryFindSentence(visualTime, cfg.endOffset);
 
-        if (index !== -1 && index !== activeSentenceIndex.value && !isManualSeeking.value) {
+        // ─── 优化 3：空隙容错 (Gap Tolerance) ───────────────────────────────
+        // 两句之间的停顿（如主持人换话题）最多 2 秒内不清除高亮，避免高亮一闪而过
+        if (index === -1) {
+            const prev = activeSentenceIndex.value
+            if (prev >= 0) {
+                const prevSent = sentences.value[prev]
+                const GAP_TOLERANCE = 2.0
+                if (prevSent && (time - prevSent.endTime) < GAP_TOLERANCE) {
+                    // 停顿在容忍范围内：保持当前高亮，等待下一句
+                    return
+                }
+            }
+            // 超过容忍时间，不强制切到 -1，让自然状态维持
+            return
+        }
+
+        if (index !== activeSentenceIndex.value && !isManualSeeking.value) {
+            // ─── 优化 1 应用：采集漂移样本更新补偿值 ────────────────────────
+            updateDriftCompensation(time, sentences.value[index].startTime)
+
             if (!trainingMode.value) {
                 activeSentenceIndex.value = index;
                 scrollToSentence(index);
@@ -1022,11 +1142,10 @@ const getCompensatedEnd = (index) => {
     // 同时通过 Math.min 确保不会播到下一句的开头
     const nextS = sentences.value[index + 1];
     if (nextS && nextS.startTime !== undefined) {
-        /* [训练模式结尾]：在当前句结尾基础上增加缓冲，但不得进入下一句起始点前 0.05s 的安全区
-           syncOffset 作用于 endTime（字幕时间→音频时间的转换），nextS.startTime 不参与偏移 */
-        return Math.min(s.endTime + cfg.endBuffer - syncOffset.value, nextS.startTime - 0.05 - syncOffset.value)
+        /* [训练模式结尾]：在当前句结尾基础上增加缓冲，但不得进入下一句起始点前 0.05s 的安全区 */
+        return Math.min(s.endTime + cfg.endBuffer, nextS.startTime - 0.05 - syncOffset.value)
     }
-    return s.endTime + cfg.endBuffer - syncOffset.value;
+    return s.endTime + cfg.endBuffer;
 }
 
 
@@ -1065,7 +1184,7 @@ const togglePlay = () => {
             const compensatedEnd = getCompensatedEnd(idx)
             if (!(currentTime.value >= s.startTime && currentTime.value < compensatedEnd)) {
                 setManualSeeking(true)
-                audioPlayer.value.currentTime = Math.max(0, s.startTime + 0.2 - syncOffset.value)
+                audioPlayer.value.currentTime = s.startTime + 0.2
             }
             trainingTargetEnd.value = compensatedEnd
         }
@@ -1319,7 +1438,7 @@ const setActiveSentence = (index, isFromControl = false) => {
     const player = audioPlayer.value
     const cfg = isMobile.value ? BOUNDARY_CONFIG.TRAINING.mobile : BOUNDARY_CONFIG.TRAINING.desktop
     const jump = trainingMode.value ? cfg.startJump : 0
-    const targetTime = Math.max(0, sent.startTime + jump - syncOffset.value)
+    const targetTime = Math.max(0, sent.startTime + jump)
     const seq = ++sentenceJumpSeq
 
     if (activeSentenceIndex.value === index && !isFromControl && isPlaying.value) {
@@ -1797,9 +1916,15 @@ onUnmounted(() => {
               <span class="text-xs font-mono text-blue-600 dark:text-blue-400 w-12 text-right shrink-0">
                   {{ syncOffset > 0 ? '+' : '' }}{{ syncOffset.toFixed(2) }}s
               </span>
+              <!-- 优化1：漂移补偿状态指示器 -->
+              <span
+                  v-if="driftSamples.length >= 3"
+                  class="text-xs text-emerald-500 dark:text-emerald-400 shrink-0"
+                  title="自动漂移补偿已激活（已采集足够样本）"
+              >⚡自动</span>
               <button
                   v-if="syncOffset !== 0"
-                  @click="syncOffset = 0"
+                  @click="syncOffset = 0; driftSamples.length = 0"
                   class="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 shrink-0"
                   title="重置"
               >重置</button>
@@ -1921,8 +2046,23 @@ onUnmounted(() => {
                             <div v-else class="i-carbon-closed-caption-alt w-5 h-5"></div>
                             <span>{{ isTranscribing ? 'Transcribing Audio...' : '生成字幕(Groq)' }}</span>
                         </button>
+
+                        <!-- 优化4：PDF + 字幕自动对齐按钮（有 PDF 且有 Whisper 字幕时才显示）-->
+                        <button
+                            v-if="sentences.length > 0 && sentences[0].startTime === undefined"
+                            @click="triggerAlignment"
+                            :disabled="isAligning"
+                            title="将 PDF 文本与 Whisper 字幕按相似度自动对齐，赋予时间戳"
+                            class="w-full justify-center bg-violet-600 dark:bg-violet-700 text-white px-6 py-2.5 rounded-full hover:bg-violet-700 dark:hover:bg-violet-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shadow-lg hover:shadow-xl transition-all active:scale-95 font-medium"
+                        >
+                            <div v-if="isAligning" class="i-carbon-circle-dash animate-spin w-5 h-5"></div>
+                            <div v-else class="i-carbon-data-connected w-5 h-5"></div>
+                            <span>{{ isAligning ? '对齐中...' : 'PDF↔字幕 自动对齐' }}</span>
+                        </button>
                     </div>
-                    <p class="text-xs mt-3 text-gray-400">Powered by Whisper on Groq</p>
+                    <p class="text-xs mt-3 text-gray-400">
+                        Powered by Whisper on Groq · 自动漂移补偿已启用
+                    </p>
                 </div>
             </div>
         </div>
