@@ -1002,7 +1002,7 @@ const replaySentence = (sent) => {
     // We would need a way to manually sync or import timestamped data (e.g. LRC/SRT)
     // For now, we can only warn or maybe just play from current if we had data.
     if (sent.startTime !== undefined) {
-        audioPlayer.value.currentTime = sent.startTime
+        audioPlayer.value.currentTime = sent.startTime - syncOffset.value
         if (!isPlaying.value) audioPlayer.value.play()
         isPlaying.value = true
     } else {
@@ -1023,7 +1023,7 @@ const getCompensatedEnd = (index) => {
     const nextS = sentences.value[index + 1];
     if (nextS && nextS.startTime !== undefined) {
         /* [训练模式结尾]：在当前句结尾基础上增加缓冲，但不得进入下一句起始点前 0.05s 的安全区 */
-        return Math.min(s.endTime + cfg.endBuffer, nextS.startTime - 0.05);
+        return Math.min(s.endTime + cfg.endBuffer, nextS.startTime - 0.05 - syncOffset.value)
     }
     return s.endTime + cfg.endBuffer;
 }
@@ -1489,7 +1489,7 @@ const replayCurrent = () => {
     if (activeSentenceIndex.value >= 0) {
         const s = sentences.value[activeSentenceIndex.value]
         setManualSeeking(true)
-        audioPlayer.value.currentTime = s.startTime + 0.05
+        audioPlayer.value.currentTime = s.startTime + 0.05 - syncOffset.value
 
         // 直接播放并同步状态
         audioPlayer.value.play().then(() => {
@@ -1780,29 +1780,29 @@ onUnmounted(() => {
                 class="hidden"
             ></audio>
           </div>
-      </div>
-      <!-- Row 3: Sync Offset Slider -->
-      <div v-if="audioUrl && sentences.length > 0 && sentences[0]?.startTime !== undefined"
-          class="flex items-center gap-3 px-2 py-1.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg border dark:border-gray-600">
-          <span class="text-xs text-gray-500 dark:text-gray-400 shrink-0 w-20">字幕同步</span>
-          <input
-              type="range"
-              min="-1.0"
-              max="1.0"
-              step="0.05"
-              :value="syncOffset"
-              @input="e => syncOffset = parseFloat(e.target.value)"
-              class="flex-1 h-1 bg-gray-300 dark:bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-600"
-          >
-          <span class="text-xs font-mono text-blue-600 dark:text-blue-400 w-12 text-right shrink-0">
-              {{ syncOffset > 0 ? '+' : '' }}{{ syncOffset.toFixed(2) }}s
-          </span>
-          <button
-              v-if="syncOffset !== 0"
-              @click="syncOffset = 0"
-              class="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 shrink-0"
-              title="重置"
-          >重置</button>
+          <!-- Row 3: Sync Offset Slider -->
+          <div v-if="audioUrl && sentences.length > 0 && sentences[0]?.startTime !== undefined"
+              class="flex items-center gap-3 px-2 py-1.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg border dark:border-gray-600">
+              <span class="text-xs text-gray-500 dark:text-gray-400 shrink-0 w-20">字幕同步</span>
+              <input
+                  type="range"
+                  min="-3.0"
+                  max="3.0"
+                  step="0.05"
+                  :value="syncOffset"
+                  @input="e => syncOffset = parseFloat(e.target.value)"
+                  class="flex-1 h-1 bg-gray-300 dark:bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-600"
+              >
+              <span class="text-xs font-mono text-blue-600 dark:text-blue-400 w-12 text-right shrink-0">
+                  {{ syncOffset > 0 ? '+' : '' }}{{ syncOffset.toFixed(2) }}s
+              </span>
+              <button
+                  v-if="syncOffset !== 0"
+                  @click="syncOffset = 0"
+                  class="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 shrink-0"
+                  title="重置"
+              >重置</button>
+          </div>
       </div>
     </div>
 
