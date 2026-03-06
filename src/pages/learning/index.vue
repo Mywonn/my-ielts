@@ -295,6 +295,7 @@ const isManualSeeking = ref(false)
 const isPlaying = ref(false)
 const isRestoringTime = ref(false)
 const playbackRate = ref(1.0)
+const syncOffset = ref(0.0)
 const autoPause = ref(false)
 const loopMode = ref('none')
 const currentTime = ref(0)
@@ -440,21 +441,33 @@ const generateSubtitles = async () => {
              throw new Error('Invalid response format from Groq (no segments found).')
         }
 
-        // --- 核心修复：在生成时净化时间戳 ---
-        const newSentences = result.segments.map((seg, index) => {
-            const text = seg.text.trim();
-            // 策略：将每句的起点稍微往后推 0.02s，终点缩减 0.1s，物理隔离语流
-            const startTime = seg.start ;
-            const endTime = Math.max(startTime + 0.05, seg.end - 0.1);
+        // --- 方案C：用 word-level 时间戳重建句子 ---
+        const wordList = result.words || []  // whisper-large-v3 系列才有，distil 系列为空数组
 
-            return {
-                id: index,
-                text: text,
-                startTime: startTime,
-                endTime: endTime,
-                words: text.split(' ').map(w => ({ text: w, color: null }))
-            };
-        });
+        const newSentences = result.segments.map((seg, index) => {
+            const text = seg.text.trim()
+
+            // 找出属于这个 segment 的单词（用时间范围匹配，±0.05s 容差）
+            const segWords = wordList.filter(w =>
+                w.start >= seg.start - 0.05 && w.end <= seg.end + 0.05
+            )
+
+            let startTime, endTime, words
+
+            if (segWords.length > 0) {
+                // ✅ 有 word-level 数据：用首词 start、末词 end，精度 <50ms
+                startTime = segWords[0].start
+                endTime = segWords[segWords.length - 1].end
+                words = segWords.map(w => ({ text: w.word.trim(), color: null, start: w.start, end: w.end }))
+            } else {
+                // 兜底：退回 segment 时间戳（distil-whisper 走这里）
+                startTime = seg.start
+                endTime = Math.max(seg.start + 0.05, seg.end - 0.1)
+                words = text.split(' ').map(w => ({ text: w, color: null }))
+            }
+
+            return { id: index, text, startTime, endTime, words }
+        })
 
         sentences.value = newSentences
         pdfName.value = 'Groq Generated Subtitles' // Pseudo name
@@ -875,7 +888,7 @@ const syncUIWithAudio = (time) => {
             /* [正常模式高亮同步]：
                通过增加 cfg.startOffset 提前量，让 UI 高亮稍微领先于声音或与其同步
                因为人眼扫视 UI 需要时间，提前 0.15s-0.25s 体验最自然 */
-            const visualTime = time + cfg.startOffset;
+            const visualTime = time + cfg.startOffset + syncOffset.value;
             return visualTime >= s.startTime && visualTime < (s.endTime + cfg.endOffset);
         });
 
@@ -1767,6 +1780,29 @@ onUnmounted(() => {
                 class="hidden"
             ></audio>
           </div>
+      </div>
+      <!-- Row 3: Sync Offset Slider -->
+      <div v-if="audioUrl && sentences.length > 0 && sentences[0]?.startTime !== undefined"
+          class="flex items-center gap-3 px-2 py-1.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg border dark:border-gray-600">
+          <span class="text-xs text-gray-500 dark:text-gray-400 shrink-0 w-20">字幕同步</span>
+          <input
+              type="range"
+              min="-1.0"
+              max="1.0"
+              step="0.05"
+              :value="syncOffset"
+              @input="e => syncOffset = parseFloat(e.target.value)"
+              class="flex-1 h-1 bg-gray-300 dark:bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-600"
+          >
+          <span class="text-xs font-mono text-blue-600 dark:text-blue-400 w-12 text-right shrink-0">
+              {{ syncOffset > 0 ? '+' : '' }}{{ syncOffset.toFixed(2) }}s
+          </span>
+          <button
+              v-if="syncOffset !== 0"
+              @click="syncOffset = 0"
+              class="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 shrink-0"
+              title="重置"
+          >重置</button>
       </div>
     </div>
 
