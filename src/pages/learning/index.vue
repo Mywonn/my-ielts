@@ -875,7 +875,7 @@ const syncUIWithAudio = (time) => {
                 audioPlayer.value.pause();
                 isPlaying.value = false;
                 /* [训练模式回弹]：播放结束后重置到本句开头，方便再次练习 */
-                audioPlayer.value.currentTime = sentences.value[activeSentenceIndex.value].startTime + 0.05;
+                audioPlayer.value.currentTime = sentences.value[activeSentenceIndex.value].startTime + 0.05 - syncOffset.value;
                 trainingTargetEnd.value = null;
                 return;
             }
@@ -1022,10 +1022,11 @@ const getCompensatedEnd = (index) => {
     // 同时通过 Math.min 确保不会播到下一句的开头
     const nextS = sentences.value[index + 1];
     if (nextS && nextS.startTime !== undefined) {
-        /* [训练模式结尾]：在当前句结尾基础上增加缓冲，但不得进入下一句起始点前 0.05s 的安全区 */
-        return Math.min(s.endTime + cfg.endBuffer, nextS.startTime - 0.05 - syncOffset.value)
+        /* [训练模式结尾]：在当前句结尾基础上增加缓冲，但不得进入下一句起始点前 0.05s 的安全区
+           syncOffset 作用于 endTime（字幕时间→音频时间的转换），nextS.startTime 不参与偏移 */
+        return Math.min(s.endTime + cfg.endBuffer - syncOffset.value, nextS.startTime - 0.05 - syncOffset.value)
     }
-    return s.endTime + cfg.endBuffer;
+    return s.endTime + cfg.endBuffer - syncOffset.value;
 }
 
 
@@ -1064,7 +1065,7 @@ const togglePlay = () => {
             const compensatedEnd = getCompensatedEnd(idx)
             if (!(currentTime.value >= s.startTime && currentTime.value < compensatedEnd)) {
                 setManualSeeking(true)
-                audioPlayer.value.currentTime = s.startTime + 0.2
+                audioPlayer.value.currentTime = Math.max(0, s.startTime + 0.2 - syncOffset.value)
             }
             trainingTargetEnd.value = compensatedEnd
         }
@@ -1318,7 +1319,7 @@ const setActiveSentence = (index, isFromControl = false) => {
     const player = audioPlayer.value
     const cfg = isMobile.value ? BOUNDARY_CONFIG.TRAINING.mobile : BOUNDARY_CONFIG.TRAINING.desktop
     const jump = trainingMode.value ? cfg.startJump : 0
-    const targetTime = Math.max(0, sent.startTime + jump)
+    const targetTime = Math.max(0, sent.startTime + jump - syncOffset.value)
     const seq = ++sentenceJumpSeq
 
     if (activeSentenceIndex.value === index && !isFromControl && isPlaying.value) {
