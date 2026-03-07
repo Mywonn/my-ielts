@@ -967,53 +967,52 @@ const binaryFindSentence = (visualTime, endOffset) => {
     return -1
 }
 
-// ─── 高频同步逻辑 (正常模式核心) ─────────────────────────────────────────────
+// ─── 高频同步逻辑 (正常模式 + 训练模式核心) ──────────────────────────────────
 const syncUIWithAudio = (time) => {
     if (!isPageActive.value || isManualSeeking.value) return;
 
     currentTime.value = time;
 
     if (sentences.value.length > 0 && sentences.value[0].startTime !== undefined) {
-        // 训练模式的强行截断逻辑
+
+        // ── 训练模式截断逻辑 ─────────────────────────────────────────────────
+        // trainingTargetEnd 是纯物理音频时间，不加 syncOffset
+        // 修复：回弹位置也用物理时间，不受 syncOffset 污染
         if (trainingMode.value && trainingTargetEnd.value != null) {
             if (time >= trainingTargetEnd.value) {
                 audioPlayer.value.pause();
                 isPlaying.value = false;
-                /* [训练模式回弹]：播放结束后重置到本句开头，方便再次练习 */
-                audioPlayer.value.currentTime = sentences.value[activeSentenceIndex.value].startTime + 0.05;
+                const s = sentences.value[activeSentenceIndex.value];
+                // 回弹：跳回本句物理起始点 +0.05s，与 syncOffset 无关
+                audioPlayer.value.currentTime = Math.max(0, s.startTime + 0.05);
                 trainingTargetEnd.value = null;
                 return;
             }
         }
 
-        // 正常模式的自动跟随逻辑
+        // ── 正常模式自动高亮跟随 ─────────────────────────────────────────────
+        // syncOffset 只用于调整「视觉感知时间」，不改变音频实际位置
         const cfg = isMobile.value ? BOUNDARY_CONFIG.NORMAL.mobile : BOUNDARY_CONFIG.NORMAL.desktop;
         const visualTime = time + cfg.startOffset + syncOffset.value;
 
-        // ─── 优化 2 应用：用二分查找替换 findIndex ───────────────────────────
+        // 优化 2：二分查找 O(log n)
         let index = binaryFindSentence(visualTime, cfg.endOffset);
 
-        // ─── 优化 3：空隙容错 (Gap Tolerance) ───────────────────────────────
-        // 两句之间的停顿（如主持人换话题）最多 2 秒内不清除高亮，避免高亮一闪而过
+        // 优化 3：空隙容错，停顿 ≤ 2s 保持上一句高亮
         if (index === -1) {
-            const prev = activeSentenceIndex.value
+            const prev = activeSentenceIndex.value;
             if (prev >= 0) {
-                const prevSent = sentences.value[prev]
-                const GAP_TOLERANCE = 2.0
-                if (prevSent && (time - prevSent.endTime) < GAP_TOLERANCE) {
-                    // 停顿在容忍范围内：保持当前高亮，等待下一句
-                    return
-                }
+                const prevSent = sentences.value[prev];
+                const GAP_TOLERANCE = 2.0;
+                if (prevSent && (time - prevSent.endTime) < GAP_TOLERANCE) return;
             }
-            // 超过容忍时间，不强制切到 -1，让自然状态维持
-            return
+            return;
         }
 
         if (index !== activeSentenceIndex.value && !isManualSeeking.value) {
-            // ─── 优化 1 应用：采集漂移样本更新补偿值 ────────────────────────
-            updateDriftCompensation(time, sentences.value[index].startTime)
-
+            // 优化 1：采集漂移样本（仅正常模式，训练模式手动跳句不记录）
             if (!trainingMode.value) {
+                updateDriftCompensation(time, sentences.value[index].startTime);
                 activeSentenceIndex.value = index;
                 scrollToSentence(index);
             }
@@ -1118,11 +1117,9 @@ const restartTrack = () => {
 }
 
 const replaySentence = (sent) => {
-    // Placeholder: PDF extraction doesn't provide timestamps
-    // We would need a way to manually sync or import timestamped data (e.g. LRC/SRT)
-    // For now, we can only warn or maybe just play from current if we had data.
     if (sent.startTime !== undefined) {
-        audioPlayer.value.currentTime = sent.startTime - syncOffset.value
+        // syncOffset 是视觉偏移，不应减到物理播放位置
+        audioPlayer.value.currentTime = Math.max(0, sent.startTime)
         if (!isPlaying.value) audioPlayer.value.play()
         isPlaying.value = true
     } else {
@@ -1131,19 +1128,17 @@ const replaySentence = (sent) => {
 }
 
 // --- 获取句子结束时间 (训练模式核心) ---
+// ⚠️ 返回的是纯物理音频时间，不加 syncOffset（syncOffset 是视觉偏移，与播放截断无关）
 const getCompensatedEnd = (index) => {
     const s = sentences.value[index];
     if (!s || s.startTime === undefined) return 0;
 
     const cfg = isMobile.value ? BOUNDARY_CONFIG.TRAINING.mobile : BOUNDARY_CONFIG.TRAINING.desktop;
 
-    // [训练模式结尾调整]:
-    // cfg.endBuffer 是为了防止单词最后一个音节没发完就被切断
-    // 同时通过 Math.min 确保不会播到下一句的开头
     const nextS = sentences.value[index + 1];
     if (nextS && nextS.startTime !== undefined) {
-        /* [训练模式结尾]：在当前句结尾基础上增加缓冲，但不得进入下一句起始点前 0.05s 的安全区 */
-        return Math.min(s.endTime + cfg.endBuffer, nextS.startTime - 0.05 - syncOffset.value)
+        // 不超过下一句起始点前 0.05s 的安全区（纯物理时间对比，不减 syncOffset）
+        return Math.min(s.endTime + cfg.endBuffer, nextS.startTime - 0.05);
     }
     return s.endTime + cfg.endBuffer;
 }
@@ -1174,25 +1169,51 @@ const togglePlay = () => {
         isPlaying.value = false
         return
     }
-    // 进入播放，允许 timeupdate 正常写入
     isRestoringTime.value = false
+    const player = audioPlayer.value
+
     if (trainingMode.value && sentences.value.length > 0) {
         let idx = activeSentenceIndex.value >= 0 ? activeSentenceIndex.value : 0
         const s = sentences.value[idx]
         if (s && s.startTime !== undefined) {
-            // 【修改点 3】：调用安全的补偿方法
             const compensatedEnd = getCompensatedEnd(idx)
-            if (!(currentTime.value >= s.startTime && currentTime.value < compensatedEnd)) {
-                setManualSeeking(true)
-                audioPlayer.value.currentTime = s.startTime + 0.2
+            const needsSeek = !(currentTime.value >= s.startTime && currentTime.value < compensatedEnd)
+
+            const doPlay = () => {
+                trainingTargetEnd.value = null
+                player.play().then(() => {
+                    isPlaying.value = true
+                    trainingTargetEnd.value = getCompensatedEnd(idx)
+                }).catch(() => {})
             }
-            trainingTargetEnd.value = compensatedEnd
+
+            if (needsSeek) {
+                trainingTargetEnd.value = null
+                setManualSeeking(true)
+                if (isMobile.value) {
+                    const onSeeked = () => {
+                        player.removeEventListener('seeked', onSeeked)
+                        doPlay()
+                    }
+                    player.addEventListener('seeked', onSeeked)
+                    setTimeout(() => {
+                        player.removeEventListener('seeked', onSeeked)
+                        if (!isPlaying.value) doPlay()
+                    }, 600)
+                    player.currentTime = s.startTime + 0.2
+                } else {
+                    player.currentTime = s.startTime + 0.2
+                    doPlay()
+                }
+            } else {
+                doPlay()
+            }
+            return
         }
-    } else {
-        trainingTargetEnd.value = null
     }
-    audioPlayer.value.play()
-    isPlaying.value = true
+
+    trainingTargetEnd.value = null
+    player.play().then(() => { isPlaying.value = true }).catch(() => {})
 }
 
 const changeSpeed = () => {
@@ -1455,31 +1476,54 @@ const setActiveSentence = (index, isFromControl = false) => {
     isPlaying.value = false
     trainingTargetEnd.value = null
 
-    isManualSeeking.value = true
-    setManualSeeking(true, isMobile.value ? 900 : 450)
-    try {
-        player.currentTime = targetTime
-    } catch (e) {
-        isPlaying.value = false
-        trainingTargetEnd.value = null
-        return
-    }
+    // iOS Safari seek 是异步的：currentTime 赋值后不会立即生效
+    // 必须监听 seeked 事件确认定位完成，再调 play()，否则会从错误位置起播
+    const seekDelay = isMobile.value ? 900 : 450
+    setManualSeeking(true, seekDelay)
 
-    trainingTargetEnd.value = trainingMode.value ? getCompensatedEnd(index) : null
-    const playRet = player.play()
-    if (playRet && typeof playRet.then === 'function') {
-        playRet.then(() => {
+    const doPlay = () => {
+        if (seq !== sentenceJumpSeq) return
+        const playRet = player.play()
+        if (playRet && typeof playRet.then === 'function') {
+            playRet.then(() => {
+                if (seq !== sentenceJumpSeq) return
+                isPlaying.value = true
+                trainingTargetEnd.value = trainingMode.value ? getCompensatedEnd(index) : null
+                scrollToSentence(index)
+            }).catch(() => {
+                if (seq !== sentenceJumpSeq) return
+                isPlaying.value = false
+            })
+        } else {
             if (seq !== sentenceJumpSeq) return
             isPlaying.value = true
+            trainingTargetEnd.value = trainingMode.value ? getCompensatedEnd(index) : null
             scrollToSentence(index)
-        }).catch(() => {
-            if (seq !== sentenceJumpSeq) return
-            isPlaying.value = false
-        })
+        }
+    }
+
+    if (isMobile.value) {
+        // iOS Safari：监听一次 seeked 事件，确认跳转完成后再 play
+        const onSeeked = () => {
+            player.removeEventListener('seeked', onSeeked)
+            doPlay()
+        }
+        player.addEventListener('seeked', onSeeked)
+        // 保底：如果 seeked 超过 600ms 还没触发（极少数情况），直接播
+        setTimeout(() => {
+            player.removeEventListener('seeked', onSeeked)
+            if (seq === sentenceJumpSeq && !isPlaying.value) doPlay()
+        }, 600)
+        try { player.currentTime = targetTime } catch (e) {
+            player.removeEventListener('seeked', onSeeked)
+            isPlaying.value = false; trainingTargetEnd.value = null
+        }
     } else {
-        if (seq !== sentenceJumpSeq) return
-        isPlaying.value = true
-        scrollToSentence(index)
+        // 桌面端：seek 基本同步，直接播
+        try { player.currentTime = targetTime } catch (e) {
+            isPlaying.value = false; trainingTargetEnd.value = null; return
+        }
+        doPlay()
     }
 };
 
@@ -1606,16 +1650,36 @@ const nextSentence = () => {
 };
 
 const replayCurrent = () => {
-    if (activeSentenceIndex.value >= 0) {
-        const s = sentences.value[activeSentenceIndex.value]
-        setManualSeeking(true)
-        audioPlayer.value.currentTime = s.startTime + 0.05 - syncOffset.value
+    if (activeSentenceIndex.value < 0) return
+    const s = sentences.value[activeSentenceIndex.value]
+    if (!s || !audioPlayer.value) return
 
-        // 直接播放并同步状态
-        audioPlayer.value.play().then(() => {
+    const player = audioPlayer.value
+    const targetTime = Math.max(0, s.startTime + 0.05)
+    trainingTargetEnd.value = null
+    setManualSeeking(true)
+
+    const doPlay = () => {
+        player.play().then(() => {
             isPlaying.value = true
             trainingTargetEnd.value = trainingMode.value ? getCompensatedEnd(activeSentenceIndex.value) : null
         }).catch(e => console.warn('iOS Replay prevented:', e))
+    }
+
+    if (isMobile.value) {
+        const onSeeked = () => {
+            player.removeEventListener('seeked', onSeeked)
+            doPlay()
+        }
+        player.addEventListener('seeked', onSeeked)
+        setTimeout(() => {
+            player.removeEventListener('seeked', onSeeked)
+            if (!isPlaying.value) doPlay()
+        }, 600)
+        player.currentTime = targetTime
+    } else {
+        player.currentTime = targetTime
+        doPlay()
     }
 }
 
@@ -1903,7 +1967,14 @@ onUnmounted(() => {
           <!-- Row 3: Sync Offset Slider -->
           <div v-if="audioUrl && sentences.length > 0 && sentences[0]?.startTime !== undefined"
               class="flex items-center gap-3 px-2 py-1.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg border dark:border-gray-600">
-              <span class="text-xs text-gray-500 dark:text-gray-400 shrink-0 w-20">字幕同步</span>
+              <span class="flex items-center gap-2 shrink-0">
+                    <span class="text-xs text-gray-500 dark:text-gray-400">字幕同步</span>
+                    <button
+                        @click="syncOffset = 0; driftSamples.length = 0"
+                        class="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                        title="重置"
+                    >重置</button>
+                </span>
               <input
                   type="range"
                   min="-3.0"
@@ -1913,21 +1984,16 @@ onUnmounted(() => {
                   @input="e => syncOffset = parseFloat(e.target.value)"
                   class="flex-1 h-1 bg-gray-300 dark:bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-600"
               >
-              <span class="text-xs font-mono text-blue-600 dark:text-blue-400 w-12 text-right shrink-0">
-                  {{ syncOffset > 0 ? '+' : '' }}{{ syncOffset.toFixed(2) }}s
-              </span>
-              <!-- 优化1：漂移补偿状态指示器 -->
-              <span
-                  v-if="driftSamples.length >= 3"
-                  class="text-xs text-emerald-500 dark:text-emerald-400 shrink-0"
-                  title="自动漂移补偿已激活（已采集足够样本）"
-              >⚡自动</span>
-              <button
-                  v-if="syncOffset !== 0"
-                  @click="syncOffset = 0; driftSamples.length = 0"
-                  class="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 shrink-0"
-                  title="重置"
-              >重置</button>
+              <span class="flex items-center gap-1 shrink-0">
+                <span class="text-xs font-mono text-blue-600 dark:text-blue-400">
+                    {{ syncOffset > 0 ? '+' : '' }}{{ syncOffset.toFixed(2) }}s
+                </span>
+                <span
+                    v-if="driftSamples.length >= 3"
+                    class="text-xs text-emerald-500 dark:text-emerald-400"
+                    title="自动漂移补偿已激活（已采集足够样本）"
+                >⚡自动</span>
+            </span>
           </div>
       </div>
     </div>
