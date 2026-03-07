@@ -1176,14 +1176,6 @@ const togglePlay = () => {
 
     if (trainingMode.value && sentences.value.length > 0) {
         let idx = activeSentenceIndex.value >= 0 ? activeSentenceIndex.value : 0
-        
-        // 【修复问题 2】：如果当前状态为 -1 (未激活)，必须手动赋予全局激活状态，否则底层高亮和截止计算会卡死
-        if (activeSentenceIndex.value !== idx) {
-            activeSentenceIndex.value = idx
-            revealedSet.value = new Set([idx])
-            scrollToSentence(idx)
-        }
-
         const s = sentences.value[idx]
         if (s && s.startTime !== undefined) {
             const compensatedEnd = getCompensatedEnd(idx)
@@ -1210,10 +1202,9 @@ const togglePlay = () => {
                         player.removeEventListener('seeked', onSeeked)
                         if (!isPlaying.value) doPlay()
                     }, 600)
-                    // 稍微偏移一点防止吃字，从 0.2 改为 0.05
-                    player.currentTime = s.startTime + 0.05 
+                    player.currentTime = s.startTime + 0.2
                 } else {
-                    player.currentTime = s.startTime + 0.05
+                    player.currentTime = s.startTime + 0.2
                     doPlay()
                 }
             } else {
