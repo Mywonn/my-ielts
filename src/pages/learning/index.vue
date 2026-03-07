@@ -976,43 +976,45 @@ const syncUIWithAudio = (time) => {
     if (sentences.value.length > 0 && sentences.value[0].startTime !== undefined) {
 
         // ── 训练模式截断逻辑 ─────────────────────────────────────────────────
-        // trainingTargetEnd 是纯物理音频时间，不加 syncOffset
-        // 修复：回弹位置也用物理时间，不受 syncOffset 污染
         if (trainingMode.value && trainingTargetEnd.value != null) {
             if (time >= trainingTargetEnd.value) {
                 audioPlayer.value.pause();
                 isPlaying.value = false;
                 const s = sentences.value[activeSentenceIndex.value];
-                // 回弹：跳回本句物理起始点 +0.05s，与 syncOffset 无关
                 audioPlayer.value.currentTime = Math.max(0, s.startTime + 0.05);
                 trainingTargetEnd.value = null;
                 return;
             }
+            // 训练模式播放中：也同步高亮跟随当前句（不切换，只高亮当前激活句）
+            // 不需要 return，让代码继续往下走以便更新 currentTime
+            return;
         }
 
-        // ── 正常模式自动高亮跟随 ─────────────────────────────────────────────
-        // syncOffset 只用于调整「视觉感知时间」，不改变音频实际位置
+        // ── 正常模式 + 训练模式（无 targetEnd 时）自动高亮跟随 ────────────────
         const cfg = isMobile.value ? BOUNDARY_CONFIG.NORMAL.mobile : BOUNDARY_CONFIG.NORMAL.desktop;
         const visualTime = time + cfg.startOffset + syncOffset.value;
 
-        // 优化 2：二分查找 O(log n)
         let index = binaryFindSentence(visualTime, cfg.endOffset);
 
-        // 优化 3：空隙容错，停顿 ≤ 2s 保持上一句高亮
+        // 空隙容错，停顿 ≤ 2s 保持上一句高亮
         if (index === -1) {
             const prev = activeSentenceIndex.value;
             if (prev >= 0) {
                 const prevSent = sentences.value[prev];
-                const GAP_TOLERANCE = 2.0;
-                if (prevSent && (time - prevSent.endTime) < GAP_TOLERANCE) return;
+                if (prevSent && (time - prevSent.endTime) < 2.0) return;
             }
             return;
         }
 
-        if (index !== activeSentenceIndex.value && !isManualSeeking.value) {
-            // 优化 1：采集漂移样本（仅正常模式，训练模式手动跳句不记录）
+        if (index !== activeSentenceIndex.value) {
             if (!trainingMode.value) {
+                // 正常模式：自动跟随 + 漂移补偿
                 updateDriftCompensation(time, sentences.value[index].startTime);
+                activeSentenceIndex.value = index;
+                scrollToSentence(index);
+            } else {
+                // 训练模式且 trainingTargetEnd 为 null（如刚刷新点播放）：
+                // 自动跟随高亮，但不自动跳句，让用户手动控制
                 activeSentenceIndex.value = index;
                 scrollToSentence(index);
             }
@@ -1476,9 +1478,8 @@ const setActiveSentence = (index, isFromControl = false) => {
     isPlaying.value = false
     trainingTargetEnd.value = null
 
-    // iOS Safari seek 是异步的：currentTime 赋值后不会立即生效
-    // 必须监听 seeked 事件确认定位完成，再调 play()，否则会从错误位置起播
-    const seekDelay = isMobile.value ? 900 : 450
+    // 训练模式需要更长的锁（等待 seeked 事件），正常模式只需短暂防抖
+    const seekDelay = trainingMode.value ? (isMobile.value ? 900 : 450) : 150
     setManualSeeking(true, seekDelay)
 
     const doPlay = () => {
@@ -1502,8 +1503,8 @@ const setActiveSentence = (index, isFromControl = false) => {
         }
     }
 
-    if (isMobile.value) {
-        // iOS Safari：监听一次 seeked 事件，确认跳转完成后再 play
+    if (isMobile.value && trainingMode.value) {
+        // iOS Safari 训练模式：监听 seeked 确认跳转完成后再 play
         const onSeeked = () => {
             player.removeEventListener('seeked', onSeeked)
             doPlay()
@@ -1519,7 +1520,7 @@ const setActiveSentence = (index, isFromControl = false) => {
             isPlaying.value = false; trainingTargetEnd.value = null
         }
     } else {
-        // 桌面端：seek 基本同步，直接播
+        // 桌面端 / 正常模式：seek 后直接播
         try { player.currentTime = targetTime } catch (e) {
             isPlaying.value = false; trainingTargetEnd.value = null; return
         }
@@ -1967,14 +1968,12 @@ onUnmounted(() => {
           <!-- Row 3: Sync Offset Slider -->
           <div v-if="audioUrl && sentences.length > 0 && sentences[0]?.startTime !== undefined"
               class="flex items-center gap-3 px-2 py-1.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg border dark:border-gray-600">
-              <span class="flex items-center gap-2 shrink-0">
-                    <span class="text-xs text-gray-500 dark:text-gray-400">字幕同步</span>
-                    <button
-                        @click="syncOffset = 0; driftSamples.length = 0"
-                        class="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
-                        title="重置"
-                    >重置</button>
-                </span>
+              <span class="text-xs text-gray-500 dark:text-gray-400 shrink-0">字幕同步</span>
+              <button
+                  @click="syncOffset = 0; driftSamples.length = 0"
+                  class="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 shrink-0"
+                  title="重置"
+              >重置</button>
               <input
                   type="range"
                   min="-3.0"
@@ -1984,16 +1983,14 @@ onUnmounted(() => {
                   @input="e => syncOffset = parseFloat(e.target.value)"
                   class="flex-1 h-1 bg-gray-300 dark:bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-600"
               >
-              <span class="flex items-center gap-1 shrink-0">
-                <span class="text-xs font-mono text-blue-600 dark:text-blue-400">
-                    {{ syncOffset > 0 ? '+' : '' }}{{ syncOffset.toFixed(2) }}s
-                </span>
-                <span
-                    v-if="driftSamples.length >= 3"
-                    class="text-xs text-emerald-500 dark:text-emerald-400"
-                    title="自动漂移补偿已激活（已采集足够样本）"
-                >⚡自动</span>
-            </span>
+              <span class="text-xs font-mono text-blue-600 dark:text-blue-400 w-12 text-right shrink-0">
+                  {{ syncOffset > 0 ? '+' : '' }}{{ syncOffset.toFixed(2) }}s
+              </span>
+              <span
+                  v-if="driftSamples.length >= 3"
+                  class="text-xs text-emerald-500 dark:text-emerald-400 shrink-0"
+                  title="自动漂移补偿已激活（已采集足够样本）"
+              >⚡自动</span>
           </div>
       </div>
     </div>
