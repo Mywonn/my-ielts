@@ -983,10 +983,8 @@ const syncUIWithAudio = (time) => {
                 const s = sentences.value[activeSentenceIndex.value];
                 audioPlayer.value.currentTime = Math.max(0, s.startTime + 0.05);
                 trainingTargetEnd.value = null;
-                return;
             }
-            // 训练模式播放中：也同步高亮跟随当前句（不切换，只高亮当前激活句）
-            // 不需要 return，让代码继续往下走以便更新 currentTime
+            // 训练模式单句播放中：不自动切换句子，直接返回
             return;
         }
 
@@ -1013,8 +1011,8 @@ const syncUIWithAudio = (time) => {
                 activeSentenceIndex.value = index;
                 scrollToSentence(index);
             } else {
-                // 训练模式且 trainingTargetEnd 为 null（如刚刷新点播放）：
-                // 自动跟随高亮，但不自动跳句，让用户手动控制
+                // 训练模式 trainingTargetEnd==null（从正常模式切入 / 刚刷新未点句子）：
+                // 仅跟随高亮，不激活单句截断
                 activeSentenceIndex.value = index;
                 scrollToSentence(index);
             }
@@ -1130,19 +1128,22 @@ const replaySentence = (sent) => {
 }
 
 // --- 获取句子结束时间 (训练模式核心) ---
-// ⚠️ 返回的是纯物理音频时间，不加 syncOffset（syncOffset 是视觉偏移，与播放截断无关）
+// ⚠️ 返回的是纯物理音频时间，不加 syncOffset
 const getCompensatedEnd = (index) => {
     const s = sentences.value[index];
     if (!s || s.startTime === undefined) return 0;
 
     const cfg = isMobile.value ? BOUNDARY_CONFIG.TRAINING.mobile : BOUNDARY_CONFIG.TRAINING.desktop;
+    const desiredEnd = s.endTime + cfg.endBuffer;
 
     const nextS = sentences.value[index + 1];
     if (nextS && nextS.startTime !== undefined) {
-        // 不超过下一句起始点前 0.05s 的安全区（纯物理时间对比，不减 syncOffset）
-        return Math.min(s.endTime + cfg.endBuffer, nextS.startTime - 0.05);
+        // 保证至少播到 endTime（不被下一句 startTime 截断），
+        // 只允许在 desiredEnd > nextS.startTime 时才 clamp
+        // 即：宁可和下一句起始点有短暂重叠，也不能截掉尾音
+        return Math.max(s.endTime, Math.min(desiredEnd, nextS.startTime + 0.1));
     }
-    return s.endTime + cfg.endBuffer;
+    return desiredEnd;
 }
 
 
@@ -1465,10 +1466,14 @@ const setActiveSentence = (index, isFromControl = false) => {
     const seq = ++sentenceJumpSeq
 
     if (activeSentenceIndex.value === index && !isFromControl && isPlaying.value) {
-        player.pause()
-        isPlaying.value = false
-        trainingTargetEnd.value = null
-        return
+        // 训练模式单句播放中点同一句 → 暂停
+        // 正常模式 / 训练模式未激活单句 → 不暂停，允许重新从头跳转
+        if (!trainingMode.value || trainingTargetEnd.value != null) {
+            player.pause()
+            isPlaying.value = false
+            trainingTargetEnd.value = null
+            return
+        }
     }
 
     if (trainingMode.value) revealedSet.value = new Set([index])
@@ -1625,10 +1630,14 @@ const toggleTrainingMode = () => {
     trainingTargetEnd.value = null
     if (trainingMode.value) {
         revealedSet.value = new Set()
-        // 进入训练模式时，若正在播放则立即暂停，等用户手动控制
         if (isPlaying.value && audioPlayer.value) {
             audioPlayer.value.pause()
             isPlaying.value = false
+        }
+        // 切入训练模式时，若当前已有激活句子，立即把该句子揭开
+        // 下次点播放时 togglePlay 会正确设置 trainingTargetEnd
+        if (activeSentenceIndex.value >= 0) {
+            revealedSet.value = new Set([activeSentenceIndex.value])
         }
     }
 }
