@@ -983,8 +983,10 @@ const syncUIWithAudio = (time) => {
                 const s = sentences.value[activeSentenceIndex.value];
                 audioPlayer.value.currentTime = Math.max(0, s.startTime + 0.05);
                 trainingTargetEnd.value = null;
+                return;
             }
-            // 训练模式单句播放中：不自动切换句子，直接返回
+            // 训练模式播放中：也同步高亮跟随当前句（不切换，只高亮当前激活句）
+            // 不需要 return，让代码继续往下走以便更新 currentTime
             return;
         }
 
@@ -1011,8 +1013,8 @@ const syncUIWithAudio = (time) => {
                 activeSentenceIndex.value = index;
                 scrollToSentence(index);
             } else {
-                // 训练模式 trainingTargetEnd==null（从正常模式切入 / 刚刷新未点句子）：
-                // 仅跟随高亮，不激活单句截断
+                // 训练模式且 trainingTargetEnd 为 null（如刚刷新点播放）：
+                // 自动跟随高亮，但不自动跳句，让用户手动控制
                 activeSentenceIndex.value = index;
                 scrollToSentence(index);
             }
@@ -1128,22 +1130,19 @@ const replaySentence = (sent) => {
 }
 
 // --- 获取句子结束时间 (训练模式核心) ---
-// ⚠️ 返回的是纯物理音频时间，不加 syncOffset
+// ⚠️ 返回的是纯物理音频时间，不加 syncOffset（syncOffset 是视觉偏移，与播放截断无关）
 const getCompensatedEnd = (index) => {
     const s = sentences.value[index];
     if (!s || s.startTime === undefined) return 0;
 
     const cfg = isMobile.value ? BOUNDARY_CONFIG.TRAINING.mobile : BOUNDARY_CONFIG.TRAINING.desktop;
-    const desiredEnd = s.endTime + cfg.endBuffer;
 
     const nextS = sentences.value[index + 1];
     if (nextS && nextS.startTime !== undefined) {
-        // 保证至少播到 endTime（不被下一句 startTime 截断），
-        // 只允许在 desiredEnd > nextS.startTime 时才 clamp
-        // 即：宁可和下一句起始点有短暂重叠，也不能截掉尾音
-        return Math.max(s.endTime, Math.min(desiredEnd, nextS.startTime + 0.1));
+        // 不超过下一句起始点前 0.05s 的安全区（纯物理时间对比，不减 syncOffset）
+        return Math.min(s.endTime + cfg.endBuffer, nextS.startTime - 0.05);
     }
-    return desiredEnd;
+    return s.endTime + cfg.endBuffer;
 }
 
 
@@ -1177,6 +1176,14 @@ const togglePlay = () => {
 
     if (trainingMode.value && sentences.value.length > 0) {
         let idx = activeSentenceIndex.value >= 0 ? activeSentenceIndex.value : 0
+        
+        // 【修复问题 2】：如果当前状态为 -1 (未激活)，必须手动赋予全局激活状态，否则底层高亮和截止计算会卡死
+        if (activeSentenceIndex.value !== idx) {
+            activeSentenceIndex.value = idx
+            revealedSet.value = new Set([idx])
+            scrollToSentence(idx)
+        }
+
         const s = sentences.value[idx]
         if (s && s.startTime !== undefined) {
             const compensatedEnd = getCompensatedEnd(idx)
@@ -1203,9 +1210,10 @@ const togglePlay = () => {
                         player.removeEventListener('seeked', onSeeked)
                         if (!isPlaying.value) doPlay()
                     }, 600)
-                    player.currentTime = s.startTime + 0.2
+                    // 稍微偏移一点防止吃字，从 0.2 改为 0.05
+                    player.currentTime = s.startTime + 0.05 
                 } else {
-                    player.currentTime = s.startTime + 0.2
+                    player.currentTime = s.startTime + 0.05
                     doPlay()
                 }
             } else {
@@ -1465,22 +1473,19 @@ const setActiveSentence = (index, isFromControl = false) => {
     const targetTime = Math.max(0, sent.startTime + jump)
     const seq = ++sentenceJumpSeq
 
+    // 点击当前正在播放的句子时，执行暂停
     if (activeSentenceIndex.value === index && !isFromControl && isPlaying.value) {
-        // 训练模式单句播放中点同一句 → 暂停
-        // 正常模式 / 训练模式未激活单句 → 不暂停，允许重新从头跳转
-        if (!trainingMode.value || trainingTargetEnd.value != null) {
-            player.pause()
-            isPlaying.value = false
-            trainingTargetEnd.value = null
-            return
-        }
+        player.pause()
+        isPlaying.value = false
+        trainingTargetEnd.value = null
+        return
     }
 
     if (trainingMode.value) revealedSet.value = new Set([index])
     activeSentenceIndex.value = index
 
-    player.pause()
-    isPlaying.value = false
+    // 【修复问题 1】：删除原本这里的 player.pause() 和 isPlaying.value = false
+    // 强制先暂停再立刻播放会导致浏览器 AbortError，中断音频跳转。
     trainingTargetEnd.value = null
 
     // 训练模式需要更长的锁（等待 seeked 事件），正常模式只需短暂防抖
@@ -1496,9 +1501,8 @@ const setActiveSentence = (index, isFromControl = false) => {
                 isPlaying.value = true
                 trainingTargetEnd.value = trainingMode.value ? getCompensatedEnd(index) : null
                 scrollToSentence(index)
-            }).catch(() => {
-                if (seq !== sentenceJumpSeq) return
-                isPlaying.value = false
+            }).catch((e) => {
+                console.warn('Playback prevented by browser:', e)
             })
         } else {
             if (seq !== sentenceJumpSeq) return
@@ -1515,20 +1519,17 @@ const setActiveSentence = (index, isFromControl = false) => {
             doPlay()
         }
         player.addEventListener('seeked', onSeeked)
-        // 保底：如果 seeked 超过 600ms 还没触发（极少数情况），直接播
+        // 保底：如果 seeked 超过 600ms 还没触发，直接播
         setTimeout(() => {
             player.removeEventListener('seeked', onSeeked)
             if (seq === sentenceJumpSeq && !isPlaying.value) doPlay()
         }, 600)
         try { player.currentTime = targetTime } catch (e) {
             player.removeEventListener('seeked', onSeeked)
-            isPlaying.value = false; trainingTargetEnd.value = null
         }
     } else {
-        // 桌面端 / 正常模式：seek 后直接播
-        try { player.currentTime = targetTime } catch (e) {
-            isPlaying.value = false; trainingTargetEnd.value = null; return
-        }
+        // 桌面端 / 正常模式：设置时间后直接播
+        try { player.currentTime = targetTime } catch (e) {}
         doPlay()
     }
 };
@@ -1630,14 +1631,10 @@ const toggleTrainingMode = () => {
     trainingTargetEnd.value = null
     if (trainingMode.value) {
         revealedSet.value = new Set()
+        // 进入训练模式时，若正在播放则立即暂停，等用户手动控制
         if (isPlaying.value && audioPlayer.value) {
             audioPlayer.value.pause()
             isPlaying.value = false
-        }
-        // 切入训练模式时，若当前已有激活句子，立即把该句子揭开
-        // 下次点播放时 togglePlay 会正确设置 trainingTargetEnd
-        if (activeSentenceIndex.value >= 0) {
-            revealedSet.value = new Set([activeSentenceIndex.value])
         }
     }
 }
