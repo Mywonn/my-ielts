@@ -1464,7 +1464,6 @@ const setActiveSentence = (index, isFromControl = false) => {
     const targetTime = Math.max(0, sent.startTime + jump)
     const seq = ++sentenceJumpSeq
 
-    // 点击当前正在播放的句子时，执行暂停
     if (activeSentenceIndex.value === index && !isFromControl && isPlaying.value) {
         player.pause()
         isPlaying.value = false
@@ -1475,8 +1474,8 @@ const setActiveSentence = (index, isFromControl = false) => {
     if (trainingMode.value) revealedSet.value = new Set([index])
     activeSentenceIndex.value = index
 
-    // 【修复问题 1】：删除原本这里的 player.pause() 和 isPlaying.value = false
-    // 强制先暂停再立刻播放会导致浏览器 AbortError，中断音频跳转。
+    player.pause()
+    isPlaying.value = false
     trainingTargetEnd.value = null
 
     // 训练模式需要更长的锁（等待 seeked 事件），正常模式只需短暂防抖
@@ -1492,8 +1491,9 @@ const setActiveSentence = (index, isFromControl = false) => {
                 isPlaying.value = true
                 trainingTargetEnd.value = trainingMode.value ? getCompensatedEnd(index) : null
                 scrollToSentence(index)
-            }).catch((e) => {
-                console.warn('Playback prevented by browser:', e)
+            }).catch(() => {
+                if (seq !== sentenceJumpSeq) return
+                isPlaying.value = false
             })
         } else {
             if (seq !== sentenceJumpSeq) return
@@ -1510,17 +1510,20 @@ const setActiveSentence = (index, isFromControl = false) => {
             doPlay()
         }
         player.addEventListener('seeked', onSeeked)
-        // 保底：如果 seeked 超过 600ms 还没触发，直接播
+        // 保底：如果 seeked 超过 600ms 还没触发（极少数情况），直接播
         setTimeout(() => {
             player.removeEventListener('seeked', onSeeked)
             if (seq === sentenceJumpSeq && !isPlaying.value) doPlay()
         }, 600)
         try { player.currentTime = targetTime } catch (e) {
             player.removeEventListener('seeked', onSeeked)
+            isPlaying.value = false; trainingTargetEnd.value = null
         }
     } else {
-        // 桌面端 / 正常模式：设置时间后直接播
-        try { player.currentTime = targetTime } catch (e) {}
+        // 桌面端 / 正常模式：seek 后直接播
+        try { player.currentTime = targetTime } catch (e) {
+            isPlaying.value = false; trainingTargetEnd.value = null; return
+        }
         doPlay()
     }
 };
