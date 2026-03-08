@@ -156,6 +156,40 @@ const getHighlightClass = (hexColor) => {
     return colorMap[hexColor] || 'bg-gray-300 text-gray-900 dark:bg-gray-600 dark:text-gray-100'
 }
 
+// 语音节奏分组底色
+const GROUP_BG = [
+    'bg-blue-100/70 dark:bg-blue-900/30',
+    'bg-emerald-100/70 dark:bg-emerald-900/30',
+    'bg-orange-100/70 dark:bg-orange-900/30',
+    'bg-purple-100/70 dark:bg-purple-900/30',
+    'bg-rose-100/70 dark:bg-rose-900/30',
+]
+const showRhythmColor = useStorage('rhythm_color_on', true)
+const rhythmWindow = useStorage('rhythm_window', 0.4)
+const showRhythmPanel = ref(false)
+
+// 调节时间窗口时，实时重新给所有句子的词分组
+watch(rhythmWindow, () => {
+    sentences.value = sentences.value.map(sent => {
+        if (!sent.words?.length || sent.words[0].start === undefined) return sent
+        return { ...sent, words: assignWordGroups([...sent.words]) }
+    })
+})
+
+const getGroupBg = (group) => {
+    if (!isFocusMode.value || !showRhythmColor.value || group === undefined || group === null) return ''
+    return GROUP_BG[group % GROUP_BG.length]
+}
+
+const assignWordGroups = (words) => {
+    if (!words.length) return words
+    const sentStart = words[0].start ?? 0
+    return words.map(w => {
+        const relTime = (w.start ?? sentStart) - sentStart
+        return { ...w, group: Math.floor(relTime / rhythmWindow.value) }
+    })
+}
+
 const lookupSelectedPhrase = async () => {
     if (!highlightMenu.text) return
     if (!apiKey.value) { alert('Please set your API Key in Settings first.'); showSettings.value = true; return }
@@ -1164,7 +1198,7 @@ const generateSubtitles = async () => {
             let startTime, endTime, words
             if (segWords.length > 0) {
                 startTime = segWords[0].start; endTime = segWords[segWords.length-1].end
-                words = segWords.map(w => ({ text: w.word.trim(), color: null, start: w.start, end: w.end }))
+                words = assignWordGroups(segWords.map(w => ({ text: w.word.trim(), color: null, start: w.start, end: w.end })))
             } else {
                 startTime = seg.start; endTime = Math.max(seg.start + 0.05, seg.end - 0.1)
                 words = text.split(' ').map(w => ({ text: w, color: null }))
@@ -1322,6 +1356,43 @@ onDeactivated(() => {
                 </label>
             </div>
             <div class="flex items-center gap-1">
+                <!-- 节奏底色控制 -->
+                <div v-if="isFocusMode" class="relative">
+                    <button @click="showRhythmPanel = !showRhythmPanel"
+                        :class="showRhythmColor ? 'text-blue-500 bg-blue-50 dark:bg-blue-900/30' : 'text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400'"
+                        class="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700" title="节奏底色">
+                        <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="3"/><path d="M3 12h3m12 0h3M12 3v3m0 12v3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1M5.6 18.4l2.1-2.1m8.6-8.6 2.1-2.1"/>
+                        </svg>
+                    </button>
+                    <div v-if="showRhythmPanel" class="absolute right-0 top-full mt-2 w-64 bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-xl shadow-xl z-20 p-4">
+                        <div class="flex items-center justify-between mb-3">
+                            <span class="text-sm font-medium text-gray-700 dark:text-gray-300">节奏底色</span>
+                            <button @click="showRhythmColor = !showRhythmColor"
+                                :class="showRhythmColor ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'"
+                                class="relative w-10 h-5 rounded-full transition-colors">
+                                <span :class="showRhythmColor ? 'translate-x-5' : 'translate-x-0.5'"
+                                    class="absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform block"></span>
+                            </button>
+                        </div>
+                        <div :class="showRhythmColor ? 'opacity-100' : 'opacity-40 pointer-events-none'">
+                            <div class="flex items-center justify-between mb-1">
+                                <span class="text-xs text-gray-500 dark:text-gray-400">词组密度</span>
+                                <span class="text-xs font-mono text-blue-500">{{ rhythmWindow.toFixed(1) }}s/组</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span class="text-xs text-gray-400">密</span>
+                                <input type="range" v-model.number="rhythmWindow" min="0.2" max="1.5" step="0.1" class="flex-1 h-1.5 accent-blue-500">
+                                <span class="text-xs text-gray-400">疏</span>
+                            </div>
+                            <div class="flex gap-1 mt-3">
+                                <span v-for="(bg, i) in GROUP_BG" :key="i"
+                                    :class="bg"
+                                    class="flex-1 h-4 rounded text-center text-xs leading-4 text-gray-500">{{ i+1 }}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
                 <button @click="showHistory = true" class="text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700" title="History">
                     <div class="i-carbon-time w-5 h-5"></div>
                 </button>
@@ -1436,8 +1507,8 @@ onDeactivated(() => {
 
         <!-- LRC 工具栏（非焦点模式时显示） -->
         <div v-if="sentences.length > 0 && !isFocusMode" class="max-w-3xl mx-auto mt-4 mb-3 flex gap-3 px-2">
-            <button @click="exportLrc" class="flex-1 py-3 rounded-xl bg-red-600 text-white font-medium text-sm shadow-sm active:scale-95 transition-transform">导出字幕</button>
-            <button @click="toggleLrcEdit" :class="(lrcEditMode ? 'bg-blue-600' : 'bg-red-600') + ' flex-1 py-3 rounded-xl text-white font-medium text-sm shadow-sm active:scale-95 transition-transform'">{{ lrcEditMode ? '退出修改' : '修改字幕' }}</button>
+            <button @click="exportLrc" class="flex-1 py-3 rounded-xl bg-blue-600 text-white font-medium text-sm shadow-sm active:scale-95 transition-transform">导出字幕</button>
+            <button @click="toggleLrcEdit" :class="(lrcEditMode ? 'bg-red-600' : 'bg-blue-600') + ' flex-1 py-3 rounded-xl text-white font-medium text-sm shadow-sm active:scale-95 transition-transform'">{{ lrcEditMode ? '退出修改' : '修改字幕' }}</button>
             <input ref="lrcFileInput" type="file" accept=".lrc,text/plain" class="hidden" @change="handleLrcFile">
         </div>
 
@@ -1492,8 +1563,10 @@ onDeactivated(() => {
                         :data-s-idx="index"
                         :data-w-idx="wIdx"
                         @click.stop="handleWordClick($event, wordObj.text, sent.text)"
-                        class="rounded px-[2px] cursor-pointer transition-colors"
-                        :class="wordObj.color ? getHighlightClass(wordObj.color) : 'hover:bg-gray-200 dark:hover:bg-gray-600'"
+                        class="rounded-sm px-[2px] cursor-pointer transition-colors"
+                        :class="wordObj.color
+                            ? getHighlightClass(wordObj.color)
+                            : [getGroupBg(wordObj.group), 'hover:opacity-80']"
                     >{{ wordObj.text }} </span>
                 </p>
 
@@ -1610,31 +1683,28 @@ onDeactivated(() => {
             </div>
 
             <!-- 第二行：盲听 + 录音 + 听回放 -->
-            <div class="flex w-full gap-2 bg-indigo-50/97 dark:bg-indigo-900/50 backdrop-blur-md border border-indigo-200 dark:border-indigo-800 rounded-2xl shadow-xl px-2 py-2 items-stretch">
+            <div class="grid grid-cols-4 w-full gap-2 bg-indigo-50/97 dark:bg-indigo-900/50 backdrop-blur-md border border-indigo-200 dark:border-indigo-800 rounded-2xl shadow-xl px-2 py-2">
 
-                <!-- 盲听开关（最左侧） -->
                 <button @click="toggleBlindMode"
-                    class="flex-1 flex flex-col justify-center items-center gap-0.5 py-2 rounded-xl text-xs font-medium transition-all shadow-sm border"
+                    class="col-span-1 flex items-center justify-center gap-1.5 py-3.5 rounded-xl text-sm font-medium transition-all shadow-sm border"
                     :class="blindMode
                         ? 'bg-purple-600 hover:bg-purple-700 text-white border-purple-600'
                         : 'bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-600'">
-                    <div :class="blindMode ? 'i-carbon-view-off' : 'i-carbon-view'" class="w-4 h-4"></div>
+                    <div :class="blindMode ? 'i-carbon-view-off' : 'i-carbon-view'" class="w-4 h-4 shrink-0"></div>
                     <span>盲听</span>
                 </button>
 
-                <!-- 录音按钮 -->
                 <button @click="toggleRecording"
-                    class="flex-[2] flex justify-center items-center gap-1.5 py-2.5 rounded-xl text-white text-sm font-bold transition-all shadow-sm"
+                    class="col-span-2 flex justify-center items-center gap-1.5 py-3.5 rounded-xl text-white text-sm font-bold transition-all shadow-sm"
                     :class="isRecording ? 'bg-red-500 hover:bg-red-600' : 'bg-indigo-600 hover:bg-indigo-700'">
                     <div :class="isRecording ? 'i-carbon-stop-filled' : 'i-carbon-microphone'" class="w-4 h-4 shrink-0"></div>
                     <span v-if="isRecording" class="tabular-nums">{{ recordingTime.toFixed(1) }}s</span>
                     <span v-else>录音</span>
                 </button>
 
-                <!-- 听回放按钮 -->
                 <button @click="playUserRecord"
                     :disabled="!userRecordUrl || isRecording"
-                    class="flex-[2] flex justify-center items-center gap-1.5 py-2.5 rounded-xl text-sm font-medium transition-all shadow-sm"
+                    class="col-span-1 flex justify-center items-center gap-1.5 py-3.5 rounded-xl text-sm font-medium transition-all shadow-sm"
                     :class="(userRecordUrl && !isRecording) ? 'bg-emerald-500 hover:bg-emerald-600 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed'">
                     <div class="i-carbon-play-outline w-4 h-4 shrink-0"></div>
                     <span v-if="recordingDuration > 0" class="tabular-nums">{{ recordingDuration.toFixed(1) }}s</span>
