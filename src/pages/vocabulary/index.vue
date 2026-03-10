@@ -1276,28 +1276,45 @@ function doImport() {
   document.getElementById('fileInput').click()
 }
 // ⬆️⬆️⬆️ 新增这段代码 ⬆️⬆️⬆️
-// ★ 4. 修改：导入（恢复自定义词典）
+
 function onFileChange(e) {
-  const f = e.target.files[0]; if (!f) return
-  const r = new FileReader(); r.onload = (evt) => {
+  const f = e.target.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = (evt) => {
     try {
-      const d = JSON.parse(evt.target.result)
-      if(d.k || d.r || d.d) {
-        if(d.k) killedList.value = d.k;
-        if(d.r) reviewList.value = d.r;
-        if(d.c) completedParts.value = d.c;
-        if(d.m) masteredList.value = d.m;
-        if(d.d) customDict.value = d.d;
-        if(d.s) statsHistory.value = d.s;
-        if(d.n) groupNotes.value = d.n;
-        if(d.f) globalFailHistory.value = d.f;
-        if(d.st) pageStories.value = d.st;
-        if(d.ap) audioPeekHistory.value = d.ap;
-        alert('同步成功'); location.reload()
+      const incoming = JSON.parse(evt.target.result);
+      if (!confirm('发现数据文件，是否执行“智能合并”？\n(保留当前单词进度，并补全缺失的笔记/文章)')) return;
+
+      // --- 智能合并逻辑 ---
+
+      // 1. 合并名单类 (取并集)
+      killedList.value = [...new Set([...killedList.value, ...(incoming.k || [])])];
+      masteredList.value = [...new Set([...masteredList.value, ...(incoming.m || [])])];
+
+      // 2. 合并内容类 (以旧补新：如果现在没内容，就用导入的)
+      // 生词本
+      customDict.value = { ...incoming.d, ...customDict.value };
+      // 分组笔记
+      groupNotes.value = { ...incoming.n, ...groupNotes.value };
+      // 助记文章
+      pageStories.value = { ...incoming.st, ...pageStories.value };
+
+      // 3. 错误历史累加
+      const newFailHistory = { ...globalFailHistory.value };
+      for (const word in incoming.f) {
+          newFailHistory[word] = (newFailHistory[word] || 0) + (incoming.f[word] || 0);
       }
-    } catch(e){ alert('文件格式错误') }
-  }; r.readAsText(f)
-  e.target.value = ''
+      globalFailHistory.value = newFailHistory;
+
+      alert('合并同步成功！');
+      location.reload();
+    } catch(e) {
+      console.error(e);
+      alert('解析失败，请检查文件格式');
+    }
+  };
+  r.readAsText(f);
+  e.target.value = '';
 }
 
 // ==========================================
@@ -3461,7 +3478,7 @@ const removeCustomWord = (wordEn) => {
                         👂
                       </span>
                       <button v-if="word.source !== '生词本'" class="copy-btn" @click.stop="copyWord(word.en)" title="点击复制">📋</button>
-                      <button v-if="isReviewMode && word.notation === '我的生词本'" class="copy-btn edit-btn" @click.stop="openEditModal(word)" title="修改单词/释义">✎</button>
+                      <button v-if="isReviewMode && word.id === '★'" class="copy-btn edit-btn" @click.stop="openEditModal(word)" title="修改单词/释义">✎</button>
                       <button v-if="isReviewMode && !isShowSource && word.source !== '生词本'" class="copy-btn location-btn" @click.stop="toggleSingleSource(word.en)" :title="revealedSource.has(word.en) ? '隐藏出处' : '查看出处'" :style="{ color: revealedSource.has(word.en) ? '#3b82f6' : '', opacity: revealedSource.has(word.en) ? '1' : '' }">
                         <svg v-if="revealedSource.has(word.en)" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
                         <svg v-else xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
