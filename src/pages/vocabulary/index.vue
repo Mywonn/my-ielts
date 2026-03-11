@@ -4,6 +4,12 @@ import { useStorage } from '@vueuse/core'
 import vocabularyData from './vocabulary'
 // 🔥🔥🔥【新增】引入 marked 解析器 (直接从 CDN 加载，无需安装)
 import { marked } from 'https://cdn.jsdelivr.net/npm/marked/lib/marked.esm.js'
+// 引入 store
+import { useLearningStore } from '../../store/learningStore'
+
+// 在 setup 内部获取配置（注意，如果是响应式的，可能需要配合 storeToRefs，或者直接用 store.apiKey）
+const store = useLearningStore()
+const { apiKey, apiBaseUrl, apiModel } = store
 
 // ==========================================
 // 0. 音频配置
@@ -1323,12 +1329,166 @@ function onFileChange(e) {
 
 // --- 1. 定义所有弹窗状态变量 (确保不漏掉) ---
 const showAddWordModal = ref(false)   // 输入单词窗
+const showWordForm = ref(false)  // 控制同弹窗内的填写区展开
 const newWordInput = ref('')          // 单词输入框值
 
 const showMeaningModal = ref(false)   // 补充中文窗
 const meaningInput = ref('')          // 中文输入框值
 const posInput = ref('')              // 🔥【新增】词性输入框值
 const tempWord = ref('')              // 暂存单词
+
+// 例句输入框变量 和 AI 状态
+const exampleInput = ref('')          
+const isGeneratingExample = ref(false)
+
+// 🔥【重构】一键 AI 生成所有内容（词性 + 中文释义 + 例句）
+// 🔥 AI 一键生成：词性 + 中文释义 + 例句
+const generateAllAI = async () => {
+  if (!newWordInput.value.trim()) return showCustomAlert('请先输入单词或短语')
+  const word = newWordInput.value.trim()
+  isGeneratingExample.value = true
+
+  try {
+    const currentApiKey = String(store.apiKey?.value || store.apiKey || '').trim()
+    let currentBaseURL = String(store.apiBaseUrl?.value || store.apiBaseUrl || '').trim()
+    const currentModel = String(store.apiModel?.value || store.apiModel || 'gemini-2.5-flash').trim()
+
+    if (!currentApiKey) {
+      alert('未找到 AI 配置，请确保 Listening 页面已填写 API Key')
+      return
+    }
+    if (currentBaseURL.endsWith('/')) currentBaseURL = currentBaseURL.slice(0, -1)
+
+    // 🔑 关键：让 AI 判断是单词还是短语
+    const prompt = `请为英文单词或短语 "${word}" 生成词典信息。
+注意：如果是多个单词组成的短语，词性请填 "phrase"；单个单词请用标准缩写如 n. / v. / adj. / adv. 等。
+必须严格按以下 JSON 格式返回，不要输出任何其他内容：
+{"pos":"n.","zh":"中文释义（简洁，15字以内）","example":"一个地道英文例句"}`
+
+    const isGemini = currentModel.toLowerCase().includes('gemini')
+    let url = '', options = {}
+
+    if (isGemini) {
+      const baseUrlPath = currentBaseURL.includes('/v1beta') ? currentBaseURL : `${currentBaseURL}/v1beta`
+      url = `${baseUrlPath}/models/${currentModel}:generateContent?key=${currentApiKey}`
+      options = {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.3 } })
+      }
+    } else {
+      let baseUrlPath = currentBaseURL
+      if (!baseUrlPath.endsWith('/v1') && !baseUrlPath.includes('deepseek.com')) baseUrlPath += '/v1'
+      url = `${baseUrlPath}/chat/completions`
+      options = {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${currentApiKey}` },
+        body: JSON.stringify({ model: currentModel, messages: [{ role: 'user', content: prompt }], temperature: 0.3 })
+      }
+    }
+
+    const response = await fetch(url, options)
+    const contentType = response.headers.get("content-type") || ""
+    if (!contentType.includes("application/json")) {
+      throw new Error(`服务器未返回 JSON (状态码: ${response.status})`)
+    }
+
+    const resData = await response.json()
+    if (!response.ok) throw new Error(resData?.error?.message || `HTTP ${response.status}`)
+
+    let resultText = isGemini
+      ? resData.candidates?.[0]?.content?.parts?.[0]?.text || ''
+      : resData.choices?.[0]?.message?.content || ''
+
+    if (!resultText) throw new Error('AI 返回数据为空')
+
+    const clean = resultText.replace(/```json|```/g, '').trim()
+    const parsed = JSON.parse(clean)
+
+    if (parsed.pos) posInput.value = parsed.pos
+    if (parsed.zh) meaningInput.value = parsed.zh
+    if (parsed.example) exampleInput.value = parsed.example
+
+
+
+  } catch (error) {
+    console.error('AI 生成失败:', error)
+    if (error.message.includes('1015')) {
+      alert('⚠️ 请求太频繁，已被限流，请稍等后再试！')
+    } else {
+      alert(`AI 生成失败: ${error.message}`)
+    }
+  } finally {
+    isGeneratingExample.value = false
+  }
+}
+
+// 🔥 单独为已有单词重新生成例句并保存
+const generateExampleForWord = async (wordEn) => {
+  const currentApiKey = String(store.apiKey?.value || store.apiKey || '').trim()
+  let currentBaseURL = String(store.apiBaseUrl?.value || store.apiBaseUrl || '').trim()
+  const currentModel = String(store.apiModel?.value || store.apiModel || 'gemini-2.5-flash').trim()
+
+  if (!currentApiKey) return alert('未找到 AI 配置')
+  if (currentBaseURL.endsWith('/')) currentBaseURL = currentBaseURL.slice(0, -1)
+
+  // 用一个 Set 记录哪些词正在生成中，防止重复点击
+  if (!generateExampleForWord._loading) generateExampleForWord._loading = reactive(new Set())
+  if (generateExampleForWord._loading.has(wordEn)) return
+  generateExampleForWord._loading.add(wordEn)
+
+  try {
+    const zh = customDict.value[wordEn]?.zh || ''
+    const prompt = `请为英文单词或短语 "${wordEn}"（中文意思：${zh || '未知'}）生成一个简短、地道的英语例句。只输出英文例句本身，不要带中文翻译，不要带引号。`
+
+    const isGemini = currentModel.toLowerCase().includes('gemini')
+    let url = '', options = {}
+
+    if (isGemini) {
+      const baseUrlPath = currentBaseURL.includes('/v1beta') ? currentBaseURL : `${currentBaseURL}/v1beta`
+      url = `${baseUrlPath}/models/${currentModel}:generateContent?key=${currentApiKey}`
+      options = {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.7 } })
+      }
+    } else {
+      let baseUrlPath = currentBaseURL
+      if (!baseUrlPath.endsWith('/v1') && !baseUrlPath.includes('deepseek.com')) baseUrlPath += '/v1'
+      url = `${baseUrlPath}/chat/completions`
+      options = {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${currentApiKey}` },
+        body: JSON.stringify({ model: currentModel, messages: [{ role: 'user', content: prompt }], temperature: 0.7 })
+      }
+    }
+
+    const response = await fetch(url, options)
+    const resData = await response.json()
+    if (!response.ok) throw new Error(resData?.error?.message || `HTTP ${response.status}`)
+
+    const resultText = isGemini
+      ? resData.candidates?.[0]?.content?.parts?.[0]?.text || ''
+      : resData.choices?.[0]?.message?.content || ''
+
+    if (!resultText) throw new Error('AI 返回为空')
+
+    const newExample = resultText.trim().replace(/^["']|["']$/g, '')
+
+    // 保存回 customDict
+    customDict.value = {
+      ...customDict.value,
+      [wordEn]: { ...customDict.value[wordEn], example: newExample }
+    }
+    showCustomAlert(`"${wordEn}" 例句已更新 ✅`)
+
+  } catch (e) {
+    alert('生成失败: ' + e.message)
+  } finally {
+    generateExampleForWord._loading.delete(wordEn)
+  }
+}
+
 const showCustomDictModal = ref(false) // 🔥【新增】生词本弹窗开关
 
 const showMsgModal = ref(false)       // 成功提示窗
@@ -1513,59 +1673,35 @@ watch(showStatsModal, (val) => {
 watch(statsPeriod, () => {
   if (showStatsModal.value) renderChart()
 })
-// --- A. 点击加号：打开“添加单词”窗口 ---
+
 function manualAddWord() {
   newWordInput.value = ''
+  posInput.value = ''
+  meaningInput.value = ''
+  exampleInput.value = ''
   showAddWordModal.value = true
-  // 自动聚焦 (延迟确保DOM已渲染)
   setTimeout(() => document.getElementById('custom-word-input')?.focus(), 100)
 }
 
-// --- B. 确认单词：关当前窗 -> 判生词 -> 开下一窗 ---
-function confirmAddWord() {
-  const input = newWordInput.value
-  if (!input || !input.trim()) {
-    showAddWordModal.value = false
-    return
-  }
-  const word = input.trim()
+// --- 保存并添加 ---
+function confirmMeaningAdd() {
+  const word = newWordInput.value.trim()
+  if (!word) return showCustomAlert('请先输入单词或短语')
 
-  // ★ 关键修复 1：无论后续如何，先立刻强制关闭第一个窗口
+  const zh = meaningInput.value.trim()
+  if (!zh) return showCustomAlert('请填写中文释义')
+
+  const pos = posInput.value.trim() || '自选'
+  const ex = exampleInput.value.trim()
+
   showAddWordModal.value = false
 
-  // 稍微延迟 200ms 再查词，防止弹窗切换太快导致视觉闪烁或逻辑冲突
-  setTimeout(() => {
-    const detail = findWordDetail(word)
-
-    if (detail.zh === '未找到释义') {
-      // 没找到 -> 打开“补充中文”弹窗
-      tempWord.value = word
-      meaningInput.value = ''
-      showMeaningModal.value = true
-
-      // 自动聚焦中文输入框
-      setTimeout(() => document.getElementById('custom-meaning-input')?.focus(), 100)
-    } else {
-      // 找到了 -> 直接添加
-      finalizeAdd(word)
-    }
-  }, 200)
-}
-
-// --- C. 确认中文：保存 -> 关当前窗 -> 添加 ---
-function confirmMeaningAdd() {
-  const zh = meaningInput.value.trim()
-  if (!zh) return // 必须输入中文
-
-  const pos = posInput.value.trim() || '自选' // 🔥【新增】获取词性，不填默认"自选"
-
-  // ★ 关键修复 2：立刻关闭中文窗口
-  showMeaningModal.value = false
-
-  customDict.value = { ...customDict.value, [tempWord.value]: { zh: zh, pos: pos } }
-
-  // 执行添加
-  finalizeAdd(tempWord.value)
+  // 如果是词库里没有的词，存入自定义词典
+  const detail = findWordDetail(word)
+  if (detail.zh === '未找到释义') {
+    customDict.value = { ...customDict.value, [word]: { zh, pos, example: ex } }
+  }
+  finalizeAdd(word)
 }
 
 // --- D. 最终添加步骤 (双重保险清理) ---
@@ -3560,6 +3696,12 @@ const removeCustomWord = (wordEn) => {
                   <span>{{ word.example }}</span>
                   <span v-if="word.example" class="speaker-small" @click.stop="playSentence(word.example)" title="读例句">🔉</span>
                 </div>
+                <button
+                  v-if="customDict[word.en]"
+                  @click.stop="generateExampleForWord(word.en)"
+                  style="border:none; background:none; cursor:pointer; font-size:12px; opacity:0.45; padding:0; margin-top:3px; display:block;"
+                  :title="word.example ? '重新生成例句' : '生成例句'"
+                >{{ word.example ? '🔄' : '✨ 生成例句' }}</button>
               </div>
 
               <div v-if="!isDictation" class="col-note notation-cell desktop-only">{{ word.notation || '' }}</div>
@@ -3714,42 +3856,48 @@ const removeCustomWord = (wordEn) => {
     </div>
 
 
-    <div v-if="showAddWordModal" class="modal-overlay" @click.self="showAddWordModal = false">
-      <div class="modal-box" style="max-width: 360px;">
-        <h3 class="modal-title">✍️ 添加新词</h3>
-        <div style="margin: 20px 0;">
-          <input id="custom-word-input" type="text" v-model="newWordInput"
-                 class="modal-input-field" placeholder="请输入单词..."
-                 @keydown.enter="confirmAddWord" autocomplete="off">
-        </div>
-        <div class="modal-actions">
-          <button @click="showAddWordModal = false" class="modal-btn" style="background:#f3f4f6; color:#6b7280;">取消</button>
-          <button @click="confirmAddWord" class="modal-btn" style="background:#2563eb; color:white;">确定</button>
-        </div>
+    <!-- 🔥 合并后的单层添加弹窗 -->
+<div v-if="showAddWordModal" class="modal-overlay" @click.self="showAddWordModal = false">
+  <div class="modal-box" style="max-width: 380px;">
+    <h3 class="modal-title">🪄 添加新词</h3>
+
+    <div style="margin: 15px 0;">
+      <!-- 单词输入框 + AI生成按钮 同一行 -->
+      <div style="display: flex; gap: 8px; align-items: stretch; margin-bottom: 10px;">
+        <input id="custom-word-input" type="text" v-model="newWordInput"
+               class="modal-input-field"
+               placeholder="请输入单词或短语..."
+               autocomplete="off"
+               style="margin-bottom: 0; flex: 1;">
+        <button @click="generateAllAI" class="ai-gen-btn" :disabled="isGeneratingExample" title="AI 一键生成词性、释义、例句">
+          <span v-if="isGeneratingExample" class="animate-spin">⏳</span>
+          <span v-else>✨</span>
+        </button>
       </div>
+
+      <!-- 词性、释义、例句始终显示 -->
+      <input type="text" v-model="posInput"
+             class="modal-input-field"
+             placeholder="词性 (如 n. / v. / adj. / phrase)"
+             style="margin-bottom: 8px; font-family: monospace;" autocomplete="off">
+      <input type="text" v-model="meaningInput"
+             class="modal-input-field"
+             placeholder="中文释义"
+             style="margin-bottom: 8px;" autocomplete="off">
+      <input type="text" v-model="exampleInput"
+             class="modal-input-field"
+             placeholder="例句 (可留空)"
+             @keydown.enter="confirmMeaningAdd"
+             autocomplete="off"
+             style="margin-bottom: 0;">
     </div>
 
-    <div v-if="showMeaningModal" class="modal-overlay" @click.self="showMeaningModal = false">
-      <div class="modal-box" style="max-width: 360px;">
-        <h3 class="modal-title">📖 补充释义</h3>
-        <p style="color:#666; font-size:14px; margin-bottom:10px;">
-          词库中未找到 "<strong>{{ tempWord }}</strong>"，请填写中文意思：
-        </p>
-        <div style="margin: 15px 0;">
-          <input type="text" v-model="posInput"
-                 class="modal-input-field" placeholder="词性 (如 n. / v. / adj.)"
-                 style="margin-bottom: 10px; font-family: monospace;" autocomplete="off">
-
-          <input id="custom-meaning-input" type="text" v-model="meaningInput"
-                 class="modal-input-field" placeholder="中文释义 (例如：开阔眼界...)"
-                 @keydown.enter="confirmMeaningAdd" autocomplete="off">
-        </div>
-        <div class="modal-actions">
-          <button @click="showMeaningModal = false" class="modal-btn" style="background:#f3f4f6; color:#6b7280;">取消</button>
-          <button @click="confirmMeaningAdd" class="modal-btn" style="background:#10b981; color:white;">保存并添加</button>
-        </div>
-      </div>
+    <div class="modal-actions">
+      <button @click="showAddWordModal = false" class="modal-btn" style="background:#f3f4f6; color:#6b7280;">取消</button>
+      <button @click="confirmMeaningAdd" class="modal-btn" style="background:#10b981; color:white;">保存并添加</button>
     </div>
+  </div>
+</div>
 
     <div v-if="showMsgModal" class="modal-overlay" style="background: rgba(0,0,0,0.3); z-index: 3000;">
       <div class="modal-box" style="max-width: 300px; padding: 30px 20px;">
@@ -6535,6 +6683,44 @@ const removeCustomWord = (wordEn) => {
 /* 🌙 生词本释义列夜间模式适配 */
 .dark .custom-zh-cell {
   color: #cbd5e1 !important; /* 亮灰白色，保证夜间清晰可见 */
+}
+
+/* AI 生成按钮样式 */
+.ai-gen-btn {
+  background: #f5f3ff;
+  border: 1px solid #ddd6fe;
+  color: #8b5cf6; /* 紫色调，代表魔法和智能 */
+  border-radius: 8px;
+  width: 46px; /* 差不多是个正方形 */
+  flex-shrink: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  transition: all 0.2s;
+}
+
+.ai-gen-btn:hover:not(:disabled) {
+  background: #ede9fe;
+  border-color: #c4b5fd;
+  transform: scale(1.05);
+}
+
+.ai-gen-btn:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.ai-gen-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 适配暗黑模式 */
+.dark .ai-gen-btn {
+  background: #2e1065;
+  border-color: #4c1d95;
+  color: #c4b5fd;
 }
 
 </style>
