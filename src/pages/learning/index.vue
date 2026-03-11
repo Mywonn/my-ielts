@@ -414,6 +414,7 @@ const exitFocus = () => {
     }
     focusIndex.value = -1
     clearShadowingRecord()
+    setPlaybackSpeed(1.0)
 }
 
 // ─── 正常模式：单击句子 ────────────────────────────────────────────────
