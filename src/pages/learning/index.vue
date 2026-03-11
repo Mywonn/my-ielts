@@ -1014,6 +1014,14 @@ const changeSpeed = () => {
     if (audioPlayer.value) audioPlayer.value.playbackRate = playbackRate.value
 }
 
+// ===== 新增：直接设置指定倍速 =====
+const setPlaybackSpeed = (speed) => {
+    playbackRate.value = speed
+    if (audioPlayer.value) {
+        audioPlayer.value.playbackRate = speed
+    }
+}
+
 // =====================================================================
 // ===  Supabase 同步  ==================================================
 // =====================================================================
@@ -1537,12 +1545,26 @@ onDeactivated(() => {
                 <!-- 焦点句顶部信息栏 -->
                 <div v-if="isFocusMode && index === focusIndex"
                     class="flex items-center justify-between px-3 pt-2 pb-1">
-                    <span class="text-xs font-mono text-blue-500 dark:text-blue-400">
+                    <span class="text-xs font-mono text-blue-500 dark:text-blue-400 shrink-0">
                         本句 {{ formatDuration(focusDuration) }}
                     </span>
-                    <!-- X 退出按钮 -->
+
+                    <div class="flex items-center bg-gray-100/80 dark:bg-gray-800/80 rounded-[5px] p-[2px] border border-gray-200/60 dark:border-gray-700/60">
+                        <button @click.stop="setPlaybackSpeed(1.0)"
+                            :class="playbackRate === 1.0 ? 'bg-white dark:bg-gray-600 shadow-sm text-blue-600 dark:text-blue-400' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'"
+                            class="px-2 py-1 text-[11px] leading-none rounded-[3px] font-medium transition-colors">1.0x</button>
+                        <button @click.stop="setPlaybackSpeed(0.8)"
+                            :class="playbackRate === 0.8 ? 'bg-white dark:bg-gray-600 shadow-sm text-orange-600 dark:text-orange-400' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'"
+                            class="px-2 py-1 text-[11px] leading-none rounded-[3px] font-medium transition-colors">0.8x</button>
+                        <button @click.stop="setPlaybackSpeed(0.6)"
+                            :class="playbackRate === 0.6 ? 'bg-white dark:bg-gray-600 shadow-sm text-red-600 dark:text-red-400' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'"
+                            class="px-2 py-1 text-[11px] leading-none rounded-[3px] font-medium transition-colors">0.6x</button>
+                        <button @click.stop="setPlaybackSpeed(0.4)"
+                            :class="playbackRate === 0.4 ? 'bg-white dark:bg-gray-600 shadow-sm text-purple-600 dark:text-purple-400' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'"
+                            class="px-2 py-1 text-[11px] leading-none rounded-[3px] font-medium transition-colors">0.4x</button>
+                    </div>
                     <button @click.stop="exitFocus"
-                        class="w-6 h-6 flex items-center justify-center rounded-full text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                        class="w-6 h-6 flex items-center justify-center rounded-full text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors shrink-0"
                         title="退出焦点模式">
                         <div class="i-carbon-close w-4 h-4"></div>
                     </button>
