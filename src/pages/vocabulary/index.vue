@@ -1341,6 +1341,37 @@ const tempWord = ref('')              // 暂存单词
 const exampleInput = ref('')          
 const isGeneratingExample = ref(false)
 
+// 词库检测结果: null=未检测, 'found'=词库有, 'custom'=生词本有, 'not_found'=没有
+const wordCheckResult = ref(null)
+const wordCheckDetail = ref(null)
+
+// 输入框失焦或按Enter时自动检测词库
+const checkWordInDict = () => {
+  const word = newWordInput.value.trim()
+  if (!word) { wordCheckResult.value = null; wordCheckDetail.value = null; return }
+
+  if (customDict.value[word]) {
+    wordCheckResult.value = 'custom'
+    wordCheckDetail.value = customDict.value[word]
+    posInput.value = customDict.value[word].pos || ''
+    meaningInput.value = customDict.value[word].zh || ''
+    exampleInput.value = customDict.value[word].example || ''
+    return
+  }
+
+  const detail = findWordDetail(word)
+  if (detail.zh !== '未找到释义') {
+    wordCheckResult.value = 'found'
+    wordCheckDetail.value = detail
+    posInput.value = detail.pos || ''
+    meaningInput.value = detail.zh || ''
+    exampleInput.value = detail.example || ''
+  } else {
+    wordCheckResult.value = 'not_found'
+    wordCheckDetail.value = null
+  }
+}
+
 // 🔥【重构】一键 AI 生成所有内容（词性 + 中文释义 + 例句）
 // 🔥 AI 一键生成：词性 + 中文释义 + 例句
 const generateAllAI = async () => {
@@ -1679,6 +1710,8 @@ function manualAddWord() {
   posInput.value = ''
   meaningInput.value = ''
   exampleInput.value = ''
+  wordCheckResult.value = null
+  wordCheckDetail.value = null
   showAddWordModal.value = true
   setTimeout(() => document.getElementById('custom-word-input')?.focus(), 100)
 }
@@ -3696,12 +3729,6 @@ const removeCustomWord = (wordEn) => {
                   <span>{{ word.example }}</span>
                   <span v-if="word.example" class="speaker-small" @click.stop="playSentence(word.example)" title="读例句">🔉</span>
                 </div>
-                <button
-                  v-if="customDict[word.en]"
-                  @click.stop="generateExampleForWord(word.en)"
-                  style="border:none; background:none; cursor:pointer; font-size:12px; opacity:0.45; padding:0; margin-top:3px; display:block;"
-                  :title="word.example ? '重新生成例句' : '生成例句'"
-                >{{ word.example ? '🔄' : '✨ 生成例句' }}</button>
               </div>
 
               <div v-if="!isDictation" class="col-note notation-cell desktop-only">{{ word.notation || '' }}</div>
@@ -3863,16 +3890,29 @@ const removeCustomWord = (wordEn) => {
 
     <div style="margin: 15px 0;">
       <!-- 单词输入框 + AI生成按钮 同一行 -->
-      <div style="display: flex; gap: 8px; align-items: stretch; margin-bottom: 10px;">
+      <div style="display: flex; gap: 8px; align-items: stretch; margin-bottom: 6px;">
         <input id="custom-word-input" type="text" v-model="newWordInput"
                class="modal-input-field"
                placeholder="请输入单词或短语..."
                autocomplete="off"
-               style="margin-bottom: 0; flex: 1;">
+               style="margin-bottom: 0; flex: 1;"
+               @blur="checkWordInDict"
+               @keydown.enter="checkWordInDict">
         <button @click="generateAllAI" class="ai-gen-btn" :disabled="isGeneratingExample" title="AI 一键生成词性、释义、例句">
           <span v-if="isGeneratingExample" class="animate-spin">⏳</span>
           <span v-else>✨</span>
         </button>
+      </div>
+
+      <!-- 词库检测结果提示 -->
+      <div v-if="wordCheckResult === 'found'" style="font-size:12px; color:#059669; background:#ecfdf5; border:1px solid #d1fae5; border-radius:6px; padding:6px 10px; margin-bottom:8px;">
+        ✅ 词库已收录此词，已自动预填内容，可直接添加到复习
+      </div>
+      <div v-else-if="wordCheckResult === 'custom'" style="font-size:12px; color:#d97706; background:#fffbeb; border:1px solid #fde68a; border-radius:6px; padding:6px 10px; margin-bottom:8px;">
+        ⚠️ 生词本已有此词，保存后将覆盖原有内容
+      </div>
+      <div v-else-if="wordCheckResult === 'not_found'" style="font-size:12px; color:#6b7280; background:#f9fafb; border:1px solid #e5e7eb; border-radius:6px; padding:6px 10px; margin-bottom:8px;">
+        📭 词库未收录，请手动填写或点 ✨ 让 AI 生成
       </div>
 
       <!-- 词性、释义、例句始终显示 -->
