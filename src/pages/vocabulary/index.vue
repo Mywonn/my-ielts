@@ -506,6 +506,12 @@ const totalWordCount = computed(() => {
   return count
 })
 
+// 🔥【新增】包含自定义生词本的总词数（仅用于📚显示，不影响未学计算）
+const totalWordCountWithCustom = computed(() => {
+  const customCount = Object.keys(customDict.value || {}).length
+  return totalWordCount.value + customCount
+})
+
 const globalStats = computed(() => {
   const total = totalWordCount.value
   const learning = reviewList.value.length
@@ -756,6 +762,23 @@ function exitDictationMode() {
   revealedZh.clear()
   isDictationFinished.value = false
   clearAllPendingFailures() // 清理计时器
+}
+
+// 🔥【新增】一键进入听写-汉语释义模式
+function enterDictationMode() {
+  isDictation.value = true
+  // 必须在 nextTick 之后执行，等 watch([isDictation]) 的 revealedZh.clear() 先跑完
+  nextTick(() => {
+    // 把所有单词的汉语释义全部设为可见（看着中文默写英文）
+    displayData.value.forEach(block => {
+      block.list && block.list.forEach(w => revealedZh.add(w.en))
+    })
+    refreshKey.value++
+    nextTick(() => {
+      const inputs = document.querySelectorAll('.dictation-input')
+      if (inputs.length > 0) inputs[0].focus()
+    })
+  })
 }
 
 // 🔥🔥🔥【新增】纠错宽限期管理 (30秒)
@@ -3432,7 +3455,7 @@ const removeCustomWord = (wordEn) => {
           </div>
 
           <div class="stats-bar" :class="{ 'compact-mode': !isReviewMode }">
-             <span v-if="isReviewMode" title="全书总词汇量">📚 {{ globalStats.total }}</span>
+             <span v-if="isReviewMode" title="全书总词汇量（含生词本）">📚 {{ totalWordCountWithCustom }}</span>
              <span class="s-learn" title="复习队列中">🔥 {{ globalStats.learning }}</span>
              <span class="s-done" title="已斩杀+已通关">✅ {{ globalStats.learned }}</span>
              <span class="s-new" title="剩余单词">🌑 {{ globalStats.unlearned }}</span>
@@ -3812,7 +3835,12 @@ const removeCustomWord = (wordEn) => {
       </Transition>
 
       <button v-if="isReviewMode" @click="refreshReviewData" class="floating-btn refresh-btn" title="刷新数据">🔄</button>
-      <button v-if="isDictation" @click="exitDictationMode" class="floating-btn exit-btn" title="一键退出听写及汉语释义">🚪</button>
+      <button v-if="isDictation" @click="exitDictationMode" class="floating-btn exit-btn" title="一键退出听写及汉语释义">
+        <svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg" width="30" height="30" style="display:block;flex-shrink:0;"><path d="M374.784 992.768L97.28 860.16a72.704 72.704 0 0 1-26.624-62.464V124.416c0-27.648 11.776-44.032 26.624-36.864l277.504 132.096c18.304 15.36 28.16 38.592 26.624 62.464v673.28c0 27.648-12.288 44.032-26.624 37.376zM683.52 870.4H138.752A74.752 74.752 0 0 1 64 795.136V122.368A74.752 74.752 0 0 1 138.752 47.104h544.768c41.344 0.256 74.752 33.92 74.752 75.264v190.464a26.112 26.112 0 0 1-25.6 25.6 25.6 25.6 0 0 1-25.6-25.6V122.368a24.064 24.064 0 0 0-23.552-24.064H138.752a23.552 23.552 0 0 0-23.552 24.064v673.28a23.552 23.552 0 0 0 23.552 24.064h544.768a24.064 24.064 0 0 0 23.552-24.064V618.496a25.6 25.6 0 1 1 51.2 0v177.152A75.264 75.264 0 0 1 683.52 870.4z m216.576-385.536H586.752A25.6 25.6 0 0 1 563.2 460.8a25.6 25.6 0 0 1 25.6-25.6h313.344a25.6 25.6 0 0 1 25.6 25.6 25.6 25.6 0 0 1-27.648 24.064z m-49.152 104.448a26.112 26.112 0 0 1-18.432-7.68 26.112 26.112 0 0 1 0-36.352L921.6 460.8l-89.088-88.064a26.24 26.24 0 1 1 37.888-36.352l102.4 102.4c4.8 4.928 7.552 11.52 7.68 18.432a26.112 26.112 0 0 1-7.68 17.92l-102.4 102.4a25.6 25.6 0 0 1-19.456 11.776z" fill="#1296db"/></svg>
+      </button>
+      <button v-else-if="isReviewMode" @click="enterDictationMode" class="floating-btn dictation-entry-btn" title="一键进入听写（汉语释义模式）">
+        <svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg" width="30" height="30" style="display:block;flex-shrink:0;"><path d="M128 494.933333v317.44c0 30.72 23.893333 56.32 54.613333 56.32h81.92c30.72 0 54.613333-25.6 54.613334-56.32v-170.666666c0-30.72-23.893333-56.32-54.613334-56.32h-54.613333V494.933333c0-158.72 133.12-290.133333 302.08-290.133333s302.08 133.12 302.08 290.133333v92.16h-54.613333c-30.72 0-54.613333 25.6-54.613334 56.32v170.666667c0 30.72 23.893333 56.32 54.613334 56.32h81.92c30.72 0 54.613333-25.6 54.613333-56.32V494.933333C896 285.013333 721.92 119.466667 512 119.466667S128 285.013333 128 494.933333z" fill="#656666"/><path d="M520.533333 580.266667c-18.773333 0-34.133333 17.066667-34.133333 39.253333v211.626667c0 22.186667 15.36 39.253333 34.133333 39.253333s34.133333-17.066667 34.133334-39.253333V619.52c0-22.186667-15.36-39.253333-34.133334-39.253333M401.066667 648.533333c-18.773333 0-34.133333 18.773333-34.133334 40.96v107.52c0 22.186667 15.36 40.96 34.133334 40.96s34.133333-18.773333 34.133333-40.96v-107.52c0-22.186667-15.36-40.96-34.133333-40.96M622.933333 648.533333c-18.773333 0-34.133333 18.773333-34.133333 40.96v107.52c0 22.186667 15.36 40.96 34.133333 40.96s34.133333-18.773333 34.133334-40.96v-107.52c0-22.186667-15.36-40.96-34.133334-40.96" fill="#1890FF"/></svg>
+      </button>
 
       <button v-show="showHiddenButtons" v-if="!isReviewMode"
         @click="openStoryModal"
@@ -4830,7 +4858,36 @@ const removeCustomWord = (wordEn) => {
 }
 /* 退出听写按钮特定样式 */
 .exit-btn {
-  color: #ef4444; /* 红色 */
+  color: #ef4444;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.exit-btn svg{
+  transform: translateX(2px);
+}
+
+/* 🔥【新增】一键进入听写-汉语释义模式按钮 */
+.dictation-entry-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  
+}
+
+.dictation-entry-btn:hover {
+  background: #eff6ff;
+  transform: scale(1.15);
+  
+}
+/* 退出听写按钮 hover */
+.exit-btn:hover {
+  background: #fff0f0;
+  transform: scale(1.15);
+  
 }
 /* 🔥🔥🔥【修复】点击时强制缩小，覆盖 hover 的放大效果 */
 .refresh-btn:active {
@@ -5778,6 +5835,13 @@ const removeCustomWord = (wordEn) => {
     color: white;
     border-color: #a855f7;
     box-shadow: 0 4px 12px rgba(168, 85, 247, 0.4);
+}
+/* 🔥【修复】云同步主按钮 SVG 居中 */
+.main-cloud-trigger svg {
+  width: 26px;
+  height: 26px;
+  display: block;
+  flex-shrink: 0;
 }
 
 /* 3. 子菜单按钮 (三个小按钮) */
