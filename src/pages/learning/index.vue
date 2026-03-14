@@ -311,6 +311,72 @@ const toggleSyncMenu = () => {
 
 const focusIndex = ref(-1)           // -1 = 未进入焦点模式
 const isFocusMode = computed(() => focusIndex.value >= 0)
+
+// 片段选择模式
+const clipMode = ref(false)           // 是否在选词模式
+const clipStart = ref(null)           // { wIdx, time } 起点
+const clipEnd = ref(null)             // { wIdx, time } 终点
+const isClipLooping = ref(false)      // 是否正在循环片段
+const clipLoopTimer = ref(null)
+
+const hasFocusTimestamps = computed(() => {
+    if (focusIndex.value < 0) return false
+    const words = sentences.value[focusIndex.value]?.words
+    return words?.length > 0 && words[0].start !== undefined
+})
+
+const enterClipMode = () => {
+    clipMode.value = true
+    clipStart.value = null
+    clipEnd.value = null
+    stopClipLoop()
+}
+
+const exitClipMode = () => {
+    clipMode.value = false
+    clipStart.value = null
+    clipEnd.value = null
+    stopClipLoop()
+}
+
+const stopClipLoop = () => {
+    isClipLooping.value = false
+    if (clipLoopTimer.value) { clearTimeout(clipLoopTimer.value); clipLoopTimer.value = null }
+    // 无缝回拨时音频一直在播，停止时主动 pause
+    if (audioPlayer.value && !audioPlayer.value.paused) {
+        audioPlayer.value.pause()
+        isPlaying.value = false
+    }
+}
+
+const startClipLoop = () => {
+    if (!clipStart.value || !clipEnd.value || !audioPlayer.value) return
+    clearFocusStopTimer()   // 清掉整句的截断 timer，防止第一遍跑整句
+    isClipLooping.value = true
+    clipMode.value = false
+    audioPlayer.value.currentTime = Math.max(0, clipStart.value.time)
+    audioPlayer.value.play()
+    isPlaying.value = true
+}
+
+const handleClipWordClick = (wIdx, wordObj) => {
+    if (!wordObj.start && wordObj.start !== 0) return
+    if (!clipStart.value) {
+        clipStart.value = { wIdx, time: wordObj.start }
+    } else if (wIdx === clipStart.value.wIdx) {
+        // 点同一个词取消
+        clipStart.value = null
+    } else {
+        // 确保起点 < 终点
+        const startW = sentences.value[focusIndex.value].words[clipStart.value.wIdx]
+        const isAfter = wordObj.start > startW.start
+        clipEnd.value = isAfter
+            ? { wIdx, time: wordObj.end ?? wordObj.start + 0.3 }
+            : { wIdx: clipStart.value.wIdx, time: startW.end ?? startW.start + 0.3 }
+        if (!isAfter) clipStart.value = { wIdx, time: wordObj.start }
+        startClipLoop()
+    }
+}
 const blindMode = ref(false)
 
 // 焦点句耗时（秒）
@@ -377,7 +443,7 @@ const seekAndPlay = (targetTime, mode, focusSentenceIndex = -1) => {
                                 audioPlayer.value.pause()
                                 isPlaying.value = false
                             }
-                        }, playDuration * 1000 + 80)
+                        }, playDuration * 1000 / (audioPlayer.value.playbackRate || 1) + 80)
                     }
                 }
             }).catch((e) => {
@@ -413,6 +479,7 @@ const exitFocus = () => {
         isPlaying.value = false
     }
     focusIndex.value = -1
+    exitClipMode()
     clearShadowingRecord()
     setPlaybackSpeed(1.0)
 }
@@ -486,7 +553,7 @@ const focusTogglePlay = () => {
                             audioPlayer.value.pause()
                             isPlaying.value = false
                         }
-                    }, adjustedRemaining * 1000)
+                    }, adjustedRemaining * 1000 / (audioPlayer.value.playbackRate || 1))
                 }
             }).catch(() => {})
             return
@@ -509,6 +576,7 @@ const focusPrev = () => {
     focusIndex.value--
     activeSentenceIndex.value = focusIndex.value
     scrollToSentence(focusIndex.value)
+    exitClipMode()
     nextTick(() => focusPlayFromStart())
 }
 
@@ -521,6 +589,7 @@ const focusNext = () => {
     focusIndex.value++
     activeSentenceIndex.value = focusIndex.value
     scrollToSentence(focusIndex.value)
+    exitClipMode()
     nextTick(() => focusPlayFromStart())
 }
 
@@ -899,6 +968,21 @@ const syncUIWithAudio = (time) => {
 const loopSync = () => {
     if (!isPlaying.value || !audioPlayer.value) return
     const cur = audioPlayer.value.currentTime
+
+    // 片段循环模式：无缝回拨——到达终点直接拽回起点，不 pause，避免 Safari 重启延迟
+    if (isClipLooping.value && clipEnd.value && clipStart.value) {
+        const endT = clipEnd.value.time
+        const startT = clipStart.value.time
+        if (cur >= endT) {
+            audioPlayer.value.currentTime = Math.max(0, startT)
+            // 继续 rAF，不 pause
+            rAFId = requestAnimationFrame(loopSync)
+            return
+        }
+        syncUIWithAudio(cur)
+        rAFId = requestAnimationFrame(loopSync)
+        return
+    }
 
     // 焦点模式截断兜底：防止 setTimeout 在 iOS 低电量/后台时失准导致多播
     if (isFocusMode.value && focusIndex.value >= 0) {
@@ -1482,26 +1566,26 @@ onDeactivated(() => {
                 <div class="flex items-center gap-2 px-2 py-1.5 mt-1.5 rounded-lg border bg-orange-50 dark:bg-orange-900/30 border-orange-200 dark:border-orange-700">
                     <span class="text-xs text-orange-600 dark:text-orange-400 shrink-0 w-12">起点前移</span>
                     <button @click="focusStartOffset = 0.1" class="text-xs text-orange-400 hover:text-orange-600 shrink-0">重置</button>
-                    <button @click="focusStartOffset = Math.max(0, parseFloat((focusStartOffset - 0.05).toFixed(2)))"
+                    <button @click="focusStartOffset = Math.max(-5, parseFloat((focusStartOffset - 0.05).toFixed(2)))"
                         class="w-6 h-6 flex items-center justify-center rounded bg-orange-100 dark:bg-orange-800 text-orange-600 dark:text-orange-300 hover:bg-orange-200 dark:hover:bg-orange-700 shrink-0 text-base leading-none">‹</button>
-                    <input type="range" min="0" max="5" step="0.05" :value="focusStartOffset"
+                    <input type="range" min="-5" max="5" step="0.05" :value="focusStartOffset"
                         @input="e => focusStartOffset = parseFloat(e.target.value)"
                         class="flex-1 h-1 bg-orange-200 dark:bg-orange-700 rounded-lg appearance-none cursor-pointer accent-orange-600">
                     <button @click="focusStartOffset = Math.min(5, parseFloat((focusStartOffset + 0.05).toFixed(2)))"
                         class="w-6 h-6 flex items-center justify-center rounded bg-orange-100 dark:bg-orange-800 text-orange-600 dark:text-orange-300 hover:bg-orange-200 dark:hover:bg-orange-700 shrink-0 text-base leading-none">›</button>
-                    <span class="text-xs font-mono text-orange-600 dark:text-orange-400 w-12 text-right shrink-0">+{{ focusStartOffset.toFixed(2) }}s</span>
+                    <span class="text-xs font-mono text-orange-600 dark:text-orange-400 w-12 text-right shrink-0">{{ focusStartOffset >= 0 ? '+' : '' }}{{ focusStartOffset.toFixed(2) }}s</span>
                 </div>
                 <div class="flex items-center gap-2 px-2 py-1.5 mt-1.5 rounded-lg border bg-indigo-50 dark:bg-indigo-900/30 border-indigo-200 dark:border-indigo-700">
                     <span class="text-xs text-indigo-600 dark:text-indigo-400 shrink-0 w-12">结尾后延</span>
                     <button @click="focusEndBuffer = 0" class="text-xs text-indigo-400 hover:text-indigo-600 shrink-0">重置</button>
-                    <button @click="focusEndBuffer = Math.max(0, parseFloat((focusEndBuffer - 0.05).toFixed(2)))"
+                    <button @click="focusEndBuffer = Math.max(-5, parseFloat((focusEndBuffer - 0.05).toFixed(2)))"
                         class="w-6 h-6 flex items-center justify-center rounded bg-indigo-100 dark:bg-indigo-800 text-indigo-600 dark:text-indigo-300 hover:bg-indigo-200 dark:hover:bg-indigo-700 shrink-0 text-base leading-none">‹</button>
-                    <input type="range" min="0" max="5.0" step="0.05" :value="focusEndBuffer"
+                    <input type="range" min="-5" max="5.0" step="0.05" :value="focusEndBuffer"
                         @input="e => focusEndBuffer = parseFloat(e.target.value)"
                         class="flex-1 h-1 bg-indigo-200 dark:bg-indigo-700 rounded-lg appearance-none cursor-pointer accent-indigo-600">
                     <button @click="focusEndBuffer = Math.min(5, parseFloat((focusEndBuffer + 0.05).toFixed(2)))"
                         class="w-6 h-6 flex items-center justify-center rounded bg-indigo-100 dark:bg-indigo-800 text-indigo-600 dark:text-indigo-300 hover:bg-indigo-200 dark:hover:bg-indigo-700 shrink-0 text-base leading-none">›</button>
-                    <span class="text-xs font-mono text-indigo-600 dark:text-indigo-400 w-12 text-right shrink-0">+{{ focusEndBuffer.toFixed(2) }}s</span>
+                    <span class="text-xs font-mono text-indigo-600 dark:text-indigo-400 w-12 text-right shrink-0">{{ focusEndBuffer >= 0 ? '+' : '' }}{{ focusEndBuffer.toFixed(2) }}s</span>
                 </div>
             </template>
         </div>
@@ -1564,6 +1648,15 @@ onDeactivated(() => {
                             :class="playbackRate === 0.4 ? 'bg-white dark:bg-gray-600 shadow-sm text-purple-600 dark:text-purple-400' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'"
                             class="px-2 py-1 text-[11px] leading-none rounded-[3px] font-medium transition-colors">0.4x</button>
                     </div>
+                    <!-- 片段循环按钮：仅 Whisper 字幕显示 -->
+                    <button v-if="hasFocusTimestamps" @click.stop="clipMode ? exitClipMode() : enterClipMode()"
+                        :class="clipMode ? 'text-orange-500 bg-orange-100 dark:bg-orange-900/30' : isClipLooping ? 'text-orange-500 bg-orange-100 dark:bg-orange-900/30' : 'text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'"
+                        class="w-6 h-6 flex items-center justify-center rounded-full transition-colors shrink-0"
+                        title="选词循环片段">
+                        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                            <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
+                        </svg>
+                    </button>
                     <button @click.stop="exitFocus"
                         class="w-6 h-6 flex items-center justify-center rounded-full text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors shrink-0"
                         title="退出焦点模式">
@@ -1585,13 +1678,42 @@ onDeactivated(() => {
                         :key="wIdx"
                         :data-s-idx="index"
                         :data-w-idx="wIdx"
-                        @click.stop="handleWordClick($event, wordObj.text, sent.text)"
-                        class="rounded-sm px-[2px] cursor-pointer transition-colors"
-                        :class="wordObj.color
-                            ? getHighlightClass(wordObj.color)
-                            : [getGroupBg(wordObj.group), 'hover:opacity-80']"
+                        @click.stop="(isFocusMode && index === focusIndex && clipMode)
+                            ? handleClipWordClick(wIdx, wordObj)
+                            : handleWordClick($event, wordObj.text, sent.text)"
+                        class="rounded-sm px-[2px] transition-colors"
+                        :class="(isFocusMode && index === focusIndex && (clipMode || isClipLooping))
+                            ? (clipStart && clipEnd
+                                ? (wIdx >= Math.min(clipStart.wIdx, clipEnd.wIdx) && wIdx <= Math.max(clipStart.wIdx, clipEnd.wIdx)
+                                    ? 'bg-orange-200 dark:bg-orange-700/50 cursor-pointer'
+                                    : 'opacity-40 cursor-pointer')
+                                : (clipStart && wIdx === clipStart.wIdx
+                                    ? 'bg-orange-300 dark:bg-orange-600/60 cursor-pointer'
+                                    : 'hover:bg-orange-100 dark:hover:bg-orange-900/30 cursor-pointer'))
+                            : (wordObj.color
+                                ? getHighlightClass(wordObj.color)
+                                : [getGroupBg(wordObj.group), 'hover:opacity-80 cursor-pointer'])"
                     >{{ wordObj.text }} </span>
                 </p>
+
+                <!-- 片段选择模式蒙版提示 -->
+                <div v-if="isFocusMode && index === focusIndex && clipMode"
+                    class="absolute inset-0 rounded-lg pointer-events-none"
+                    style="background: rgba(251,146,60,0.06); border: 1.5px solid rgba(251,146,60,0.4);">
+                    <div class="absolute top-0 left-0 right-0 flex justify-center">
+                        <span class="text-[10px] bg-orange-400 text-white px-2 py-0.5 rounded-b-md font-medium tracking-wide">
+                            {{ clipStart ? '再点一个词设终点' : '点一个词设起点' }}
+                        </span>
+                    </div>
+                </div>
+
+                <!-- 正在循环片段提示条 -->
+                <div v-if="isFocusMode && index === focusIndex && isClipLooping"
+                    class="mx-3 mb-2 flex items-center justify-between bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-700/50 rounded-lg px-3 py-1.5">
+                    <span class="text-xs text-orange-600 dark:text-orange-400 font-medium">🔁 片段循环中</span>
+                    <button @click.stop="stopClipLoop(); exitClipMode()"
+                        class="text-xs text-orange-500 hover:text-orange-700 underline">停止</button>
+                </div>
 
                 <!-- LRC 编辑 -->
                 <div v-if="lrcEditMode" class="px-3 pb-2 shrink-0 flex items-start">
