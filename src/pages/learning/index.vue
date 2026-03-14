@@ -1647,16 +1647,16 @@ onDeactivated(() => {
                         <button @click.stop="setPlaybackSpeed(0.4)"
                             :class="playbackRate === 0.4 ? 'bg-white dark:bg-gray-600 shadow-sm text-purple-600 dark:text-purple-400' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'"
                             class="px-2 py-1 text-[11px] leading-none rounded-[3px] font-medium transition-colors">0.4x</button>
+                        <!-- 片段按钮并入倍速区域 -->
+                        <template v-if="hasFocusTimestamps">
+                            <div class="w-px h-3 bg-gray-300 dark:bg-gray-600 mx-[2px]"></div>
+                            <button @click.stop="clipMode ? exitClipMode() : enterClipMode()"
+                                :class="(clipMode || isClipLooping) ? 'bg-white dark:bg-gray-600 shadow-sm text-orange-500 dark:text-orange-400' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'"
+                                class="px-2 py-1 text-[11px] leading-none rounded-[3px] font-medium transition-colors">
+                                片段
+                            </button>
+                        </template>
                     </div>
-                    <!-- 片段循环按钮：仅 Whisper 字幕显示 -->
-                    <button v-if="hasFocusTimestamps" @click.stop="clipMode ? exitClipMode() : enterClipMode()"
-                        :class="clipMode ? 'text-orange-500 bg-orange-100 dark:bg-orange-900/30' : isClipLooping ? 'text-orange-500 bg-orange-100 dark:bg-orange-900/30' : 'text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'"
-                        class="w-6 h-6 flex items-center justify-center rounded-full transition-colors shrink-0"
-                        title="选词循环片段">
-                        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                            <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
-                        </svg>
-                    </button>
                     <button @click.stop="exitFocus"
                         class="w-6 h-6 flex items-center justify-center rounded-full text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors shrink-0"
                         title="退出焦点模式">
