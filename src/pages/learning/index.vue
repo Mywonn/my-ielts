@@ -1127,7 +1127,9 @@ const uploadToSupabase = async () => {
                 const pdfBlob = await getPdfBlob(pair.pdf.id)
                 if (pdfBlob) { const newPath = `${pair.id}/${pair.pdf.name}`; await uploadFileToSupabase(supabaseUrl.value, supabaseKey.value, newPath, pdfBlob); pdf_path = newPath }
             }
-            recordsToSync.push({ id: pair.id, user_id: 'anonymous', audio_name: pair.audio?.name, audio_path, pdf_name: pair.pdf?.name, pdf_path, subtitles: pair.subtitles || pair.sentences || [], created_at: new Date(pair.date).toISOString() })
+            // pair.date 是 toLocaleString() 格式，Safari 无法解析，fallback 到当前时间
+            const createdAt = (() => { try { const d = new Date(pair.date); return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString() } catch(e) { return new Date().toISOString() } })()
+            recordsToSync.push({ id: pair.id, user_id: 'anonymous', audio_name: pair.audio?.name, audio_path, pdf_name: pair.pdf?.name, pdf_path, subtitles: pair.subtitles || pair.sentences || [], created_at: createdAt })
         }
         syncMessage.value = `Uploading ${recordsToSync.length} records...`
         await syncHistoryToSupabase(supabaseUrl.value, supabaseKey.value, recordsToSync)
