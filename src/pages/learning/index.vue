@@ -1604,7 +1604,7 @@ onDeactivated(() => {
         <div v-if="sentences.length > 0 && !isFocusMode" class="max-w-3xl mx-auto mt-4 mb-3 flex gap-3 px-2">
             <button @click="exportLrc" class="flex-1 py-3 rounded-xl bg-blue-600 text-white font-medium text-sm shadow-sm active:scale-95 transition-transform">导出字幕</button>
             <button @click="toggleLrcEdit" :class="(lrcEditMode ? 'bg-red-600' : 'bg-blue-600') + ' flex-1 py-3 rounded-xl text-white font-medium text-sm shadow-sm active:scale-95 transition-transform'">{{ lrcEditMode ? '退出修改' : '修改字幕' }}</button>
-            <input ref="lrcFileInput" type="file" accept=".lrc,text/plain" class="hidden" @change="handleLrcFile">
+            <input ref="lrcFileInput" type="file" accept=".lrc,.txt,text/plain,*/*" class="hidden" @change="handleLrcFile">
         </div>
 
         <!-- 句子列表 -->
@@ -1768,7 +1768,7 @@ onDeactivated(() => {
                         <button @click="importLrc" class="w-full justify-center bg-violet-600 dark:bg-violet-700 text-white px-6 py-2.5 rounded-full hover:bg-violet-700 flex items-center gap-2 shadow-lg transition-all active:scale-95 font-medium">
                             <div class="i-carbon-document-import w-5 h-5"></div><span>导入字幕(LRC)</span>
                         </button>
-                        <input ref="lrcFileInput" type="file" accept=".lrc,text/plain" class="hidden" @change="handleLrcFile">
+                        <input ref="lrcFileInput" type="file" accept=".lrc,.txt,text/plain,*/*" class="hidden" @change="handleLrcFile">
                         <button @click="generateSubtitles" :disabled="isTranscribing" class="w-full justify-center bg-blue-600 dark:bg-blue-700 text-white px-6 py-2.5 rounded-full hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shadow-lg transition-all active:scale-95 font-medium">
                             <div v-if="isTranscribing" class="i-carbon-circle-dash animate-spin w-5 h-5"></div>
                             <div v-else class="i-carbon-closed-caption-alt w-5 h-5"></div>
