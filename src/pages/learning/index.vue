@@ -1264,9 +1264,14 @@ const handleLrcFile = async (e) => {
     const lines = text.split(/\r?\n/).filter(Boolean)
     const parsed = []
     for (const line of lines) {
-        const m = line.match(/^\[(\d{2}):(\d{2})\.(\d{2})\](.*)$/); if (!m) continue
-        const t = parseInt(m[1],10)*60 + parseInt(m[2],10) + parseInt(m[3],10)/100
-        parsed.push({ startTime: t, text: m[4].trim() })
+        // 兼容两位(标准LRC)和三位(毫秒LRC)小数，跳过元数据行[ti:][re:][ve:]
+        const m = line.match(/^\[(\d{2}):(\d{2})\.(\d{2,3})\](.*)$/)
+        if (!m) continue
+        const ms = m[3].length === 3 ? parseInt(m[3],10)/1000 : parseInt(m[3],10)/100
+        const t = parseInt(m[1],10)*60 + parseInt(m[2],10) + ms
+        const text = m[4].trim()
+        if (!text) continue  // 跳过空行
+        parsed.push({ startTime: t, text })
     }
     for (let i=0;i<parsed.length;i++) {
         parsed[i].endTime = i < parsed.length-1 ? parsed[i+1].startTime : parsed[i].startTime + 5
