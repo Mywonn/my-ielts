@@ -3442,14 +3442,59 @@ const openSentencePanel = (word) => {
   sentencePanel.loading = false
   sentencePanel.visible = true
   sentencePanel.showHistory = false
-  nextTick(() => {
-    document.getElementById('sentence-input')?.focus()
-  })
+  // 手机上不自动 focus，避免键盘在 drawer 动画完成前弹出压住输入框
+  // 用户点击输入框时，visualViewport 监听器会自动把 drawer 顶上去
 }
 
 const closeSentencePanel = () => {
   sentencePanel.visible = false
+  // 重置 drawer 位置，防止下次打开时残留偏移
+  sentenceDrawerBottom.value = 0
 }
+
+// 📱 手机键盘避让：监听 visualViewport 动态调整 drawer 底部偏移
+const sentenceDrawerBottom = ref(0)
+
+const onViewportResize = () => {
+  if (!sentencePanel.visible) return
+  const vv = window.visualViewport
+  if (!vv) return
+  // 键盘高度 = 页面总高 - visualViewport 当前高度 - visualViewport 顶部偏移
+  const keyboardHeight = window.innerHeight - vv.height - vv.offsetTop
+  sentenceDrawerBottom.value = keyboardHeight > 0 ? keyboardHeight : 0
+
+  // iOS Safari: 让 overlay 跟随 visualViewport，而不是整个 window
+  const overlay = document.querySelector('.sentence-overlay')
+  if (overlay) {
+    overlay.style.top = vv.offsetTop + 'px'
+    overlay.style.left = vv.offsetLeft + 'px'
+    overlay.style.width = vv.width + 'px'
+    overlay.style.height = vv.height + 'px'
+  }
+}
+
+// 在 onMounted / onUnmounted 里挂载
+// （直接在 watch sentencePanel.visible 里挂载/卸载，更精准）
+watch(() => sentencePanel.visible, (val) => {
+  if (val) {
+    window.visualViewport?.addEventListener('resize', onViewportResize)
+    window.visualViewport?.addEventListener('scroll', onViewportResize)
+  } else {
+    window.visualViewport?.removeEventListener('resize', onViewportResize)
+    window.visualViewport?.removeEventListener('scroll', onViewportResize)
+    sentenceDrawerBottom.value = 0
+    // 重置 overlay 内联样式
+    nextTick(() => {
+      const overlay = document.querySelector('.sentence-overlay')
+      if (overlay) {
+        overlay.style.top = ''
+        overlay.style.left = ''
+        overlay.style.width = ''
+        overlay.style.height = ''
+      }
+    })
+  }
+})
 
 // 当前单词的历史记录（最新在前）
 const currentWordHistory = computed(() => {
@@ -4617,7 +4662,8 @@ const getScoreClass = (score) => {
      ========================================== -->
 <Teleport to="body">
   <div v-if="sentencePanel.visible" class="sentence-overlay" @click.self="closeSentencePanel">
-    <div class="sentence-drawer">
+    <div class="sentence-drawer" :style="{ paddingBottom: sentenceDrawerBottom > 0 ? (sentenceDrawerBottom + 16) + 'px' : '' }"
+         :class="{ 'keyboard-open': sentenceDrawerBottom > 0 }">
       <!-- 头部 -->
       <div class="sentence-header">
         <div class="sentence-title">
@@ -7629,6 +7675,8 @@ const getScoreClass = (score) => {
   max-height: 92vh;
   overflow-y: auto;
   animation: sentenceSlideUp 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+  /* 键盘弹出时平滑过渡 */
+  transition: padding-bottom 0.15s ease;
 }
 
 @keyframes sentenceSlideUp {
