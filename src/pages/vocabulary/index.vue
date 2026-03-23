@@ -3169,7 +3169,8 @@ const uploadToCloud = async () => {
       n: groupNotes.value,
       st: pageStories.value,
       ap: audioPeekHistory.value,
-      f: globalFailHistory.value
+      f: globalFailHistory.value,
+      sh: sentenceHistory.value
     }
     const contentStr = JSON.stringify(data)
 
@@ -3268,6 +3269,7 @@ const downloadFromCloud = async () => {
     if(d.st) pageStories.value = d.st;
     if(d.ap) audioPeekHistory.value = d.ap;
     if(d.f) globalFailHistory.value = d.f;
+    if(d.sh) sentenceHistory.value = d.sh;
     updateSyncTime() // 🔥【新增】下载成功更新时间
     alert('☁️ 同步成功！本地进度已更新。')
     location.reload() // 刷新页面确保状态正确
@@ -3415,6 +3417,182 @@ const removeCustomWord = (wordEn) => {
 
   if (isReviewMode.value) refreshReviewData()
   showCustomAlert(`已删除 "${wordEn}"`)
+}
+
+// ==========================================
+// ✍️ 造句练习 & AI 评测
+// ==========================================
+
+// 造句历史：{ "word": [{ sentence, score, issues, suggestion, revised, time }, ...] }
+const sentenceHistory = useMyStorage('my_ielts_sentence_history', {})
+
+const sentencePanel = reactive({
+  visible: false,
+  word: { en: '', zh: '', pos: '' },
+  sentence: '',
+  loading: false,
+  result: null,
+  showHistory: false, // 是否展开历史记录面板
+})
+
+const openSentencePanel = (word) => {
+  sentencePanel.word = word
+  sentencePanel.sentence = ''
+  sentencePanel.result = null
+  sentencePanel.loading = false
+  sentencePanel.visible = true
+  sentencePanel.showHistory = false
+  nextTick(() => {
+    document.getElementById('sentence-input')?.focus()
+  })
+}
+
+const closeSentencePanel = () => {
+  sentencePanel.visible = false
+}
+
+// 当前单词的历史记录（最新在前）
+const currentWordHistory = computed(() => {
+  const list = sentenceHistory.value[sentencePanel.word.en] || []
+  return [...list].reverse()
+})
+
+// 保存一条造句记录到本地
+const saveSentenceToHistory = (sentence, result) => {
+  const word = sentencePanel.word.en
+  if (!word || !sentence.trim() || !result || result.score === 0) return
+  const existing = sentenceHistory.value[word] || []
+  const newEntry = {
+    sentence: sentence.trim(),
+    score: result.score,
+    issues: result.issues || '',
+    suggestion: result.suggestion || '',
+    revised: result.revised || '',
+    time: new Date().toISOString()
+  }
+  // 最多保留 20 条，避免无限增长
+  const updated = [...existing, newEntry].slice(-20)
+  sentenceHistory.value = { ...sentenceHistory.value, [word]: updated }
+}
+
+// 从历史记录回填句子
+const loadFromHistory = (entry) => {
+  sentencePanel.sentence = entry.sentence
+  sentencePanel.result = {
+    score: entry.score,
+    issues: entry.issues,
+    suggestion: entry.suggestion,
+    revised: entry.revised
+  }
+  sentencePanel.showHistory = false
+}
+
+// 删除某条历史记录
+const deleteHistoryEntry = (index) => {
+  const word = sentencePanel.word.en
+  const list = sentenceHistory.value[word] || []
+  // currentWordHistory 是 reverse 后的，index 需要转换回原数组索引
+  const realIndex = list.length - 1 - index
+  const updated = [...list]
+  updated.splice(realIndex, 1)
+  sentenceHistory.value = { ...sentenceHistory.value, [word]: updated }
+}
+
+const evaluateSentence = async () => {
+  if (!sentencePanel.sentence.trim()) return
+  sentencePanel.loading = true
+  sentencePanel.result = null
+
+  try {
+    // 用 .value 取 ref 的值，兼容直接字符串两种情况
+    const rawBase = (typeof apiBaseUrl === 'object' ? apiBaseUrl.value : apiBaseUrl) || ''
+    const rawModel = (typeof apiModel === 'object' ? apiModel.value : apiModel) || ''
+    const rawKey = (typeof apiKey === 'object' ? apiKey.value : apiKey) || ''
+
+    const cleanBase = rawBase.replace(/\/$/, '') || 'https://generativelanguage.googleapis.com'
+    const isGemini = cleanBase.includes('generativelanguage.googleapis.com')
+      || cleanBase.includes('futureflow.cyou')
+      || cleanBase.includes('workers.dev')
+      || rawModel.toLowerCase().includes('gemini')
+
+    const prompt = `作为雅思写作老师，评测学生用单词 [${sentencePanel.word.en}] 造的句子。
+【极度重要】：只能返回纯净 JSON，不能包含任何解释或 Markdown。
+严格遵循以下结构：
+{
+  "score": <1-10的整数>,
+  "issues": "简短指出问题（中文），无问题则写'无明显问题'",
+  "suggestion": "一条具体改进建议（中文），分数>=8则写空字符串",
+  "revised": "改进后的英文句子，分数>=8则写空字符串"
+}
+单词：${sentencePanel.word.en}（${sentencePanel.word.zh}）
+学生的句子：${sentencePanel.sentence}`
+
+    let text = ''
+
+    if (isGemini) {
+      const url = `${cleanBase}/v1beta/models/${rawModel}:generateContent?key=${rawKey}`
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { responseMimeType: 'application/json' }
+        })
+      })
+      if (!response.ok) {
+        const err = await response.json()
+        throw new Error(err.error?.message || 'Gemini API request failed')
+      }
+      const data = await response.json()
+      text = data.candidates?.[0]?.content?.parts?.[0]?.text
+    } else {
+      const url = `${cleanBase}/chat/completions`
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${rawKey}`
+        },
+        body: JSON.stringify({
+          model: rawModel,
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.1
+        })
+      })
+      if (!response.ok) {
+        const err = await response.json()
+        throw new Error(err.error?.message || 'API request failed')
+      }
+      const data = await response.json()
+      text = data.choices?.[0]?.message?.content
+    }
+
+    if (!text) throw new Error('No response from AI')
+
+    const jsonMatch = text.match(/\{[\s\S]*\}/)
+    if (!jsonMatch) throw new Error('No valid JSON in response')
+    sentencePanel.result = JSON.parse(jsonMatch[0])
+    // 🔥 评测成功后自动保存到本地历史
+    saveSentenceToHistory(sentencePanel.sentence, sentencePanel.result)
+
+  } catch (e) {
+    console.error('Sentence eval error:', e)
+    sentencePanel.result = {
+      score: 0,
+      issues: '评测失败：' + (e.message || '请检查 API 配置'),
+      suggestion: '',
+      revised: ''
+    }
+  } finally {
+    sentencePanel.loading = false
+  }
+}
+
+const getScoreClass = (score) => {
+  if (score >= 8) return 'score-excellent'
+  if (score >= 6) return 'score-good'
+  if (score >= 4) return 'score-fair'
+  return 'score-poor'
 }
 
 </script>
@@ -3670,6 +3848,7 @@ const removeCustomWord = (wordEn) => {
                         👂
                       </span>
                       <button v-if="word.source !== '生词本'" class="copy-btn" @click.stop="copyWord(word.en)" title="点击复制">📋</button>
+                      <button class="copy-btn sentence-trigger-btn" @click.stop="openSentencePanel(word)" title="造句练习">✍️</button>
                       <button v-if="isReviewMode && word.id === '★'" class="copy-btn edit-btn" @click.stop="openEditModal(word)" title="修改单词/释义">✎</button>
                       <button v-if="isReviewMode && !isShowSource && word.source !== '生词本'" class="copy-btn location-btn" @click.stop="toggleSingleSource(word.en)" :title="revealedSource.has(word.en) ? '隐藏出处' : '查看出处'" :style="{ color: revealedSource.has(word.en) ? '#3b82f6' : '', opacity: revealedSource.has(word.en) ? '1' : '' }">
                         <svg v-if="revealedSource.has(word.en)" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
@@ -4432,6 +4611,108 @@ const removeCustomWord = (wordEn) => {
 
   </div>
 </div>
+
+<!-- ==========================================
+     ✍️ 造句练习 & AI 评测弹窗
+     ========================================== -->
+<Teleport to="body">
+  <div v-if="sentencePanel.visible" class="sentence-overlay" @click.self="closeSentencePanel">
+    <div class="sentence-drawer">
+      <!-- 头部 -->
+      <div class="sentence-header">
+        <div class="sentence-title">
+          <span class="sentence-word-badge">{{ sentencePanel.word.en }}</span>
+          <span class="sentence-pos-tag" :style="getPosStyle(sentencePanel.word.pos)">{{ sentencePanel.word.pos }}</span>
+          <span class="sentence-hint">用这个词写一句话</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <!-- 历史记录按钮 -->
+          <button
+            v-if="currentWordHistory.length > 0"
+            class="sentence-history-toggle"
+            :class="{ active: sentencePanel.showHistory }"
+            @click="sentencePanel.showHistory = !sentencePanel.showHistory"
+            :title="`历史造句 (${currentWordHistory.length})`"
+          >
+            📋 {{ currentWordHistory.length }}
+          </button>
+          <button class="sentence-close-btn" @click="closeSentencePanel">✕</button>
+        </div>
+      </div>
+
+      <!-- 中文提示 -->
+      <div class="sentence-zh-ref">{{ sentencePanel.word.zh }}</div>
+
+      <!-- 历史记录面板 -->
+      <div v-if="sentencePanel.showHistory" class="sentence-history-panel">
+        <div class="history-panel-title">历史造句记录</div>
+        <div v-for="(entry, idx) in currentWordHistory" :key="idx" class="history-entry">
+          <div class="history-entry-top">
+            <span class="history-score" :class="getScoreClass(entry.score)">{{ entry.score }}<span>/10</span></span>
+            <span class="history-sentence" @click="loadFromHistory(entry)" title="点击回填">{{ entry.sentence }}</span>
+            <button class="history-delete-btn" @click="deleteHistoryEntry(idx)" title="删除">✕</button>
+          </div>
+          <div v-if="entry.issues && entry.issues !== '无明显问题'" class="history-issues">{{ entry.issues }}</div>
+          <div class="history-time">{{ new Date(entry.time).toLocaleDateString('zh-CN', { month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit' }) }}</div>
+        </div>
+      </div>
+
+      <!-- 输入区（历史面板展开时折叠） -->
+      <template v-if="!sentencePanel.showHistory">
+        <div class="sentence-input-area">
+          <textarea
+            id="sentence-input"
+            v-model="sentencePanel.sentence"
+            class="sentence-textarea"
+            placeholder="Write your sentence here..."
+            rows="3"
+            @keydown.ctrl.enter.prevent="evaluateSentence"
+          ></textarea>
+          <div class="sentence-input-tip">Ctrl + Enter 快速提交</div>
+        </div>
+
+        <!-- 提交按钮 -->
+        <button
+          class="sentence-submit-btn"
+          :disabled="sentencePanel.loading || !sentencePanel.sentence.trim()"
+          @click="evaluateSentence"
+        >
+          <span v-if="sentencePanel.loading" class="loading-dots">
+            AI 评测中<span>.</span><span>.</span><span>.</span>
+          </span>
+          <span v-else>🤖 AI 评测</span>
+        </button>
+
+        <!-- 评测结果 -->
+        <div v-if="sentencePanel.result" class="sentence-result">
+          <!-- 分数行 -->
+          <div class="result-score-row">
+            <div class="result-score" :class="getScoreClass(sentencePanel.result.score)">
+              {{ sentencePanel.result.score }}<span>/10</span>
+            </div>
+            <div class="result-issues">{{ sentencePanel.result.issues }}</div>
+          </div>
+
+          <!-- 建议 -->
+          <div v-if="sentencePanel.result.suggestion" class="result-suggestion">
+            💡 {{ sentencePanel.result.suggestion }}
+          </div>
+
+          <!-- 改进版本 -->
+          <div v-if="sentencePanel.result.revised" class="result-revised">
+            <div class="revised-label">✨ 更好的写法</div>
+            <div class="revised-text">{{ sentencePanel.result.revised }}</div>
+          </div>
+
+          <!-- 再练一句 -->
+          <button class="retry-btn" @click="sentencePanel.sentence = ''; sentencePanel.result = null; $nextTick(() => document.getElementById('sentence-input')?.focus())">
+            ↩ 再练一句
+          </button>
+        </div>
+      </template>
+    </div>
+  </div>
+</Teleport>
 
 </template>
 
@@ -7318,4 +7599,384 @@ const removeCustomWord = (wordEn) => {
   border-left-color: #3b82f6 !important; /* 亮蓝竖线 */
   color: #94a3b8 !important;
 }
+
+/* ==========================================
+   ✍️ 造句练习弹窗样式
+   ========================================== */
+.sentence-trigger-btn {
+  opacity: 0.45;
+  transition: opacity 0.2s;
+}
+.sentence-trigger-btn:hover { opacity: 1; }
+
+.sentence-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 3000;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.sentence-drawer {
+  background: white;
+  width: 100%;
+  max-width: 600px;
+  border-radius: 20px 20px 0 0;
+  padding: 22px 20px 32px;
+  box-shadow: 0 -8px 40px rgba(0, 0, 0, 0.18);
+  max-height: 92vh;
+  overflow-y: auto;
+  animation: sentenceSlideUp 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes sentenceSlideUp {
+  from { transform: translateY(100%); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+@media (min-width: 768px) {
+  .sentence-overlay { align-items: center; }
+  .sentence-drawer {
+    border-radius: 16px;
+    max-height: 80vh;
+    animation: sentenceFadeIn 0.2s ease;
+  }
+  @keyframes sentenceFadeIn {
+    from { opacity: 0; transform: scale(0.96) translateY(8px); }
+    to   { opacity: 1; transform: scale(1)    translateY(0); }
+  }
+}
+
+.sentence-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 8px;
+}
+
+.sentence-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.sentence-word-badge {
+  font-size: 22px;
+  font-weight: 800;
+  color: #1e40af;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  padding: 2px 12px;
+  border-radius: 8px;
+  letter-spacing: 0.5px;
+}
+
+.sentence-pos-tag {
+  font-size: 12px;
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+
+.sentence-hint {
+  font-size: 13px;
+  color: #9ca3af;
+}
+
+.sentence-close-btn {
+  background: #f3f4f6;
+  border: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 13px;
+  color: #6b7280;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.sentence-close-btn:hover { background: #e5e7eb; }
+
+.sentence-zh-ref {
+  font-size: 14px;
+  color: #6b7280;
+  margin-bottom: 14px;
+  padding-left: 2px;
+}
+
+.sentence-textarea {
+  width: 100%;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 15px;
+  line-height: 1.6;
+  resize: none;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  font-family: inherit;
+  background: #fafafa;
+}
+.sentence-textarea:focus {
+  border-color: #3b82f6;
+  background: white;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.sentence-input-tip {
+  text-align: right;
+  font-size: 11px;
+  color: #9ca3af;
+  margin-top: 5px;
+}
+
+.sentence-submit-btn {
+  width: 100%;
+  margin-top: 14px;
+  padding: 13px;
+  background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
+  color: white;
+  border: none;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.1s;
+  letter-spacing: 0.3px;
+}
+.sentence-submit-btn:hover:not(:disabled) { opacity: 0.88; transform: translateY(-1px); }
+.sentence-submit-btn:active:not(:disabled) { transform: translateY(0); }
+.sentence-submit-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.loading-dots span {
+  display: inline-block;
+  animation: sentenceDotBlink 1.2s infinite;
+  opacity: 0;
+}
+.loading-dots span:nth-child(2) { animation-delay: 0.4s; }
+.loading-dots span:nth-child(3) { animation-delay: 0.8s; }
+@keyframes sentenceDotBlink { 0%,100%{opacity:0} 50%{opacity:1} }
+
+.sentence-result {
+  margin-top: 18px;
+  border-top: 1px solid #f3f4f6;
+  padding-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  animation: sentenceFadeResult 0.3s ease;
+}
+@keyframes sentenceFadeResult {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.result-score-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.result-score {
+  font-size: 36px;
+  font-weight: 900;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.result-score span { font-size: 14px; font-weight: 400; color: #9ca3af; }
+.score-excellent { color: #10b981; }
+.score-good      { color: #3b82f6; }
+.score-fair      { color: #f59e0b; }
+.score-poor      { color: #ef4444; }
+
+.result-issues {
+  font-size: 14px;
+  color: #374151;
+  line-height: 1.6;
+}
+
+.result-suggestion {
+  background: #fefce8;
+  border: 1px solid #fde68a;
+  border-radius: 8px;
+  padding: 10px 13px;
+  font-size: 13px;
+  color: #78350f;
+  line-height: 1.6;
+}
+
+.result-revised {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  padding: 12px 13px;
+}
+
+.revised-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #16a34a;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+
+.revised-text {
+  font-size: 15px;
+  color: #166534;
+  line-height: 1.7;
+  font-style: italic;
+}
+
+.retry-btn {
+  align-self: flex-start;
+  background: #f3f4f6;
+  border: none;
+  padding: 7px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #4b5563;
+  cursor: pointer;
+  margin-top: 2px;
+  transition: background 0.15s;
+}
+.retry-btn:hover { background: #e5e7eb; }
+
+/* 暗黑模式 */
+.dark .sentence-drawer { background: #1e293b; color: #e2e8f0; }
+.dark .sentence-word-badge { background: #1e3a5f; border-color: #2563eb; color: #93c5fd; }
+.dark .sentence-hint, .dark .sentence-zh-ref { color: #64748b; }
+.dark .sentence-textarea { background: #0f172a; border-color: #334155; color: #e2e8f0; }
+.dark .sentence-textarea:focus { border-color: #3b82f6; background: #0f172a; }
+.dark .sentence-close-btn { background: #334155; color: #94a3b8; }
+.dark .sentence-input-tip { color: #475569; }
+.dark .sentence-result { border-top-color: #334155; }
+.dark .result-issues { color: #cbd5e1; }
+.dark .result-suggestion { background: #451a03; border-color: #92400e; color: #fde68a; }
+.dark .result-revised { background: #052e16; border-color: #166534; }
+.dark .revised-text { color: #86efac; }
+.dark .retry-btn { background: #334155; color: #94a3b8; }
+.dark .retry-btn:hover { background: #475569; }
+
+/* ==========================================
+   📋 造句历史记录样式
+   ========================================== */
+.sentence-history-toggle {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #3b82f6;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 20px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.sentence-history-toggle:hover,
+.sentence-history-toggle.active {
+  background: #3b82f6;
+  color: white;
+  border-color: #3b82f6;
+}
+
+.sentence-history-panel {
+  margin-bottom: 4px;
+  max-height: 340px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.history-panel-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-bottom: 2px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.history-entry {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: border-color 0.15s;
+}
+.history-entry:hover { border-color: #bfdbfe; }
+
+.history-entry-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.history-score {
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.history-score span { font-size: 11px; font-weight: 400; color: #9ca3af; }
+
+.history-sentence {
+  flex: 1;
+  font-size: 14px;
+  color: #1e40af;
+  line-height: 1.5;
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+.history-sentence:hover { color: #1d4ed8; }
+
+.history-delete-btn {
+  background: none;
+  border: none;
+  color: #d1d5db;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+.history-delete-btn:hover { color: #ef4444; background: #fef2f2; }
+
+.history-issues {
+  font-size: 12px;
+  color: #6b7280;
+  line-height: 1.4;
+}
+
+.history-time {
+  font-size: 11px;
+  color: #d1d5db;
+  text-align: right;
+}
+
+/* 暗黑模式 */
+.dark .sentence-history-toggle { background: #1e3a5f; border-color: #2563eb; color: #93c5fd; }
+.dark .sentence-history-toggle:hover,
+.dark .sentence-history-toggle.active { background: #2563eb; color: white; }
+.dark .history-panel-title { color: #475569; border-bottom-color: #1e293b; }
+.dark .history-entry { background: #0f172a; border-color: #1e293b; }
+.dark .history-entry:hover { border-color: #2563eb; }
+.dark .history-sentence { color: #93c5fd; }
+.dark .history-issues { color: #64748b; }
+.dark .history-time { color: #334155; }
+.dark .history-delete-btn { color: #334155; }
+.dark .history-delete-btn:hover { color: #f87171; background: #2d1010; }
 </style>
