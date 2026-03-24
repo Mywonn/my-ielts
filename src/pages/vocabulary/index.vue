@@ -47,7 +47,7 @@ const useMyStorage = useStorage
 // }
 
 const chapters = vocabularyData ? Object.keys(vocabularyData) : []
-const currentChapter = useMyStorage('my_ielts_chapter', chapters[0] || '')
+const currentChapter = useStorage('my_ielts_chapter', chapters[0] || '', localStorage, { listenToStorageChanges: false })
 const reviewList = useMyStorage('my_ielts_review', [])
 const killedList = useMyStorage('my_ielts_killed', [])
 const masteredList = useMyStorage('my_ielts_mastered', [])
