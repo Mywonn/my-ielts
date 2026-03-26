@@ -3507,17 +3507,44 @@ const saveSentenceToHistory = (sentence, result) => {
   const word = sentencePanel.word.en
   if (!word || !sentence.trim() || !result || result.score === 0) return
   const existing = sentenceHistory.value[word] || []
+  // 如果之前存过同文本的草稿（score===0），先删掉它，避免重复
+  const filtered = existing.filter(e => !(e.sentence === sentence.trim() && e.score === 0))
   const newEntry = {
     sentence: sentence.trim(),
     score: result.score,
     issues: result.issues || '',
     suggestion: result.suggestion || '',
     revised: result.revised || '',
+    sentences: result.sentences || [],
     time: new Date().toISOString()
   }
   // 最多保留 20 条，避免无限增长
+  const updated = [...filtered, newEntry].slice(-20)
+  sentenceHistory.value = { ...sentenceHistory.value, [word]: updated }
+}
+
+// 保存草稿（不需要 AI，仅本地存储）
+const saveDraft = () => {
+  const word = sentencePanel.word.en
+  const text = sentencePanel.sentence.trim()
+  if (!word || !text) return
+  const existing = sentenceHistory.value[word] || []
+  // 如果已有同文本的草稿，不重复存
+  if (existing.some(e => e.sentence === text)) {
+    showCustomAlert('该句子已保存过 ✅')
+    return
+  }
+  const newEntry = {
+    sentence: text,
+    score: 0,       // 0 表示仅草稿、未评测
+    issues: '草稿（未评测）',
+    suggestion: '',
+    revised: '',
+    time: new Date().toISOString()
+  }
   const updated = [...existing, newEntry].slice(-20)
   sentenceHistory.value = { ...sentenceHistory.value, [word]: updated }
+  showCustomAlert('句子已保存 💾 稍后可在历史记录中找到')
 }
 
 // 从历史记录回填句子
@@ -3527,7 +3554,8 @@ const loadFromHistory = (entry) => {
     score: entry.score,
     issues: entry.issues,
     suggestion: entry.suggestion,
-    revised: entry.revised
+    revised: entry.revised,
+    sentences: entry.sentences || []
   }
   sentencePanel.showHistory = false
 }
@@ -3560,16 +3588,43 @@ const evaluateSentence = async () => {
       || cleanBase.includes('workers.dev')
       || rawModel.toLowerCase().includes('gemini')
 
-    const prompt = `作为雅思写作老师，评测学生用单词 [${sentencePanel.word.en}] 造的句子。
+    // 解析词性列表
+    const posRaw = (sentencePanel.word.pos || '').trim()
+    const posList = posRaw
+      ? [...new Set(posRaw.split(/[\/;,、\s]+/).map(p => p.trim()).filter(p => p.length > 0))]
+      : ['n.']
+
+    // 生词本短语（只取第一条）
+    const notationRaw = (sentencePanel.word.notation || '').trim()
+    const firstPhrase = notationRaw
+      ? notationRaw.split(/[;；\/、\n]+/).map(p => p.trim()).find(p => p.length > 0) || ''
+      : ''
+
+    // 判断用户用的是哪个词性（简单猜测：如果只有一个词性就是它，多个则让AI都扩展）
+    const otherPosList = posList.length > 1 ? posList : []
+
+    const sentencesSpec = [
+      ...otherPosList.map(p => `{ "label": "${p}", "sentence": "参考学生句子的风格和难度，用 ${p} 词性重新造一句，必须含 ${sentencePanel.word.en}" }`),
+      ...(firstPhrase ? [`{ "label": "${firstPhrase}", "sentence": "参考学生句子的风格，用短语 '${firstPhrase}' 造一句自然的英文句子" }`] : [])
+    ].join(',\n    ')
+
+    const prompt = `作为雅思写作老师，评测学生用单词 [${sentencePanel.word.en}] 造的句子，并仿照学生句子的风格扩展例句。
+
 【极度重要】：只能返回纯净 JSON，不能包含任何解释或 Markdown。
+【规则】：
+- revised 保留单词 [${sentencePanel.word.en}]，只修正错误；分数>=8写空字符串
+- sentences 里每条句子要参考学生原句的句式难度，像"扩展练习"而非教科书例句
+${posList.length === 1 ? `- 该词只有一个词性 ${posRaw}，sentences 数组只需包含短语例句（如有）` : `- 该词有多个词性（${posRaw}），针对每个词性各仿写一句`}
+
 严格遵循以下结构：
 {
   "score": <1-10的整数>,
   "issues": "简短指出问题（中文），无问题则写'无明显问题'",
-  "suggestion": "一条具体改进建议（中文），分数>=8则写空字符串",
-  "revised": "改进后的英文句子，分数>=8则写空字符串"
+  "suggestion": "一条改进建议（中文），分数>=8写空字符串",
+  "revised": "修正后的句子（必须含 ${sentencePanel.word.en}），分数>=8写空字符串",
+  "sentences": [${sentencesSpec ? `\n    ${sentencesSpec}\n  ` : ''}]
 }
-单词：${sentencePanel.word.en}（${sentencePanel.word.zh}）
+单词：${sentencePanel.word.en}（${sentencePanel.word.zh}，词性：${posRaw}）
 学生的句子：${sentencePanel.sentence}`
 
     let text = ''
@@ -4692,10 +4747,12 @@ const getScoreClass = (score) => {
       <!-- 历史记录面板 -->
       <div v-if="sentencePanel.showHistory" class="sentence-history-panel">
         <div class="history-panel-title">历史造句记录</div>
-        <div v-for="(entry, idx) in currentWordHistory" :key="idx" class="history-entry">
+        <div v-for="(entry, idx) in currentWordHistory" :key="idx" class="history-entry" :class="{ 'history-entry-draft': entry.score === 0 }">
           <div class="history-entry-top">
-            <span class="history-score" :class="getScoreClass(entry.score)">{{ entry.score }}<span>/10</span></span>
+            <span v-if="entry.score === 0" class="history-score-draft">草稿</span>
+            <span v-else class="history-score" :class="getScoreClass(entry.score)">{{ entry.score }}<span>/10</span></span>
             <span class="history-sentence" @click="loadFromHistory(entry)" title="点击回填">{{ entry.sentence }}</span>
+            <button v-if="entry.score === 0" class="history-eval-btn" @click="loadFromHistory(entry); sentencePanel.showHistory = false" title="回填并评测">评测</button>
             <button class="history-delete-btn" @click="deleteHistoryEntry(idx)" title="删除">✕</button>
           </div>
           <div v-if="entry.issues && entry.issues !== '无明显问题'" class="history-issues">{{ entry.issues }}</div>
@@ -4717,7 +4774,18 @@ const getScoreClass = (score) => {
           <div class="sentence-input-tip">Ctrl + Enter 快速提交</div>
         </div>
 
-        <!-- 提交按钮 -->
+        <!-- 操作按钮行 -->
+        <div class="sentence-action-row">
+          <button
+            class="sentence-save-btn"
+            :disabled="!sentencePanel.sentence.trim()"
+            @click="saveDraft"
+            title="先保存句子，稍后再评测"
+          >
+            💾 保存
+          </button>
+
+          <!-- 提交按钮 -->
         <button
           class="sentence-submit-btn"
           :disabled="sentencePanel.loading || !sentencePanel.sentence.trim()"
@@ -4728,6 +4796,7 @@ const getScoreClass = (score) => {
           </span>
           <span v-else>🤖 AI 评测</span>
         </button>
+        </div>
 
         <!-- 评测结果 -->
         <div v-if="sentencePanel.result" class="sentence-result">
@@ -4748,6 +4817,15 @@ const getScoreClass = (score) => {
           <div v-if="sentencePanel.result.revised" class="result-revised">
             <div class="revised-label">✨ 更好的写法</div>
             <div class="revised-text">{{ sentencePanel.result.revised }}</div>
+          </div>
+
+          <!-- 参考例句（词性 + 短语） -->
+          <div v-if="sentencePanel.result.sentences && sentencePanel.result.sentences.length" class="result-sentences">
+            <div class="sentences-label">💡 参考例句</div>
+            <div v-for="(s, i) in sentencePanel.result.sentences" :key="i" class="sentence-ref-item">
+              <span class="sentence-ref-label" :style="getPosStyle(s.label)">{{ s.label }}</span>
+              <span class="sentence-ref-text">{{ s.sentence }}</span>
+            </div>
           </div>
 
           <!-- 再练一句 -->
@@ -7783,6 +7861,73 @@ const getScoreClass = (score) => {
   margin-top: 5px;
 }
 
+/* 按钮行：保存 + AI评测 */
+.sentence-action-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+  align-items: stretch;
+}
+
+.sentence-save-btn {
+  flex-shrink: 0;
+  padding: 13px 18px;
+  background: #f0fdf4;
+  color: #16a34a;
+  border: 1.5px solid #bbf7d0;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+.sentence-save-btn:hover:not(:disabled) { background: #dcfce7; border-color: #86efac; }
+.sentence-save-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.sentence-action-row .sentence-submit-btn {
+  flex: 1;
+  margin-top: 0;
+}
+
+/* 草稿标识 */
+.history-entry-draft {
+  background: #fffbeb;
+  border-color: #fde68a;
+}
+.history-score-draft {
+  font-size: 12px;
+  font-weight: 700;
+  color: #d97706;
+  background: #fef3c7;
+  border: 1px solid #fde68a;
+  padding: 2px 7px;
+  border-radius: 6px;
+  flex-shrink: 0;
+  line-height: 1.6;
+}
+.history-eval-btn {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 9px;
+  border-radius: 6px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+.history-eval-btn:hover { background: #dbeafe; }
+
+/* 暗黑模式补充 */
+.dark .sentence-save-btn { background: #052e16; color: #4ade80; border-color: #166534; }
+.dark .sentence-save-btn:hover:not(:disabled) { background: #14532d; }
+.dark .history-entry-draft { background: #1c1405; border-color: #92400e; }
+.dark .history-score-draft { color: #fbbf24; background: #451a03; border-color: #92400e; }
+.dark .history-eval-btn { background: #1e3a5f; border-color: #2563eb; color: #93c5fd; }
+.dark .history-eval-btn:hover { background: #1e40af; }
+
 .sentence-submit-btn {
   width: 100%;
   margin-top: 14px;
@@ -7880,6 +8025,51 @@ const getScoreClass = (score) => {
   line-height: 1.7;
   font-style: italic;
 }
+
+.result-sentences {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.sentences-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-bottom: 2px;
+}
+
+.sentence-ref-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  line-height: 1.6;
+}
+
+.sentence-ref-label {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 4px;
+  align-self: flex-start;
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sentence-ref-text {
+  font-size: 14px;
+  color: #374151;
+  font-style: italic;
+  padding-left: 2px;
+}
+
+.dark .sentences-label { color: #475569; }
+.dark .sentence-ref-text { color: #cbd5e1; }
 
 .retry-btn {
   align-self: flex-start;
