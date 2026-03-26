@@ -110,3 +110,99 @@ export async function lookupWord(word, context, apiKey, baseUrl = 'https://gener
     throw error
   }
 }
+
+// -----------------------------------------
+// 连读分析：analyzeLinking
+// -----------------------------------------
+export async function analyzeLinking(
+  sentence: string,
+  apiKey: string,
+  baseUrl = 'https://generativelanguage.googleapis.com',
+  model = 'gemini-1.5-flash'
+) {
+  if (!apiKey) throw new Error('Please provide an API Key.')
+
+  const prompt = `你是一位英语语音学专家。请分析以下英语句子中的连读（Linking）现象。
+句子：${sentence}
+
+【极度重要】你必须且只能返回一个纯净的 JSON 对象！绝不能包含任何解释性文字，绝不能包含 Markdown 标记（如 \`\`\`json）。如果包含任何 JSON 之外的字符，系统将会崩溃！
+
+规则说明：
+- annotated：原句中用 ‿ 符号连接发生连读的相邻词（不改变词序，只加连读符）
+- phonetic：整句实际朗读时的音标，连读部分合并为一个音标单元，用空格分隔各音标单元
+- links：只列出真正发生连读的位置，type 填写连读类型（辅元连读 / 元元连读 / 辅音省略 / 弱读 / 闪音T）
+
+严格遵循以下 JSON 结构：
+{
+  "annotated": "Yes I‿learned French‿when I‿was‿actually quite good‿at‿it",
+  "phonetic": "/jɛs/ /aɪˈlɜːnd/ /frɛntʃwɛn/ /aɪwəzˈæktʃuəli/ /kwaɪt/ /ɡʊdædɪt/",
+  "links": [
+    { "words": "learned → French", "ipa": "/lɜːnd frɛntʃ/", "type": "辅元连读" },
+    { "words": "good → at → it", "ipa": "/ɡʊdædɪt/", "type": "辅元连读" }
+  ]
+}`
+
+  const cleanBase = baseUrl.replace(/\/$/, '')
+  const isGemini =
+    cleanBase.includes('generativelanguage.googleapis.com') ||
+    cleanBase.includes('futureflow.cyou') ||
+    cleanBase.includes('workers.dev') ||
+    model.toLowerCase().includes('gemini')
+
+  try {
+    let text = ''
+
+    if (isGemini) {
+      const url = `${cleanBase}/v1beta/models/${model}:generateContent?key=${apiKey}`
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { responseMimeType: 'application/json' }
+        })
+      })
+      if (!response.ok) {
+        const err = await response.json()
+        throw new Error(err.error?.message || 'Gemini API request failed')
+      }
+      const data = await response.json()
+      text = data.candidates?.[0]?.content?.parts?.[0]?.text
+    } else {
+      const url = `${cleanBase}/chat/completions`
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.1
+        })
+      })
+      if (!response.ok) {
+        const err = await response.json()
+        throw new Error(err.error?.message || err.message || 'API request failed')
+      }
+      const data = await response.json()
+      text = data.choices?.[0]?.message?.content
+    }
+
+    if (!text) throw new Error('No response from AI')
+
+    const jsonMatch = text.match(/\{[\s\S]*\}/)
+    if (!jsonMatch) throw new Error('AI 返回的内容中找不到有效的 JSON 结构。')
+
+    try {
+      return JSON.parse(jsonMatch[0])
+    } catch (e) {
+      console.error('JSON 解析失败:', jsonMatch[0])
+      throw new Error('AI 返回了损坏的 JSON 格式，请再试一次。')
+    }
+  } catch (error) {
+    console.error('analyzeLinking Error:', error)
+    throw error
+  }
+}

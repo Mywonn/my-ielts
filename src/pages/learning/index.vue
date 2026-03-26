@@ -3,7 +3,7 @@ import { ref, reactive, onMounted, nextTick, watch, onUnmounted, computed, onAct
 import { useStorage } from '@vueuse/core'
 import * as pdfjsLib from 'pdfjs-dist'
 import { useWordBank } from '../../composables/useWordBank'
-import { lookupWord } from '../../services/aiService'
+import { lookupWord, analyzeLinking } from '../../services/aiService'
 import { transcribeAudio } from '../../services/transcriptionService'
 import { get, set } from 'idb-keyval'
 
@@ -377,6 +377,97 @@ const handleClipWordClick = (wIdx, wordObj) => {
         startClipLoop()
     }
 }
+// =====================================================================
+// ===  连读分析（Linking Analysis）  ==================================
+// =====================================================================
+
+const showLinkingSheet = ref(false)
+const linkingLoading = ref(false)
+const linkingResult = ref(null)
+const linkingError = ref('')
+const linkingMode = ref(false)       // 连读专属选词模式（无分段时）
+const linkingSelected = ref(false)   // 连读选词已完成，保持高亮
+
+const enterLinkingMode = () => {
+    linkingMode.value = true
+    linkingSelected.value = false
+    clipStart.value = null
+    clipEnd.value = null
+}
+
+const exitLinkingMode = () => {
+    linkingMode.value = false
+    // 不清 clipStart/clipEnd，triggerLinkingAnalysis 还需要读取
+}
+
+// 连读模式下的词点击：选完两个词后先存范围再触发解析
+const handleLinkingWordClick = (wIdx, wordObj) => {
+    if (!clipStart.value) {
+        clipStart.value = { wIdx, time: wordObj.start ?? 0 }
+    } else if (wIdx === clipStart.value.wIdx) {
+        clipStart.value = null
+    } else {
+        const s = Math.min(clipStart.value.wIdx, wIdx)
+        const e = Math.max(clipStart.value.wIdx, wIdx)
+        clipStart.value = { wIdx: s, time: 0 }
+        clipEnd.value   = { wIdx: e, time: 0 }
+        linkingMode.value = false      // 只关模式
+        linkingSelected.value = true   // 标记已选，保持高亮
+        triggerLinkingAnalysis()
+    }
+}
+
+const triggerLinkingAnalysis = async () => {
+    if (!apiKey.value) { alert('请先在 Settings 中填写 API Key'); showSettings.value = true; return }
+    const sent = sentences.value[focusIndex.value]
+    if (!sent) return
+
+    // 暂停音频
+    if (audioPlayer.value && isPlaying.value) {
+        audioPlayer.value.pause()
+        isPlaying.value = false
+    }
+
+    // 取文本：有选词范围则用，否则整句
+    let text = sent.text
+    const sv = clipStart.value
+    const ev = clipEnd.value
+    if (sv != null && ev != null) {
+        const from = Math.min(sv.wIdx, ev.wIdx)
+        const to   = Math.max(sv.wIdx, ev.wIdx)
+        const slice = sent.words.slice(from, to + 1).map(w => w.text).join(' ').trim()
+        if (slice) text = slice
+    }
+
+    showLinkingSheet.value = true
+    linkingLoading.value = true
+    linkingResult.value = null
+    linkingError.value = ''
+
+    try {
+        linkingResult.value = await analyzeLinking(text, apiKey.value, apiBaseUrl.value, apiModel.value)
+    } catch (err) {
+        linkingError.value = err.message || '分析失败，请重试'
+    } finally {
+        linkingLoading.value = false
+    }
+}
+
+const openLinkingAnalysis = () => {
+    if (!apiKey.value) { alert('请先在 Settings 中填写 API Key'); showSettings.value = true; return }
+    // 片段循环中（isClipLooping）才直接用现有范围解析
+    if (isClipLooping.value && clipStart.value != null && clipEnd.value != null) {
+        triggerLinkingAnalysis()
+        return
+    }
+    // 其他情况（包括上次连读选词残留）→ 清掉旧范围，重新进入选词模式
+    clipStart.value = null
+    clipEnd.value = null
+    linkingSelected.value = false
+    exitClipMode()
+    enterLinkingMode()
+}
+
 const blindMode = ref(false)
 
 // 焦点句耗时（秒）
@@ -1634,41 +1725,52 @@ onDeactivated(() => {
                         : ''
                 ]"
             >
-                <!-- 焦点句顶部信息栏 -->
-                <div v-if="isFocusMode && index === focusIndex"
-                    class="flex items-center justify-between px-3 pt-2 pb-1">
-                    <span class="text-xs font-mono text-blue-500 dark:text-blue-400 shrink-0">
-                        本句 {{ formatDuration(focusDuration) }}
-                    </span>
-
-                    <div class="flex items-center bg-gray-100/80 dark:bg-gray-800/80 rounded-[5px] p-[2px] border border-gray-200/60 dark:border-gray-700/60">
-                        <button @click.stop="setPlaybackSpeed(1.0)"
-                            :class="playbackRate === 1.0 ? 'bg-white dark:bg-gray-600 shadow-sm text-blue-600 dark:text-blue-400' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'"
-                            class="px-2 py-1 text-[11px] leading-none rounded-[3px] font-medium transition-colors">1.0x</button>
-                        <button @click.stop="setPlaybackSpeed(0.8)"
-                            :class="playbackRate === 0.8 ? 'bg-white dark:bg-gray-600 shadow-sm text-orange-600 dark:text-orange-400' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'"
-                            class="px-2 py-1 text-[11px] leading-none rounded-[3px] font-medium transition-colors">0.8x</button>
-                        <button @click.stop="setPlaybackSpeed(0.6)"
-                            :class="playbackRate === 0.6 ? 'bg-white dark:bg-gray-600 shadow-sm text-red-600 dark:text-red-400' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'"
-                            class="px-2 py-1 text-[11px] leading-none rounded-[3px] font-medium transition-colors">0.6x</button>
-                        <button @click.stop="setPlaybackSpeed(0.4)"
-                            :class="playbackRate === 0.4 ? 'bg-white dark:bg-gray-600 shadow-sm text-purple-600 dark:text-purple-400' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'"
-                            class="px-2 py-1 text-[11px] leading-none rounded-[3px] font-medium transition-colors">0.4x</button>
-                        <!-- 片段按钮并入倍速区域 -->
-                        <template v-if="hasFocusTimestamps">
-                            <div class="w-px h-3 bg-gray-300 dark:bg-gray-600 mx-[2px]"></div>
-                            <button @click.stop="clipMode ? exitClipMode() : enterClipMode()"
-                                :class="(clipMode || isClipLooping) ? 'bg-white dark:bg-gray-600 shadow-sm text-orange-500 dark:text-orange-400' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'"
-                                class="px-2 py-1 text-[11px] leading-none rounded-[3px] font-medium transition-colors">
-                                片段
-                            </button>
-                        </template>
+                <!-- 焦点句顶部信息栏：三行布局 -->
+                <div v-if="isFocusMode && index === focusIndex" class="px-3 pt-2 pb-1 flex flex-col gap-1">
+                    <!-- 第一行：本句时长 + 关闭按钮 -->
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-mono text-blue-500 dark:text-blue-400">
+                            本句 {{ formatDuration(focusDuration) }}
+                        </span>
+                        <button @click.stop="exitFocus"
+                            class="w-6 h-6 flex items-center justify-center rounded-full text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors shrink-0"
+                            title="退出焦点模式">
+                            <div class="i-carbon-close w-4 h-4"></div>
+                        </button>
                     </div>
-                    <button @click.stop="exitFocus"
-                        class="w-6 h-6 flex items-center justify-center rounded-full text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors shrink-0"
-                        title="退出焦点模式">
-                        <div class="i-carbon-close w-4 h-4"></div>
-                    </button>
+                    <!-- 第二行：倍速 + 片段 + 连读解析，左对齐 -->
+                    <div class="flex items-center">
+                        <div class="flex items-center bg-gray-100/80 dark:bg-gray-800/80 rounded-[5px] p-[2px] border border-gray-200/60 dark:border-gray-700/60">
+                            <button @click.stop="setPlaybackSpeed(1.0)"
+                                :class="playbackRate === 1.0 ? 'bg-white dark:bg-gray-600 shadow-sm text-blue-600 dark:text-blue-400' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'"
+                                class="px-2 py-1 text-[11px] leading-none rounded-[3px] font-medium transition-colors">1.0x</button>
+                            <button @click.stop="setPlaybackSpeed(0.8)"
+                                :class="playbackRate === 0.8 ? 'bg-white dark:bg-gray-600 shadow-sm text-orange-600 dark:text-orange-400' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'"
+                                class="px-2 py-1 text-[11px] leading-none rounded-[3px] font-medium transition-colors">0.8x</button>
+                            <button @click.stop="setPlaybackSpeed(0.6)"
+                                :class="playbackRate === 0.6 ? 'bg-white dark:bg-gray-600 shadow-sm text-red-600 dark:text-red-400' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'"
+                                class="px-2 py-1 text-[11px] leading-none rounded-[3px] font-medium transition-colors">0.6x</button>
+                            <button @click.stop="setPlaybackSpeed(0.4)"
+                                :class="playbackRate === 0.4 ? 'bg-white dark:bg-gray-600 shadow-sm text-purple-600 dark:text-purple-400' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'"
+                                class="px-2 py-1 text-[11px] leading-none rounded-[3px] font-medium transition-colors">0.4x</button>
+                            <!-- 片段按钮 -->
+                            <template v-if="hasFocusTimestamps">
+                                <div class="w-px h-3 bg-gray-300 dark:bg-gray-600 mx-[2px]"></div>
+                                <button @click.stop="linkingMode ? exitLinkingMode() : (clipMode ? exitClipMode() : enterClipMode())"
+                                    :class="(clipMode || isClipLooping) ? 'bg-white dark:bg-gray-600 shadow-sm text-orange-500 dark:text-orange-400' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'"
+                                    class="px-2 py-1 text-[11px] leading-none rounded-[3px] font-medium transition-colors">
+                                    片段
+                                </button>
+                            </template>
+                            <!-- 连读解析按钮 -->
+                            <div class="w-px h-3 bg-gray-300 dark:bg-gray-600 mx-[2px]"></div>
+                            <button @click.stop="openLinkingAnalysis"
+                                :class="(linkingMode || linkingSelected || showLinkingSheet) ? 'bg-white dark:bg-gray-600 shadow-sm text-blue-500 dark:text-blue-400' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'"
+                                class="px-2 py-1 text-[11px] leading-none rounded-[3px] font-medium transition-colors">
+                                连读解析
+                            </button>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- 句子文本 -->
@@ -1685,18 +1787,20 @@ onDeactivated(() => {
                         :key="wIdx"
                         :data-s-idx="index"
                         :data-w-idx="wIdx"
-                        @click.stop="(isFocusMode && index === focusIndex && clipMode)
-                            ? handleClipWordClick(wIdx, wordObj)
-                            : handleWordClick($event, wordObj.text, sent.text)"
+                        @click.stop="(isFocusMode && index === focusIndex && linkingMode)
+                            ? handleLinkingWordClick(wIdx, wordObj)
+                            : (isFocusMode && index === focusIndex && clipMode)
+                                ? handleClipWordClick(wIdx, wordObj)
+                                : handleWordClick($event, wordObj.text, sent.text)"
                         class="rounded-sm px-[2px] transition-colors"
-                        :class="(isFocusMode && index === focusIndex && (clipMode || isClipLooping))
+                        :class="(isFocusMode && index === focusIndex && (linkingMode || linkingSelected || clipMode || isClipLooping))
                             ? (clipStart && clipEnd
                                 ? (wIdx >= Math.min(clipStart.wIdx, clipEnd.wIdx) && wIdx <= Math.max(clipStart.wIdx, clipEnd.wIdx)
-                                    ? 'bg-orange-200 dark:bg-orange-700/50 cursor-pointer'
-                                    : 'opacity-40 cursor-pointer')
+                                    ? ((linkingMode || linkingSelected) ? 'bg-blue-200 dark:bg-blue-700/50 cursor-pointer' : 'bg-orange-200 dark:bg-orange-700/50 cursor-pointer')
+                                    : ((linkingMode || linkingSelected) ? 'opacity-60 cursor-pointer' : 'opacity-40 cursor-pointer'))
                                 : (clipStart && wIdx === clipStart.wIdx
-                                    ? 'bg-orange-300 dark:bg-orange-600/60 cursor-pointer'
-                                    : 'hover:bg-orange-100 dark:hover:bg-orange-900/30 cursor-pointer'))
+                                    ? ((linkingMode || linkingSelected) ? 'bg-blue-300 dark:bg-blue-600/60 cursor-pointer' : 'bg-orange-300 dark:bg-orange-600/60 cursor-pointer')
+                                    : ((linkingMode || linkingSelected) ? 'hover:bg-blue-100 dark:hover:bg-blue-900/30 cursor-pointer' : 'hover:bg-orange-100 dark:hover:bg-orange-900/30 cursor-pointer')))
                             : (wordObj.color
                                 ? getHighlightClass(wordObj.color)
                                 : [getGroupBg(wordObj.group), 'hover:opacity-80 cursor-pointer'])"
@@ -1704,12 +1808,15 @@ onDeactivated(() => {
                 </p>
 
                 <!-- 片段选择模式蒙版提示 -->
-                <div v-if="isFocusMode && index === focusIndex && clipMode"
+                <div v-if="isFocusMode && index === focusIndex && (clipMode || linkingMode)"
                     class="absolute inset-0 rounded-lg pointer-events-none"
-                    style="background: rgba(251,146,60,0.06); border: 1.5px solid rgba(251,146,60,0.4);">
+                    :style="linkingMode
+                        ? 'background: rgba(59,130,246,0.05); border: 1.5px solid rgba(59,130,246,0.4);'
+                        : 'background: rgba(251,146,60,0.06); border: 1.5px solid rgba(251,146,60,0.4);'">
                     <div class="absolute top-0 left-0 right-0 flex justify-center">
-                        <span class="text-[10px] bg-orange-400 text-white px-2 py-0.5 rounded-b-md font-medium tracking-wide">
-                            {{ clipStart ? '再点一个词设终点' : '点一个词设起点' }}
+                        <span :class="linkingMode ? 'bg-blue-500' : 'bg-orange-400'"
+                            class="text-[10px] text-white px-2 py-0.5 rounded-b-md font-medium tracking-wide">
+                            {{ clipStart ? '再点一个词设终点' : (linkingMode ? '点起点词' : '点一个词设起点') }}
                         </span>
                     </div>
                 </div>
@@ -2003,6 +2110,70 @@ onDeactivated(() => {
         </div>
     </div>
 
+    <!-- ===== 连读分析底部抽屉 ===== -->
+    <Transition name="linking-sheet">
+        <div v-if="showLinkingSheet"
+            class="fixed inset-x-0 bottom-0 z-[110] bg-white dark:bg-gray-900 rounded-t-2xl shadow-2xl border-t border-gray-200 dark:border-gray-700"
+            style="max-height: 42vh; overflow-y: auto;">
+            <!-- 标题栏 -->
+            <div class="flex items-center justify-between px-4 pt-3 pb-2 border-b border-gray-100 dark:border-gray-800 sticky top-0 bg-white dark:bg-gray-900 z-10">
+                <span class="text-sm font-semibold text-gray-700 dark:text-gray-200">🔗 连读解析</span>
+                <button @click="showLinkingSheet = false; linkingSelected = false; clipStart = null; clipEnd = null"
+                    class="w-6 h-6 flex items-center justify-center rounded-full text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700">
+                    <div class="i-carbon-close w-4 h-4"></div>
+                </button>
+            </div>
+
+            <!-- Loading -->
+            <div v-if="linkingLoading" class="flex flex-col items-center justify-center py-8 gap-3">
+                <div class="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                <span class="text-xs text-gray-400">正在分析连读，约 2-3 秒…</span>
+            </div>
+
+            <!-- 错误 -->
+            <div v-else-if="linkingError" class="px-4 py-6 text-center text-sm text-red-500">
+                {{ linkingError }}
+            </div>
+
+            <!-- 结果 -->
+            <div v-else-if="linkingResult" class="px-4 py-3 space-y-3">
+                <!-- 连读标注行 -->
+                <div>
+                    <p class="text-[10px] text-gray-400 mb-1 uppercase tracking-wide">连读标注</p>
+                    <p class="text-base font-medium text-gray-800 dark:text-gray-100 leading-relaxed tracking-wide break-words">
+                        {{ linkingResult.annotated }}
+                    </p>
+                </div>
+                <!-- 音标行 -->
+                <div>
+                    <p class="text-[10px] text-gray-400 mb-1 uppercase tracking-wide">实际发音</p>
+                    <p class="text-sm font-mono text-blue-600 dark:text-blue-400 leading-relaxed break-words">
+                        {{ linkingResult.phonetic }}
+                    </p>
+                </div>
+                <!-- 连读详情列表 -->
+                <div v-if="linkingResult.links?.length">
+                    <p class="text-[10px] text-gray-400 mb-2 uppercase tracking-wide">连读详情</p>
+                    <div class="space-y-1.5 pb-2">
+                        <div v-for="(link, i) in linkingResult.links" :key="i"
+                            class="flex items-center gap-2 bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
+                            <span class="text-sm font-medium text-gray-800 dark:text-gray-100 shrink-0">{{ link.words }}</span>
+                            <span class="text-xs font-mono text-blue-500 dark:text-blue-400 flex-1 text-right">{{ link.ipa }}</span>
+                            <span class="text-[10px] text-gray-400 bg-gray-200 dark:bg-gray-700 px-1.5 py-0.5 rounded shrink-0">{{ link.type }}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </Transition>
+
+    <!-- 遮罩 -->
+    <Transition name="linking-fade">
+        <div v-if="showLinkingSheet" @click="showLinkingSheet = false"
+            class="fixed inset-0 z-[100] bg-black/20 dark:bg-black/40 backdrop-blur-[1px]">
+        </div>
+    </Transition>
+
     <!-- ===== Toast ===== -->
     <div class="fixed top-24 left-1/2 transform -translate-x-1/2 z-[200] transition-all duration-300 pointer-events-none"
         :class="toast.visible ? 'translate-y-0 opacity-100' : '-translate-y-4 opacity-0'">
@@ -2021,4 +2192,14 @@ onDeactivated(() => {
 <style>
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+
+.linking-sheet-enter-active,
+.linking-sheet-leave-active { transition: transform 0.28s cubic-bezier(0.32, 0.72, 0, 1); }
+.linking-sheet-enter-from,
+.linking-sheet-leave-to { transform: translateY(100%); }
+
+.linking-fade-enter-active,
+.linking-fade-leave-active { transition: opacity 0.25s; }
+.linking-fade-enter-from,
+.linking-fade-leave-to { opacity: 0; }
 </style>
