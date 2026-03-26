@@ -4,6 +4,8 @@
 *.local
 dist
 dist-ssr
-node_modules
+node_modules/
 .idea/
 *.log
+public/
+启动雅思单词.bat
