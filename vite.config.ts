@@ -8,12 +8,14 @@ import Components from 'unplugin-vue-components/vite'
 import AutoImport from 'unplugin-auto-import/vite'
 import UnoCSS from 'unocss/vite'
 import VueMacros from 'unplugin-vue-macros/vite'
+import BasicSsl from '@vitejs/plugin-basic-ssl'
 
 export default defineConfig({
   base: '',
   server: {
     host: '0.0.0.0',
     port: 3333,
+    https: true,
   },
   resolve: {
     alias: {
@@ -21,6 +23,9 @@ export default defineConfig({
     },
   },
   plugins: [
+    // HTTPS 自签证书，让局域网 Safari 可以使用麦克风
+    BasicSsl(),
+
     VueMacros({
       defineOptions: false,
       defineModels: false,

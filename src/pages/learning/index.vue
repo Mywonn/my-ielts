@@ -469,6 +469,85 @@ const openLinkingAnalysis = () => {
 }
 
 const blindMode = ref(false)
+const showSyncBar = ref(false)
+const showFocusOffsetBar = ref(false)
+
+// ─── 听写模式 ─────────────────────────────────────────────────────────
+const isDictationMode = ref(false)
+const dictationInput = ref('')
+const dictationResult = ref(null)
+
+const toggleDictationMode = () => {
+    isDictationMode.value = !isDictationMode.value
+    if (isDictationMode.value) {
+        dictationInput.value = ''
+        dictationResult.value = null
+        if (!blindMode.value) blindMode.value = true
+        // 进入听写：1s 后跳到句子起点并播放
+        const sent = sentences.value[focusIndex.value]
+        if (sent && audioPlayer.value) {
+            setTimeout(() => {
+                if (!isDictationMode.value) return   // 用户可能已退出
+                const startTime = sent.startTime ?? sent.words?.[0]?.start
+                if (startTime !== undefined) {
+                    audioPlayer.value.currentTime = Math.max(0, startTime + syncOffset.value)
+                }
+                audioPlayer.value.play()
+                isPlaying.value = true
+            }, 1000)
+        }
+    } else {
+        // 退出听写：立即暂停
+        if (audioPlayer.value && !audioPlayer.value.paused) {
+            audioPlayer.value.pause()
+            isPlaying.value = false
+        }
+        dictationResult.value = null
+        dictationInput.value = ''
+        blindMode.value = false
+    }
+}
+
+const submitDictation = () => {
+    const sent = sentences.value[focusIndex.value]
+    if (!sent) return
+    const original = sent.words.map(w => w.text)
+    const inputWords = dictationInput.value.trim().split(/\s+/).filter(Boolean)
+    const maxLen = Math.max(original.length, inputWords.length)
+    dictationResult.value = Array.from({ length: maxLen }, (_, i) => {
+        const orig = (original[i] || '').replace(/[^a-zA-Z0-9']/g, '').toLowerCase()
+        const inp  = (inputWords[i] || '').replace(/[^a-zA-Z0-9']/g, '').toLowerCase()
+        return {
+            word: original[i] || inputWords[i] || '',
+            input: inputWords[i] || '',
+            correct: orig === inp
+        }
+    })
+    // 提交后退出盲听，让用户看到句子
+    blindMode.value = false
+}
+
+const resetDictation = () => {
+    dictationInput.value = ''
+    dictationResult.value = null
+    blindMode.value = true
+}
+
+// ─── 进度条渐变 computed（亮/暗模式自动切换）────────────────────────────
+// 响应式暗色检测（MutationObserver 监听 html class 变化）
+const isDark = ref(document.documentElement.classList.contains('dark'))
+if (typeof MutationObserver !== 'undefined') {
+    const _mo = new MutationObserver(() => {
+        isDark.value = document.documentElement.classList.contains('dark')
+    })
+    _mo.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+}
+const progressStyle = computed(() => {
+    const pct = duration.value > 0 ? (currentTime.value / duration.value * 100) : 0
+    const played   = isDark.value ? '#e2e8f0' : '#1f2937'   // 暗色=亮白灰，亮色=深灰
+    const unplayed = isDark.value ? '#1e3a5f' : '#e5e7eb'   // 暗色=深蓝，亮色=浅灰
+    return { background: `linear-gradient(to right, ${played} 0%, ${played} ${pct}%, ${unplayed} ${pct}%, ${unplayed} 100%)` }
+})
 
 // 焦点句耗时（秒）
 const focusDuration = computed(() => {
@@ -552,14 +631,17 @@ const seekAndPlay = (targetTime, mode, focusSentenceIndex = -1) => {
 // ─── 进入焦点模式（双击触发）──────────────────────────────────────────
 const enterFocus = (index) => {
     clearFocusStopTimer()
-    // 真正 pause，防止进入焦点后音频自动续播
     if (audioPlayer.value) audioPlayer.value.pause()
     isPlaying.value = false
     clearShadowingRecord()
     focusIndex.value = index
     activeSentenceIndex.value = index
     scrollToSentence(index)
-    // 进入焦点后不自动播放，等用户手动操作
+    // 进入焦点：关闭盲听 & 听写，确保句子可见
+    blindMode.value = false
+    isDictationMode.value = false
+    dictationInput.value = ''
+    dictationResult.value = null
 }
 
 // ─── 退出焦点模式（X 按钮）────────────────────────────────────────────
@@ -573,6 +655,11 @@ const exitFocus = () => {
     exitClipMode()
     clearShadowingRecord()
     setPlaybackSpeed(1.0)
+    // 退出焦点：同时关闭盲听和听写
+    blindMode.value = false
+    isDictationMode.value = false
+    dictationInput.value = ''
+    dictationResult.value = null
 }
 
 // ─── 正常模式：单击句子 ────────────────────────────────────────────────
@@ -660,6 +747,7 @@ const focusReplay = () => { focusPlayFromStart() }
 // ─── 焦点模式：上一句 ─────────────────────────────────────────────────
 const focusPrev = () => {
     if (focusIndex.value <= 0) return
+    dictationInput.value = ''; dictationResult.value = null; isDictationMode.value = false; blindMode.value = false
     clearShadowingRecord()
     clearFocusStopTimer()
     // 不调 pause()，直接让 seekAndPlay 里的 play() 覆盖，避免 Safari pause→play 阻塞
@@ -674,6 +762,7 @@ const focusPrev = () => {
 // ─── 焦点模式：下一句 ─────────────────────────────────────────────────
 const focusNext = () => {
     if (focusIndex.value >= sentences.value.length - 1) return
+    dictationInput.value = ''; dictationResult.value = null; isDictationMode.value = false; blindMode.value = false
     clearShadowingRecord()
     clearFocusStopTimer()
     isPlaying.value = false
@@ -748,11 +837,17 @@ const toggleRecording = async () => {
 }
 
 const startRecording = async () => {
-    const host = location.hostname
-    const isSecureContext = location.protocol === 'https:' ||
-        host === 'localhost' || host === '127.0.0.1' ||
-        /^192\.168\./.test(host) || /^10\./.test(host) || /^172\.(1[6-9]|2\d|3[01])\./.test(host)
-    if (!isSecureContext) { alert('跟读录音功能需要 HTTPS 环境。'); return }
+    // Safari PWA / 非安全上下文检测
+    if (!window.isSecureContext && location.protocol !== 'https:' &&
+        location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+        alert('录音功能需要 HTTPS 环境。'); return
+    }
+
+    // Safari 下 navigator.mediaDevices 可能为 undefined（需 HTTPS + 用户授权）
+    if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
+        alert('当前浏览器不支持录音，请使用 Safari 并确保在 HTTPS 下访问，或检查"设置→Safari→麦克风"权限。')
+        return
+    }
 
     try {
         audioStream = await navigator.mediaDevices.getUserMedia({
@@ -778,18 +873,18 @@ const startRecording = async () => {
         isRecording.value = true
         recordingTime.value = 0
 
-        // 实时计时
         if (recordingTimer) clearInterval(recordingTimer)
         recordingTimer = setInterval(() => { recordingTime.value = Math.round((recordingTime.value + 0.1) * 10) / 10 }, 100)
 
-        // 录音时暂停原音
         if (isPlaying.value && audioPlayer.value) { audioPlayer.value.pause(); isPlaying.value = false }
     } catch (err) {
         console.error('麦克风权限获取失败:', err.name, err.message)
         if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-            alert('未检测到麦克风。请检查设备权限后重试。')
+            alert('未检测到麦克风，请检查设备权限后重试。')
         } else if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-            alert('麦克风权限被拒绝。请在浏览器设置中允许麦克风权限。')
+            alert('麦克风权限被拒绝。\niOS：请前往「设置 → Safari → 麦克风」允许访问。\nAndroid：请在浏览器设置中允许麦克风权限。')
+        } else if (err.name === 'TypeError') {
+            alert('录音初始化失败，请确保使用 HTTPS 访问，并在系统设置中允许浏览器使用麦克风。')
         } else {
             alert(`录音启动失败 (${err.name})：${err.message}`)
         }
@@ -979,7 +1074,7 @@ const scrollToSentence = (index) => {
     setTimeout(() => {
         const el = document.getElementById(`sent-${index}`)
         if (!el) return
-        const targetY = window.innerHeight * 0.4
+        const targetY = window.innerHeight * 0.28
         const elRect = el.getBoundingClientRect()
         const offset = elRect.top - targetY
         if (Math.abs(offset) > 5) {
@@ -1526,181 +1621,109 @@ onDeactivated(() => {
 <template>
   <div class="h-full flex flex-col bg-gray-50 dark:bg-gray-900 overflow-hidden relative">
 
-    <!-- ===== 顶部导航栏 ===== -->
-    <div class="bg-white/90 dark:bg-gray-800/90 backdrop-blur-md border-b dark:border-gray-700 shadow-md z-50 fixed left-0 right-0 px-4 py-3 transition-colors" style="top:60px">
-      <div class="max-w-[1170px] mx-auto w-full flex flex-col gap-2">
+    <!-- ===== 顶部导航栏（文件 + 工具图标）===== -->
+    <div class="bg-white/90 dark:bg-gray-800/90 backdrop-blur-md border-b dark:border-gray-700 shadow-sm z-50 fixed left-0 right-0 px-3 py-2 transition-colors" style="top:60px">
+      <div class="max-w-[1170px] mx-auto w-full flex items-center justify-between gap-2">
 
-        <!-- Row 1: Files & Settings -->
-        <div class="flex justify-between items-center gap-2">
-            <div class="flex gap-2 flex-1 overflow-x-auto">
-                <label class="cursor-pointer bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/50 px-3 py-1.5 rounded text-sm font-medium flex items-center gap-2 transition whitespace-nowrap">
-                    <div class="i-carbon-document-pdf w-4 h-4"></div>
-                    <span class="hidden sm:inline">{{ pdfName ? 'Change PDF' : 'Import PDF' }}</span>
-                    <span class="sm:hidden">PDF</span>
-                    <input type="file" @change="handleFileChange" accept="application/pdf" class="hidden">
-                </label>
-                <label class="cursor-pointer bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 px-3 py-1.5 rounded text-sm font-medium flex items-center gap-2 transition whitespace-nowrap">
-                    <div class="i-carbon-music w-4 h-4"></div>
-                    <span class="hidden sm:inline">{{ audioUrl ? 'Change Audio' : 'Import Audio' }}</span>
-                    <span class="sm:hidden">Audio</span>
-                    <input type="file" @change="handleAudioChange" accept="audio/*, audio/mpeg, audio/mp3, .mp3, .m4a" class="hidden">
-                </label>
-            </div>
-            <div class="flex items-center gap-1">
-                <!-- 节奏底色控制 -->
-                <div v-if="isFocusMode" class="relative">
-                    <button @click="showRhythmPanel = !showRhythmPanel"
-                        :class="showRhythmColor ? 'text-blue-500 bg-blue-50 dark:bg-blue-900/30' : 'text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400'"
-                        class="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700" title="节奏底色">
-                        <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <circle cx="12" cy="12" r="3"/><path d="M3 12h3m12 0h3M12 3v3m0 12v3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1M5.6 18.4l2.1-2.1m8.6-8.6 2.1-2.1"/>
-                        </svg>
-                    </button>
-                    <div v-if="showRhythmPanel" class="absolute right-0 top-full mt-2 w-64 bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-xl shadow-xl z-20 p-4">
-                        <div class="flex items-center justify-between mb-3">
-                            <span class="text-sm font-medium text-gray-700 dark:text-gray-300">节奏底色</span>
-                            <button @click="showRhythmColor = !showRhythmColor"
-                                :class="showRhythmColor ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'"
-                                class="relative w-10 h-5 rounded-full transition-colors">
-                                <span :class="showRhythmColor ? 'translate-x-5' : 'translate-x-0.5'"
-                                    class="absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform block"></span>
-                            </button>
+        <!-- 左侧：文件导入 -->
+        <div class="flex gap-2 flex-1 overflow-x-auto">
+            <label class="cursor-pointer bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/50 px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-1.5 transition whitespace-nowrap">
+                <div class="i-carbon-document-pdf w-4 h-4"></div>
+                <span>PDF</span>
+                <input type="file" @change="handleFileChange" accept="application/pdf" class="hidden">
+            </label>
+            <label class="cursor-pointer bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-1.5 transition whitespace-nowrap">
+                <div class="i-carbon-music w-4 h-4"></div>
+                <span>Audio</span>
+                <input type="file" @change="handleAudioChange" accept="audio/*, audio/mpeg, audio/mp3, .mp3, .m4a" class="hidden">
+            </label>
+        </div>
+
+        <!-- 右侧：工具图标 -->
+        <div class="flex items-center gap-0.5 shrink-0">
+            <!-- 节奏底色（仅焦点模式） -->
+            <div v-if="isFocusMode" class="relative">
+                <button @click="showRhythmPanel = !showRhythmPanel"
+                    :class="showRhythmColor ? 'text-blue-500 bg-blue-50 dark:bg-blue-900/30' : 'text-gray-500 dark:text-gray-400'"
+                    class="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700" title="节奏底色">
+                    <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="3"/><path d="M3 12h3m12 0h3M12 3v3m0 12v3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1M5.6 18.4l2.1-2.1m8.6-8.6 2.1-2.1"/>
+                    </svg>
+                </button>
+                <div v-if="showRhythmPanel" class="absolute right-0 top-full mt-2 w-64 bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-xl shadow-xl z-20 p-4">
+                    <div class="flex items-center justify-between mb-3">
+                        <span class="text-sm font-medium text-gray-700 dark:text-gray-300">节奏底色</span>
+                        <button @click="showRhythmColor = !showRhythmColor"
+                            :class="showRhythmColor ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'"
+                            class="relative w-10 h-5 rounded-full transition-colors">
+                            <span :class="showRhythmColor ? 'translate-x-5' : 'translate-x-0.5'"
+                                class="absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform block"></span>
+                        </button>
+                    </div>
+                    <div :class="showRhythmColor ? 'opacity-100' : 'opacity-40 pointer-events-none'">
+                        <div class="flex items-center justify-between mb-1">
+                            <span class="text-xs text-gray-500 dark:text-gray-400">词组密度</span>
+                            <span class="text-xs font-mono text-blue-500">{{ rhythmWindow.toFixed(1) }}s/组</span>
                         </div>
-                        <div :class="showRhythmColor ? 'opacity-100' : 'opacity-40 pointer-events-none'">
-                            <div class="flex items-center justify-between mb-1">
-                                <span class="text-xs text-gray-500 dark:text-gray-400">词组密度</span>
-                                <span class="text-xs font-mono text-blue-500">{{ rhythmWindow.toFixed(1) }}s/组</span>
-                            </div>
-                            <div class="flex items-center gap-2">
-                                <span class="text-xs text-gray-400">密</span>
-                                <input type="range" v-model.number="rhythmWindow" min="0.2" max="1.5" step="0.1" class="flex-1 h-1.5 accent-blue-500">
-                                <span class="text-xs text-gray-400">疏</span>
-                            </div>
-                            <div class="flex gap-1 mt-3">
-                                <span v-for="(bg, i) in GROUP_BG" :key="i"
-                                    :class="bg"
-                                    class="flex-1 h-4 rounded text-center text-xs leading-4 text-gray-500">{{ i+1 }}</span>
-                            </div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs text-gray-400">密</span>
+                            <input type="range" v-model.number="rhythmWindow" min="0.2" max="1.5" step="0.1" class="flex-1 h-1.5 accent-blue-500">
+                            <span class="text-xs text-gray-400">疏</span>
+                        </div>
+                        <div class="flex gap-1 mt-3">
+                            <span v-for="(bg, i) in GROUP_BG" :key="i" :class="bg" class="flex-1 h-4 rounded text-center text-xs leading-4 text-gray-500">{{ i+1 }}</span>
                         </div>
                     </div>
                 </div>
-                <button @click="showHistory = true" class="text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700" title="History">
-                    <div class="i-carbon-time w-5 h-5"></div>
+            </div>
+            <button @click="showHistory = true" class="text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700" title="History">
+                <div class="i-carbon-time w-5 h-5"></div>
+            </button>
+            <button @click="showSettings = true" class="text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700" title="Settings">
+                <div class="i-carbon-settings w-5 h-5"></div>
+            </button>
+            <div class="relative flex items-center">
+                <button @click="toggleSyncMenu" class="text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700" title="Supabase Sync">
+                    <div v-if="!isSyncing" class="i-carbon-cloud-upload w-5 h-5"></div>
+                    <svg v-else class="w-5 h-5 animate-spin text-blue-500" viewBox="0 0 24 24" fill="currentColor">
+                        <circle cx="12" cy="3" r="2" opacity="0.9"/><circle cx="18.36" cy="5.64" r="2" opacity="0.8"/><circle cx="21" cy="12" r="2" opacity="0.6"/><circle cx="18.36" cy="18.36" r="2" opacity="0.4"/><circle cx="12" cy="21" r="2" opacity="0.2"/><circle cx="5.64" cy="18.36" r="2" opacity="0.1"/><circle cx="3" cy="12" r="2" opacity="0.3"/><circle cx="5.64" cy="5.64" r="2" opacity="0.7"/>
+                    </svg>
                 </button>
-                <button @click="showSettings = true" class="text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700" title="Settings">
-                    <div class="i-carbon-settings w-5 h-5"></div>
-                </button>
-                <div class="relative flex items-center">
-                    <button @click="toggleSyncMenu" class="text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700" title="Supabase Sync">
-                        <div v-if="!isSyncing" class="i-carbon-cloud-upload w-5 h-5"></div>
-                        <svg v-else class="w-5 h-5 animate-spin text-blue-500" viewBox="0 0 24 24" fill="currentColor">
-                            <circle cx="12" cy="3" r="2" opacity="0.9"/><circle cx="18.36" cy="5.64" r="2" opacity="0.8"/><circle cx="21" cy="12" r="2" opacity="0.6"/><circle cx="18.36" cy="18.36" r="2" opacity="0.4"/><circle cx="12" cy="21" r="2" opacity="0.2"/><circle cx="5.64" cy="18.36" r="2" opacity="0.1"/><circle cx="3" cy="12" r="2" opacity="0.3"/><circle cx="5.64" cy="5.64" r="2" opacity="0.7"/>
-                        </svg>
-                    </button>
-                    <div v-if="isSyncMenuOpen" class="absolute right-0 top-full mt-2 w-48 bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-md shadow-lg z-20">
-                        <div class="py-1">
-                            <button @click.stop="uploadToSupabase" class="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2">
-                                <span class="i-carbon-upload w-4 h-4"></span><span>Upload to Supabase</span>
-                            </button>
-                            <button @click.stop="downloadFromSupabase" class="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2">
-                                <span class="i-carbon-download w-4 h-4"></span><span>Download from Supabase</span>
-                            </button>
-                        </div>
-                        <div v-if="syncMessage" class="px-4 py-2 text-xs text-gray-500 dark:text-gray-400 border-t dark:border-gray-700">{{ syncMessage }}</div>
+                <div v-if="isSyncMenuOpen" class="absolute right-0 top-full mt-2 w-48 bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-md shadow-lg z-20">
+                    <div class="py-1">
+                        <button @click.stop="uploadToSupabase" class="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2">
+                            <span class="i-carbon-upload w-4 h-4"></span><span>Upload to Supabase</span>
+                        </button>
+                        <button @click.stop="downloadFromSupabase" class="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2">
+                            <span class="i-carbon-download w-4 h-4"></span><span>Download from Supabase</span>
+                        </button>
                     </div>
+                    <div v-if="syncMessage" class="px-4 py-2 text-xs text-gray-500 dark:text-gray-400 border-t dark:border-gray-700">{{ syncMessage }}</div>
                 </div>
             </div>
-        </div>
-
-        <!-- Row 2: Audio Controls -->
-        <div v-if="audioUrl" class="flex items-center gap-4 bg-gray-50 dark:bg-gray-700/50 p-2 rounded-lg border dark:border-gray-600">
-            <div class="flex items-center gap-2 shrink-0">
-                <button @click.stop.prevent="togglePlay" class="w-10 h-10 flex items-center justify-center rounded-full bg-blue-600 hover:bg-blue-700 text-white shadow-sm">
-                    <div :class="isPlaying ? 'i-carbon-pause' : 'i-carbon-play'" class="w-5 h-5"></div>
-                </button>
-                <button @click.stop.prevent="restartTrack" class="w-8 h-8 flex items-center justify-center rounded-full text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors" title="Restart Track">
-                    <div class="i-carbon-skip-back-filled w-5 h-5"></div>
-                </button>
-            </div>
-            <div class="flex-1 flex flex-col justify-center">
-                <div class="flex justify-between text-xs text-gray-500 dark:text-gray-400 font-mono mb-1">
-                    <span>{{ formatTime(currentTime) }}</span>
-                    <span>{{ formatTime(duration) }}</span>
-                </div>
-                <input type="range" min="0" :max="duration" :value="currentTime"
-                    @input="e => { isManualSeeking = true; const t = parseFloat(e.target.value); currentTime = t; if (audioPlayer) audioPlayer.currentTime = t; }"
-                    @change="e => handleProgressJump(e.target.value)"
-                    class="w-full h-1 bg-gray-300 dark:bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-600">
-            </div>
-            <div class="flex items-center gap-1 shrink-0">
-                <button @click.stop.prevent="toggleLoop" :class="loopMode === 'one' ? 'text-blue-600 bg-blue-100 dark:bg-blue-900/50' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'" class="p-1.5 rounded" title="Loop Mode">
-                    <div :class="loopMode === 'one' ? 'i-carbon-repeat-one' : 'i-carbon-repeat'" class="w-5 h-5"></div>
-                </button>
-                <div class="w-px h-4 bg-gray-300 dark:bg-gray-600 mx-1"></div>
-                <button @click.stop.prevent="changeSpeed" class="w-10 text-xs font-bold font-mono p-1.5 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 rounded">
-                    {{ playbackRate }}x
-                </button>
-            </div>
-            <audio ref="audioPlayer" :src="audioUrl" preload="auto" playsinline webkit-playsinline x-webkit-airplay="allow" @timeupdate="onTimeUpdate" @loadedmetadata="onLoadedMetadata" @canplay="ensureSeekRestore" @error="onAudioError" @ended="onAudioEnded" class="hidden"></audio>
-        </div>
-
-        <!-- Row 3: Collapsible Controls Drawer -->
-        <div v-if="audioUrl" class="relative">
-            
-
-            <!-- 字幕同步：仅正常模式 -->
-            <div v-if="!isFocusMode && sentences.length > 0 && sentences[0]?.startTime !== undefined"
-                class="flex items-center gap-3 px-2 py-1.5 mt-1.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg border dark:border-gray-600">
-                <span class="text-xs text-gray-500 dark:text-gray-400 shrink-0 w-12">字幕同步</span>
-                <button @click="syncOffset = 0; driftSamples.length = 0" class="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 shrink-0">重置</button>
-                <input type="range" min="-3.0" max="3.0" step="0.05" :value="syncOffset" @input="e => syncOffset = parseFloat(e.target.value)"
-                    class="flex-1 h-1 bg-gray-300 dark:bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-600">
-                <span class="text-xs font-mono text-blue-600 dark:text-blue-400 w-12 text-right shrink-0">{{ syncOffset > 0 ? '+' : '' }}{{ syncOffset.toFixed(2) }}s</span>
-                <span v-if="driftSamples.length >= 3" class="text-xs text-emerald-500 dark:text-emerald-400 shrink-0" title="自动漂移补偿已激活">⚡</span>
-            </div>
-
-            <!-- 起点前移 + 结尾后延：仅焦点模式 -->
-            <template v-if="isFocusMode">
-                <div class="flex items-center gap-2 px-2 py-1.5 mt-1.5 rounded-lg border bg-orange-50 dark:bg-orange-900/30 border-orange-200 dark:border-orange-700">
-                    <span class="text-xs text-orange-600 dark:text-orange-400 shrink-0 w-12">起点前移</span>
-                    <button @click="focusStartOffset = 0.1" class="text-xs text-orange-400 hover:text-orange-600 shrink-0">重置</button>
-                    <button @click="focusStartOffset = Math.max(-5, parseFloat((focusStartOffset - 0.05).toFixed(2)))"
-                        class="w-6 h-6 flex items-center justify-center rounded bg-orange-100 dark:bg-orange-800 text-orange-600 dark:text-orange-300 hover:bg-orange-200 dark:hover:bg-orange-700 shrink-0 text-base leading-none">‹</button>
-                    <input type="range" min="-5" max="5" step="0.05" :value="focusStartOffset"
-                        @input="e => focusStartOffset = parseFloat(e.target.value)"
-                        class="flex-1 h-1 bg-orange-200 dark:bg-orange-700 rounded-lg appearance-none cursor-pointer accent-orange-600">
-                    <button @click="focusStartOffset = Math.min(5, parseFloat((focusStartOffset + 0.05).toFixed(2)))"
-                        class="w-6 h-6 flex items-center justify-center rounded bg-orange-100 dark:bg-orange-800 text-orange-600 dark:text-orange-300 hover:bg-orange-200 dark:hover:bg-orange-700 shrink-0 text-base leading-none">›</button>
-                    <span class="text-xs font-mono text-orange-600 dark:text-orange-400 w-12 text-right shrink-0">{{ focusStartOffset >= 0 ? '+' : '' }}{{ focusStartOffset.toFixed(2) }}s</span>
-                </div>
-                <div class="flex items-center gap-2 px-2 py-1.5 mt-1.5 rounded-lg border bg-indigo-50 dark:bg-indigo-900/30 border-indigo-200 dark:border-indigo-700">
-                    <span class="text-xs text-indigo-600 dark:text-indigo-400 shrink-0 w-12">结尾后延</span>
-                    <button @click="focusEndBuffer = 0" class="text-xs text-indigo-400 hover:text-indigo-600 shrink-0">重置</button>
-                    <button @click="focusEndBuffer = Math.max(-5, parseFloat((focusEndBuffer - 0.05).toFixed(2)))"
-                        class="w-6 h-6 flex items-center justify-center rounded bg-indigo-100 dark:bg-indigo-800 text-indigo-600 dark:text-indigo-300 hover:bg-indigo-200 dark:hover:bg-indigo-700 shrink-0 text-base leading-none">‹</button>
-                    <input type="range" min="-5" max="5.0" step="0.05" :value="focusEndBuffer"
-                        @input="e => focusEndBuffer = parseFloat(e.target.value)"
-                        class="flex-1 h-1 bg-indigo-200 dark:bg-indigo-700 rounded-lg appearance-none cursor-pointer accent-indigo-600">
-                    <button @click="focusEndBuffer = Math.min(5, parseFloat((focusEndBuffer + 0.05).toFixed(2)))"
-                        class="w-6 h-6 flex items-center justify-center rounded bg-indigo-100 dark:bg-indigo-800 text-indigo-600 dark:text-indigo-300 hover:bg-indigo-200 dark:hover:bg-indigo-700 shrink-0 text-base leading-none">›</button>
-                    <span class="text-xs font-mono text-indigo-600 dark:text-indigo-400 w-12 text-right shrink-0">{{ focusEndBuffer >= 0 ? '+' : '' }}{{ focusEndBuffer.toFixed(2) }}s</span>
-                </div>
-            </template>
         </div>
       </div>
     </div>
 
+    <!-- audio 元素（隐藏） -->
+    <audio v-if="audioUrl" ref="audioPlayer" :src="audioUrl" preload="auto" playsinline webkit-playsinline x-webkit-airplay="allow"
+        @timeupdate="onTimeUpdate" @loadedmetadata="onLoadedMetadata" @canplay="ensureSeekRestore"
+        @error="onAudioError" @ended="onAudioEnded" class="hidden"></audio>
+
     <!-- ===== 内容区 ===== -->
     <div ref="contentRef"
         class="flex-1 overflow-y-auto bg-gray-100 dark:bg-gray-900 p-2 md:p-4 scroll-smooth"
-        :style="{ paddingTop: isFocusMode ? '160px' : '160px', paddingBottom: isFocusMode ? '148px' : '16px' }"
+        :style="{ paddingTop: '56px', paddingBottom: isFocusMode ? '230px' : (audioUrl ? '165px' : '16px') }"
         @scroll="handleScroll" @mouseup="handleTextSelection" @touchend="handleTextSelection">
 
         <!-- LRC 工具栏（非焦点模式时显示） -->
-        <div v-if="sentences.length > 0 && !isFocusMode" class="max-w-3xl mx-auto mt-4 mb-3 flex gap-3 px-2">
+        <div v-if="sentences.length > 0 && !isFocusMode" class="max-w-3xl mx-auto mt-1 mb-3 flex gap-3 px-2">
             <button @click="exportLrc" class="flex-1 py-3 rounded-xl bg-blue-600 text-white font-medium text-sm shadow-sm active:scale-95 transition-transform">导出字幕</button>
+            <label class="flex-1 py-3 rounded-xl bg-blue-600 text-white font-medium text-sm shadow-sm active:scale-95 transition-transform cursor-pointer text-center">
+                导入字幕
+                <input ref="lrcFileInput" type="file" accept=".lrc,.txt,text/plain,*/*" class="hidden" @change="handleLrcFile">
+            </label>
             <button @click="toggleLrcEdit" :class="(lrcEditMode ? 'bg-red-600' : 'bg-blue-600') + ' flex-1 py-3 rounded-xl text-white font-medium text-sm shadow-sm active:scale-95 transition-transform'">{{ lrcEditMode ? '退出修改' : '修改字幕' }}</button>
-            <input ref="lrcFileInput" type="file" accept=".lrc,.txt,text/plain,*/*" class="hidden" @change="handleLrcFile">
         </div>
 
         <!-- 句子列表 -->
@@ -1758,8 +1781,8 @@ onDeactivated(() => {
                                 <div class="w-px h-3 bg-gray-300 dark:bg-gray-600 mx-[2px]"></div>
                                 <button @click.stop="linkingMode ? exitLinkingMode() : (clipMode ? exitClipMode() : enterClipMode())"
                                     :class="(clipMode || isClipLooping) ? 'bg-white dark:bg-gray-600 shadow-sm text-orange-500 dark:text-orange-400' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'"
-                                    class="px-2 py-1 text-[11px] leading-none rounded-[3px] font-medium transition-colors">
-                                    片段
+                                    class="relative px-2 py-1 text-[11px] leading-none rounded-[3px] font-medium transition-colors pr-[22px]">
+                                    片段<span class="absolute top-[1px] right-[2px] text-[7px] font-semibold text-blue-500 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/50 border border-blue-200 dark:border-blue-700/60 px-[2px] py-[0.5px] rounded-[2px] leading-none pointer-events-none">beta</span>
                                 </button>
                             </template>
                             <!-- 连读解析按钮 -->
@@ -1829,10 +1852,69 @@ onDeactivated(() => {
                         class="text-xs text-orange-500 hover:text-orange-700 underline">停止</button>
                 </div>
 
+                <!-- 听写区块 -->
+                <div v-if="isFocusMode && index === focusIndex && isDictationMode"
+                    class="mx-3 mb-3 rounded-xl border border-blue-200 dark:border-blue-700/50 bg-blue-50/60 dark:bg-blue-900/20 overflow-hidden">
+                    <div class="flex items-center justify-between px-3 pt-2.5 pb-1.5">
+                        <div class="flex items-center gap-1.5">
+                            <svg class="w-3.5 h-3.5 text-blue-500" viewBox="0 0 1024 1024" fill="currentColor">
+                                <path d="M752.75 429.02c0.02-0.02 0.03-0.06 0.05-0.08L867.83 310.2c8.45-8.75 8.22-22.65-0.49-31.12L687.98 105.31c-4.19-4.05-9.53-6.2-15.67-6.2-5.83 0.09-11.39 2.52-15.45 6.69L541.8 224.59s-0.01 0.01-0.02 0.01-0.01 0.01-0.01 0.02L97.44 683.3a102.605 102.605 0 0 0-28.76 65.55l-3.85 67.61c-1.7 29.8 9.62 58.77 31.04 79.55 19.24 18.6 44.82 28.88 71.34 28.88 3.02 0 6.06-0.12 9.11-0.4l67.47-5.98a102.583 102.583 0 0 0 64.6-30.81l22.51-23.23 421.77-435.39c0.03-0.03 0.06-0.04 0.08-0.06z m-79.59-276.78l147.77 143.13-84.48 87.21L588.7 239.42l84.46-87.18zM276.79 857.06c-9.77 10.13-22.88 16.36-36.89 17.62l-67.47 5.98c-16.97 1.47-33.71-4.45-45.94-16.27a58.628 58.628 0 0 1-17.74-45.42l3.85-67.61a58.617 58.617 0 0 1 16.43-37.44l429.05-442.9 147.74 143.15-429.03 442.89zM721.88 636.87c0 12.15 9.85 22 22 22h193.45c12.15 0 22-9.85 22-22s-9.85-22-22-22H743.88c-12.15 0-22 9.85-22 22zM937.33 747.51H626.47c-12.15 0-22 9.85-22 22s9.85 22 22 22h310.86c12.15 0 22-9.85 22-22s-9.85-22-22-22zM937.33 880.11H511.36c-12.15 0-22 9.85-22 22s9.85 22 22 22h425.97c12.15 0 22-9.85 22-22s-9.85-22-22-22z"/>
+                            </svg>
+                            <span class="text-xs font-semibold text-blue-600 dark:text-blue-400 tracking-wide">听写练习</span>
+                        </div>
+                        <button @click.stop="resetDictation" class="text-[11px] text-gray-400 hover:text-blue-500 transition-colors">重置</button>
+                    </div>
+                    <div v-if="!dictationResult" class="px-3 pb-3 flex gap-2">
+                        <input
+                            v-model="dictationInput"
+                            @keydown.enter.stop="submitDictation"
+                            @click.stop
+                            placeholder="输入你听到的内容，按 Enter 提交…"
+                            class="flex-1 text-sm rounded-lg border border-blue-200 dark:border-blue-700 bg-white dark:bg-gray-800 px-3 py-2 outline-none focus:ring-2 focus:ring-blue-400 text-gray-800 dark:text-gray-100 placeholder-gray-400"
+                        />
+                        <button @click.stop="submitDictation"
+                            class="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 active:scale-95 transition-all shrink-0">
+                            提交
+                        </button>
+                    </div>
+                    <div v-else class="px-3 pb-3">
+                        <div class="flex flex-wrap gap-1.5 mb-2.5">
+                            <span v-for="(item, i) in dictationResult" :key="i"
+                                :class="item.correct
+                                    ? 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 border border-green-300 dark:border-green-700/60'
+                                    : 'bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-300 border border-red-300 dark:border-red-700/60'"
+                                class="px-2 py-0.5 rounded-md text-sm font-medium">
+                                {{ item.correct ? item.word : (item.input || '＿') }}
+                                <span v-if="!item.correct" class="text-[10px] block text-gray-400 dark:text-gray-500 leading-tight">{{ item.word }}</span>
+                            </span>
+                        </div>
+                        <div class="flex items-center gap-3 mb-2">
+                            <span class="text-xs text-gray-500">
+                                正确 <b class="text-green-600">{{ dictationResult.filter(w => w.correct).length }}</b> / {{ dictationResult.length }}
+                            </span>
+                            <div class="flex-1 h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                                <div class="h-full bg-green-500 rounded-full transition-all duration-500"
+                                    :style="{ width: (dictationResult.filter(w=>w.correct).length / dictationResult.length * 100) + '%' }"></div>
+                            </div>
+                        </div>
+                        <button @click.stop="resetDictation"
+                            class="w-full py-1.5 rounded-lg border border-blue-300 dark:border-blue-600 text-blue-600 dark:text-blue-400 text-xs font-medium hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors">
+                            再试一次
+                        </button>
+                    </div>
+                </div>
+
                 <!-- LRC 编辑 -->
-                <div v-if="lrcEditMode" class="px-3 pb-2 shrink-0 flex items-start">
+                <div v-if="lrcEditMode" class="px-3 pb-2 shrink-0 flex items-start justify-between">
                     <button v-if="editingSentenceIndex !== index" @click.stop="startEditSentence(index)" class="p-1 rounded text-gray-500 hover:text-blue-600">
                         <div class="i-carbon-edit w-4 h-4"></div>
+                    </button>
+                    <span v-else></span>
+                    <!-- 右上角退出修改模式按钮 -->
+                    <button @click.stop="toggleLrcEdit"
+                        class="w-5 h-5 flex items-center justify-center rounded-full text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors shrink-0"
+                        title="退出修改模式">
+                        <div class="i-carbon-close w-3.5 h-3.5"></div>
                     </button>
                 </div>
                 <div v-if="lrcEditMode && editingSentenceIndex === index" class="px-3 pb-3 w-full">
@@ -1898,6 +1980,111 @@ onDeactivated(() => {
         </div>
     </div>
 
+    <!-- ===== 正常模式底部播放控制栏 ===== -->
+    <transition
+        enter-active-class="transition-all duration-300 ease-out"
+        enter-from-class="opacity-0 translate-y-4"
+        enter-to-class="opacity-100 translate-y-0"
+        leave-active-class="transition-all duration-200 ease-in"
+        leave-from-class="opacity-100 translate-y-0"
+        leave-to-class="opacity-0 translate-y-4"
+    >
+    <div v-if="audioUrl && !isFocusMode"
+        class="fixed left-0 right-0 z-[45]"
+        style="bottom: 0">
+        <div class="max-w-3xl mx-auto
+                    bg-white dark:bg-[#1a1f2e]
+                    border-t border-gray-100 dark:border-gray-800
+                    px-5 pt-3"
+            style="padding-bottom: max(16px, env(safe-area-inset-bottom, 16px))">
+
+            <!-- 字幕同步浮层（展开时显示在播放器上方） -->
+            <transition name="slide-up">
+            <div v-if="showSyncBar && sentences.length > 0 && sentences[0]?.startTime !== undefined"
+                class="mb-3 flex items-center gap-2 px-3 py-2.5
+                       bg-gray-50 dark:bg-gray-800
+                       border border-gray-200 dark:border-gray-700
+                       rounded-2xl">
+                <span class="text-xs font-medium text-gray-500 dark:text-gray-400 shrink-0">字幕同步</span>
+                <button @click="syncOffset = 0; driftSamples.length = 0"
+                    class="text-xs text-gray-400 hover:text-blue-500 transition-colors shrink-0">重置</button>
+                <input type="range" min="-3.0" max="3.0" step="0.05" :value="syncOffset"
+                    @input="e => syncOffset = parseFloat(e.target.value)"
+                    class="player-range flex-1">
+                <span class="text-xs font-mono text-blue-500 w-[3rem] text-right shrink-0 tabular-nums">
+                    {{ syncOffset > 0 ? '+' : '' }}{{ syncOffset.toFixed(2) }}s
+                </span>
+                <span v-if="driftSamples.length >= 3" class="text-xs text-emerald-500 shrink-0">⚡</span>
+            </div>
+            </transition>
+
+            <!-- 进度条（正常模式，和焦点模式一致） -->
+            <div class="mb-0.5">
+                <input type="range" min="0" :max="duration || 1" :value="currentTime"
+                    @input="e => { isManualSeeking = true; const t = parseFloat(e.target.value); currentTime = t; if (audioPlayer) audioPlayer.currentTime = t; }"
+                    @change="e => handleProgressJump(e.target.value)"
+                    class="player-range w-full"
+                    :style="progressStyle">
+            </div>
+            <!-- 时间 -->
+            <div class="flex justify-between mb-3">
+                <span class="text-xs font-mono tabular-nums text-gray-400 dark:text-gray-500">{{ formatTime(currentTime) }}</span>
+                <span class="text-xs font-mono tabular-nums text-gray-400 dark:text-gray-500">{{ formatTime(duration) }}</span>
+            </div>
+
+            <!-- 按钮行：≡字幕  ↺循环  ⏸播放(大)  ⏮重播  1x倍速 -->
+            <div class="flex items-center justify-between pb-1">
+
+                <!-- ≡ 字幕同步 -->
+                <button @click="showSyncBar = !showSyncBar"
+                    :class="(showSyncBar && sentences.length > 0 && sentences[0]?.startTime !== undefined)
+                        ? 'text-blue-500' : 'text-gray-400 dark:text-gray-500'"
+                    class="w-12 h-12 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+                    <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="2" y="5" width="20" height="14" rx="2"/>
+                        <line x1="6" y1="10" x2="18" y2="10"/>
+                        <line x1="6" y1="14" x2="14" y2="14"/>
+                    </svg>
+                </button>
+
+                <!-- ↺ 单曲循环 -->
+                <button @click.stop.prevent="toggleLoop"
+                    :class="loopMode === 'one' ? 'text-blue-500' : 'text-gray-400 dark:text-gray-500'"
+                    class="w-12 h-12 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+                    <div :class="loopMode === 'one' ? 'i-carbon-repeat-one' : 'i-carbon-repeat'" class="w-6 h-6"></div>
+                </button>
+
+                <!-- ⏸ 播放/暂停（描边圆 + 实心三角） -->
+                <button @click.stop.prevent="togglePlay"
+                    class="w-14 h-14 flex items-center justify-center rounded-full
+                           border-2 border-gray-800 dark:border-gray-200
+                           text-gray-800 dark:text-gray-200
+                           hover:bg-gray-100 dark:hover:bg-gray-700
+                           active:scale-95 transition-all">
+                    <div :class="isPlaying ? 'i-carbon-pause' : 'i-carbon-play'"
+                        class="w-7 h-7" style="margin-left:1px"></div>
+                </button>
+
+                <!-- ⏮ 重播 -->
+                <button @click.stop.prevent="restartTrack"
+                    class="w-12 h-12 flex items-center justify-center rounded-full
+                           text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+                    <div class="i-carbon-skip-back-filled w-6 h-6"></div>
+                </button>
+
+                <!-- 1x 倍速 -->
+                <button @click.stop.prevent="changeSpeed"
+                    class="w-12 h-12 flex items-center justify-center rounded-full
+                           text-gray-500 dark:text-gray-400
+                           hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors
+                           text-[13px] font-bold font-mono">
+                    {{ playbackRate }}x
+                </button>
+            </div>
+        </div>
+    </div>
+    </transition>
+
     <!-- ===== 焦点模式底部控制条 ===== -->
     <transition
         enter-active-class="transition-all duration-300 ease-out"
@@ -1908,66 +2095,162 @@ onDeactivated(() => {
         leave-to-class="opacity-0 translate-y-4"
     >
     <div v-if="isFocusMode && sentences.length > 0"
-        class="fixed left-0 right-0 z-[45] pointer-events-none"
-        style="bottom: 28px">
-        <div class="max-w-3xl mx-auto px-3 pointer-events-auto flex flex-col gap-2">
+        class="fixed left-0 right-0 z-[45]"
+        style="bottom: 0">
+        <div class="max-w-3xl mx-auto
+                    bg-white dark:bg-[#1a1f2e]
+                    border-t border-gray-100 dark:border-gray-800
+                    px-5 pt-2"
+            style="padding-bottom: max(16px, env(safe-area-inset-bottom, 16px))">
 
-            <!-- 第一行：导航 + 重听 + 播放/暂停 -->
-            <div class="flex w-full gap-2 bg-white/97 dark:bg-gray-800/97 backdrop-blur-md border border-gray-200 dark:border-gray-700 rounded-2xl shadow-xl px-2 py-2">
-                <button @click="focusPrev"
-                    :disabled="focusIndex <= 0"
-                    class="flex-1 flex items-center justify-center gap-1 py-2.5 rounded-xl text-sm font-medium transition-colors shadow-sm disabled:opacity-30"
-                    :class="focusIndex > 0 ? 'bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200' : 'bg-gray-50 dark:bg-gray-800 text-gray-300 dark:text-gray-600'">
-                    <div class="i-carbon-skip-back w-4 h-4 shrink-0"></div>
-                    <span>上一句</span>
-                </button>
-                <button @click="focusReplay"
-                    class="flex-1 flex items-center justify-center gap-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors shadow-sm">
-                    <div class="i-carbon-repeat w-4 h-4 shrink-0"></div>
-                    <span>重听</span>
-                </button>
-                <button @click="focusTogglePlay"
-                    class="flex-1 flex items-center justify-center gap-1 py-2.5 rounded-xl text-white text-sm font-medium transition-colors shadow-sm"
-                    :class="isPlaying ? 'bg-amber-500 hover:bg-amber-600' : 'bg-emerald-500 hover:bg-emerald-600'">
-                    <div :class="isPlaying ? 'i-carbon-pause-filled' : 'i-carbon-play-filled'" class="w-4 h-4 shrink-0"></div>
-                    <span>{{ isPlaying ? '暂停' : '继续' }}</span>
-                </button>
-                <button @click="focusNext"
-                    :disabled="focusIndex >= sentences.length - 1"
-                    class="flex-1 flex items-center justify-center gap-1 py-2.5 rounded-xl text-sm font-medium transition-colors shadow-sm disabled:opacity-30"
-                    :class="focusIndex < sentences.length - 1 ? 'bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200' : 'bg-gray-50 dark:bg-gray-800 text-gray-300 dark:text-gray-600'">
-                    <span>下一句</span>
-                    <div class="i-carbon-skip-forward w-4 h-4 shrink-0"></div>
-                </button>
+            <!-- 起点/结尾 sliders 展开区 -->
+            <transition name="slide-up">
+            <div v-if="showFocusOffsetBar" class="mb-2 flex flex-col gap-1.5">
+                <div class="flex items-center gap-2 px-3 py-2
+                            bg-gray-50 dark:bg-gray-800 rounded-2xl
+                            border border-orange-200 dark:border-orange-800/50">
+                    <span class="text-xs font-medium text-orange-500 shrink-0 w-[3rem]">起点前移</span>
+                    <button @click="focusStartOffset = 0.1" class="text-xs text-gray-400 hover:text-orange-500 shrink-0">重置</button>
+                    <button @click="focusStartOffset = Math.max(-5, parseFloat((focusStartOffset - 0.05).toFixed(2)))"
+                        class="w-5 h-5 flex items-center justify-center rounded bg-orange-100 dark:bg-orange-900/30 text-orange-600 font-bold text-sm shrink-0">‹</button>
+                    <input type="range" min="-5" max="5" step="0.05" :value="focusStartOffset"
+                        @input="e => focusStartOffset = parseFloat(e.target.value)"
+                        class="player-range-sm flex-1" style="--accent: #f97316">
+                    <button @click="focusStartOffset = Math.min(5, parseFloat((focusStartOffset + 0.05).toFixed(2)))"
+                        class="w-5 h-5 flex items-center justify-center rounded bg-orange-100 dark:bg-orange-900/30 text-orange-600 font-bold text-sm shrink-0">›</button>
+                    <span class="text-xs font-mono text-orange-500 w-[3rem] text-right shrink-0 tabular-nums">
+                        {{ focusStartOffset >= 0 ? '+' : '' }}{{ focusStartOffset.toFixed(2) }}s
+                    </span>
+                </div>
+                <div class="flex items-center gap-2 px-3 py-2
+                            bg-gray-50 dark:bg-gray-800 rounded-2xl
+                            border border-indigo-200 dark:border-indigo-800/50">
+                    <span class="text-xs font-medium text-indigo-500 shrink-0 w-[3rem]">结尾后延</span>
+                    <button @click="focusEndBuffer = 0" class="text-xs text-gray-400 hover:text-indigo-500 shrink-0">重置</button>
+                    <button @click="focusEndBuffer = Math.max(-5, parseFloat((focusEndBuffer - 0.05).toFixed(2)))"
+                        class="w-5 h-5 flex items-center justify-center rounded bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 font-bold text-sm shrink-0">‹</button>
+                    <input type="range" min="-5" max="5.0" step="0.05" :value="focusEndBuffer"
+                        @input="e => focusEndBuffer = parseFloat(e.target.value)"
+                        class="player-range-sm flex-1" style="--accent: #6366f1">
+                    <button @click="focusEndBuffer = Math.min(5, parseFloat((focusEndBuffer + 0.05).toFixed(2)))"
+                        class="w-5 h-5 flex items-center justify-center rounded bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 font-bold text-sm shrink-0">›</button>
+                    <span class="text-xs font-mono text-indigo-500 w-[3rem] text-right shrink-0 tabular-nums">
+                        {{ focusEndBuffer >= 0 ? '+' : '' }}{{ focusEndBuffer.toFixed(2) }}s
+                    </span>
+                </div>
+            </div>
+            </transition>
+
+            <!-- 工具行：起点 | 盲听 | 回放 | 听写 | 结尾 -->
+            <div class="flex items-center justify-between mb-1">
+                <!-- 槽1：起点（对齐⏮） -->
+                <div class="w-12 flex justify-center">
+                    <button @click="showFocusOffsetBar = !showFocusOffsetBar"
+                        :class="showFocusOffsetBar ? 'text-orange-500' : 'text-gray-400 dark:text-gray-500'"
+                        class="w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                        title="起点调节">
+                        <svg class="w-5 h-5" viewBox="0 0 1024 1024" fill="currentColor">
+                            <path d="M128 341.333333a42.666667 42.666667 0 0 0-42.666667 42.666667v256a42.666667 42.666667 0 1 0 85.333334 0v-85.333333h725.333333a42.666667 42.666667 0 1 0 0-85.333334H170.666667V384a42.666667 42.666667 0 0 0-42.666667-42.666667z"/>
+                        </svg>
+                    </button>
+                </div>
+                <!-- 槽2：盲听（对齐↺） -->
+                <div class="w-12 flex justify-center">
+                    <button @click="toggleBlindMode"
+                        :class="blindMode ? 'text-purple-500' : 'text-gray-400 dark:text-gray-500'"
+                        class="w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+                        <div :class="blindMode ? 'i-carbon-view-off' : 'i-carbon-view'" class="w-5 h-5"></div>
+                    </button>
+                </div>
+                <!-- 槽3：录音回放（对齐🎤） -->
+                <div class="w-14 flex justify-center">
+                    <button @click="playUserRecord" :disabled="!userRecordUrl || isRecording"
+                        :class="userRecordUrl && !isRecording ? 'text-emerald-500' : 'text-gray-300 dark:text-gray-600 cursor-not-allowed'"
+                        class="w-14 h-14 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+                        <svg class="w-7 h-7" viewBox="0 0 1024 1024" fill="currentColor">
+                            <path d="M 510.977 1024 A 509.404 509.404 0 0 1 2.15028 515.173 a 29.422 29.422 0 0 1 28.8451 -28.8451 a 28.8451 28.8451 0 0 1 28.8451 28.8451 a 451.714 451.714 0 1 0 111.342 -296.527 c -10.9611 12.6918 -20.7685 25.3837 -30.5758 38.6524 a 28.8451 28.8451 0 0 1 -39.8062 7.49972 a 29.422 29.422 0 0 1 -7.49972 -40.3831 c 10.9611 -14.9994 22.4992 -29.422 34.6141 -43.8445 a 508.827 508.827 0 1 1 383.063 843.43 Z"/>
+                            <path d="M 318.869 287.297 H 90.9931 a 28.8451 28.8451 0 0 1 -26.5375 -27.6913 v -230.761 a 28.8451 28.8451 0 0 1 57.6901 0 v 200.762 h 196.723 a 29.422 29.422 0 0 1 28.8451 28.8451 a 28.8451 28.8451 0 0 1 -28.8451 28.8451 Z M 397.905 765.548 a 29.422 29.422 0 0 1 -14.4225 -3.46141 a 28.8451 28.8451 0 0 1 -14.4225 -25.3837 V 337.487 a 28.8451 28.8451 0 0 1 41.5369 -25.3837 l 346.141 200.185 a 28.2682 28.2682 0 0 1 0 49.6135 l -346.141 200.185 a 32.8834 32.8834 0 0 1 -12.6918 3.46141 Z m 28.8451 -378.447 v 299.989 l 259.606 -149.994 Z"/>
+                        </svg>
+                    </button>
+                </div>
+                <!-- 槽4：听写（对齐▶），SVG + beta角标 -->
+                <div class="w-12 flex justify-center">
+                    <button @click="toggleDictationMode"
+                        :class="isDictationMode ? 'text-blue-500' : 'text-gray-400 dark:text-gray-500'"
+                        class="w-10 h-10 relative flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                        title="听写练习 (Beta)">
+                        <svg class="w-5 h-5" viewBox="0 0 1024 1024" fill="currentColor">
+                            <path d="M752.75 429.02c0.02-0.02 0.03-0.06 0.05-0.08L867.83 310.2c8.45-8.75 8.22-22.65-0.49-31.12L687.98 105.31c-4.19-4.05-9.53-6.2-15.67-6.2-5.83 0.09-11.39 2.52-15.45 6.69L541.8 224.59s-0.01 0.01-0.02 0.01-0.01 0.01-0.01 0.02L97.44 683.3a102.605 102.605 0 0 0-28.76 65.55l-3.85 67.61c-1.7 29.8 9.62 58.77 31.04 79.55 19.24 18.6 44.82 28.88 71.34 28.88 3.02 0 6.06-0.12 9.11-0.4l67.47-5.98a102.583 102.583 0 0 0 64.6-30.81l22.51-23.23 421.77-435.39c0.03-0.03 0.06-0.04 0.08-0.06z m-79.59-276.78l147.77 143.13-84.48 87.21L588.7 239.42l84.46-87.18zM276.79 857.06c-9.77 10.13-22.88 16.36-36.89 17.62l-67.47 5.98c-16.97 1.47-33.71-4.45-45.94-16.27a58.628 58.628 0 0 1-17.74-45.42l3.85-67.61a58.617 58.617 0 0 1 16.43-37.44l429.05-442.9 147.74 143.15-429.03 442.89zM721.88 636.87c0 12.15 9.85 22 22 22h193.45c12.15 0 22-9.85 22-22s-9.85-22-22-22H743.88c-12.15 0-22 9.85-22 22zM937.33 747.51H626.47c-12.15 0-22 9.85-22 22s9.85 22 22 22h310.86c12.15 0 22-9.85 22-22s-9.85-22-22-22zM937.33 880.11H511.36c-12.15 0-22 9.85-22 22s9.85 22 22 22h425.97c12.15 0 22-9.85 22-22s-9.85-22-22-22z"/>
+                        </svg>
+                        <span class="absolute top-1 right-1 text-[8px] font-bold leading-none px-[3px] py-[1px] rounded bg-blue-500 text-white opacity-80 pointer-events-none">β</span>
+                    </button>
+                </div>
+                <!-- 槽5：结尾（对齐⏭，翻转） -->
+                <div class="w-12 flex justify-center">
+                    <button @click="showFocusOffsetBar = !showFocusOffsetBar"
+                        :class="showFocusOffsetBar ? 'text-orange-500' : 'text-gray-400 dark:text-gray-500'"
+                        class="w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                        title="结尾调节">
+                        <svg class="w-5 h-5" style="transform:scaleX(-1)" viewBox="0 0 1024 1024" fill="currentColor">
+                            <path d="M128 341.333333a42.666667 42.666667 0 0 0-42.666667 42.666667v256a42.666667 42.666667 0 1 0 85.333334 0v-85.333333h725.333333a42.666667 42.666667 0 1 0 0-85.333334H170.666667V384a42.666667 42.666667 0 0 0-42.666667-42.666667z"/>
+                        </svg>
+                    </button>
+                </div>
             </div>
 
-            <!-- 第二行：盲听 + 录音 + 听回放 -->
-            <div class="grid grid-cols-4 w-full gap-2 bg-indigo-50/97 dark:bg-indigo-900/50 backdrop-blur-md border border-indigo-200 dark:border-indigo-800 rounded-2xl shadow-xl px-2 py-2">
+            <!-- 进度条（焦点模式有） -->
+            <div class="mb-0.5">
+                <input type="range" min="0" :max="duration || 1" :value="currentTime"
+                    @input="e => { isManualSeeking = true; const t = parseFloat(e.target.value); currentTime = t; if (audioPlayer) audioPlayer.currentTime = t; }"
+                    @change="e => handleProgressJump(e.target.value)"
+                    class="player-range w-full"
+                    :style="progressStyle">
+            </div>
+            <!-- 时间 -->
+            <div class="flex justify-between mb-2">
+                <span class="text-xs font-mono tabular-nums text-gray-400 dark:text-gray-500">{{ formatTime(currentTime) }}</span>
+                <span class="text-xs font-mono tabular-nums text-gray-400 dark:text-gray-500">{{ formatTime(duration) }}</span>
+            </div>
 
-                <button @click="toggleBlindMode"
-                    class="col-span-1 flex items-center justify-center gap-1.5 py-3.5 rounded-xl text-sm font-medium transition-all shadow-sm border"
-                    :class="blindMode
-                        ? 'bg-purple-600 hover:bg-purple-700 text-white border-purple-600'
-                        : 'bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-600'">
-                    <div :class="blindMode ? 'i-carbon-view-off' : 'i-carbon-view'" class="w-4 h-4 shrink-0"></div>
-                    <span>盲听</span>
+            <!-- 主按钮行：⏮上一句  ↺重听  🎤录音(大圆)  ▶暂停/继续  ⏭下一句 -->
+            <div class="flex items-center justify-between pb-1">
+
+                <button @click="focusPrev" :disabled="focusIndex <= 0"
+                    class="w-12 h-12 flex items-center justify-center rounded-full
+                           hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors disabled:opacity-25"
+                    :class="focusIndex > 0 ? 'text-gray-600 dark:text-gray-300' : 'text-gray-300 dark:text-gray-700'">
+                    <div class="i-carbon-skip-back w-6 h-6"></div>
                 </button>
 
+                <button @click="focusReplay"
+                    class="w-12 h-12 flex items-center justify-center rounded-full
+                           text-gray-600 dark:text-gray-300
+                           hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+                    <div class="i-carbon-reset w-6 h-6"></div>
+                </button>
+
+                <!-- 🎤 录音（描边圆 + 实心图标） -->
                 <button @click="toggleRecording"
-                    class="col-span-2 flex justify-center items-center gap-1.5 py-3.5 rounded-xl text-white text-sm font-bold transition-all shadow-sm"
-                    :class="isRecording ? 'bg-red-500 hover:bg-red-600' : 'bg-indigo-600 hover:bg-indigo-700'">
-                    <div :class="isRecording ? 'i-carbon-stop-filled' : 'i-carbon-microphone'" class="w-4 h-4 shrink-0"></div>
-                    <span v-if="isRecording" class="tabular-nums">{{ recordingTime.toFixed(1) }}s</span>
-                    <span v-else>录音</span>
+                    class="w-14 h-14 flex items-center justify-center rounded-full
+                           transition-all active:scale-95"
+                    :class="isRecording
+                        ? 'border-2 border-red-500 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20'
+                        : 'border-2 border-gray-800 dark:border-gray-200 text-gray-800 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'">
+                    <div :class="isRecording ? 'i-carbon-stop-filled' : 'i-carbon-microphone'" class="w-7 h-7"></div>
                 </button>
 
-                <button @click="playUserRecord"
-                    :disabled="!userRecordUrl || isRecording"
-                    class="col-span-1 flex justify-center items-center gap-1.5 py-3.5 rounded-xl text-sm font-medium transition-all shadow-sm"
-                    :class="(userRecordUrl && !isRecording) ? 'bg-emerald-500 hover:bg-emerald-600 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed'">
-                    <div class="i-carbon-play-outline w-4 h-4 shrink-0"></div>
-                    <span v-if="recordingDuration > 0" class="tabular-nums">{{ recordingDuration.toFixed(1) }}s</span>
-                    <span v-else>听回放</span>
+                <button @click="focusTogglePlay"
+                    class="w-12 h-12 flex items-center justify-center rounded-full
+                           hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                    :class="isPlaying ? 'text-blue-500' : 'text-gray-600 dark:text-gray-300'">
+                    <div :class="isPlaying ? 'i-carbon-pause' : 'i-carbon-play'" class="w-6 h-6"></div>
+                </button>
+
+                <button @click="focusNext" :disabled="focusIndex >= sentences.length - 1"
+                    class="w-12 h-12 flex items-center justify-center rounded-full
+                           hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors disabled:opacity-25"
+                    :class="focusIndex < sentences.length - 1 ? 'text-gray-600 dark:text-gray-300' : 'text-gray-300 dark:text-gray-700'">
+                    <div class="i-carbon-skip-forward w-6 h-6"></div>
                 </button>
             </div>
         </div>
@@ -2192,6 +2475,76 @@ onDeactivated(() => {
 <style>
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+.dark ::-webkit-scrollbar-thumb { background: #475569; }
+
+/* ─── 播放器进度条（细轨道 + 小拖拽圆点）─── */
+.player-range {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 2px;
+    border-radius: 9999px;
+    background: #e5e7eb;
+    cursor: pointer;
+    outline: none;
+}
+/* dark fallback (overridden by :style binding) */
+.dark .player-range { background: #1e3a5f; }
+
+.player-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #1f2937;
+    cursor: pointer;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    transition: transform 0.1s;
+}
+.dark .player-range::-webkit-slider-thumb { background: #f9fafb; }
+.player-range::-webkit-slider-thumb:active { transform: scale(1.3); }
+
+.player-range::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #1f2937;
+    border: none;
+    cursor: pointer;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+.dark .player-range::-moz-range-thumb { background: #f9fafb; }
+
+/* 小尺寸（起点/结尾 sliders） */
+.player-range-sm {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 3px;
+    border-radius: 9999px;
+    background: #e5e7eb;
+    cursor: pointer;
+    outline: none;
+    accent-color: var(--accent, #3b82f6);
+}
+.dark .player-range-sm { background: #374151; }
+.player-range-sm::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--accent, #3b82f6);
+    cursor: pointer;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+.player-range-sm::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--accent, #3b82f6);
+    border: none;
+}
 
 .linking-sheet-enter-active,
 .linking-sheet-leave-active { transition: transform 0.28s cubic-bezier(0.32, 0.72, 0, 1); }
@@ -2202,4 +2555,9 @@ onDeactivated(() => {
 .linking-fade-leave-active { transition: opacity 0.25s; }
 .linking-fade-enter-from,
 .linking-fade-leave-to { opacity: 0; }
+
+.slide-up-enter-active,
+.slide-up-leave-active { transition: all 0.25s ease; }
+.slide-up-enter-from,
+.slide-up-leave-to { opacity: 0; transform: translateY(8px); }
 </style>
