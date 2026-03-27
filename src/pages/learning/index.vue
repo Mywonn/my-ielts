@@ -544,8 +544,8 @@ if (typeof MutationObserver !== 'undefined') {
 }
 const progressStyle = computed(() => {
     const pct = duration.value > 0 ? (currentTime.value / duration.value * 100) : 0
-    const played   = isDark.value ? '#e2e8f0' : '#1f2937'   // 暗色=亮白灰，亮色=深灰
-    const unplayed = isDark.value ? '#1e3a5f' : '#e5e7eb'   // 暗色=深蓝，亮色=浅灰
+    const played   = isDark.value ? '#ffffff' : '#1f2937'   // 暗色=纯白，亮色=深灰
+    const unplayed = isDark.value ? '#2d4a6e' : '#e5e7eb'   // 暗色=深蓝，亮色=浅灰
     return { background: `linear-gradient(to right, ${played} 0%, ${played} ${pct}%, ${unplayed} ${pct}%, ${unplayed} 100%)` }
 })
 
@@ -2489,7 +2489,7 @@ onDeactivated(() => {
     outline: none;
 }
 /* dark fallback (overridden by :style binding) */
-.dark .player-range { background: #1e3a5f; }
+.dark .player-range { background: #2d4a6e; }
 
 .player-range::-webkit-slider-thumb {
     -webkit-appearance: none;
