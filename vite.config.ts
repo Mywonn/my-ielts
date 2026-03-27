@@ -8,14 +8,14 @@ import Components from 'unplugin-vue-components/vite'
 import AutoImport from 'unplugin-auto-import/vite'
 import UnoCSS from 'unocss/vite'
 import VueMacros from 'unplugin-vue-macros/vite'
-import BasicSsl from '@vitejs/plugin-basic-ssl'
+// import BasicSsl from '@vitejs/plugin-basic-ssl'  // 本地HTTPS录音用，CI环境禁用
 
 export default defineConfig({
   base: '',
   server: {
     host: '0.0.0.0',
     port: 3333,
-    https: true,
+    // https: true,  // 本地HTTPS录音用，CI环境禁用
   },
   resolve: {
     alias: {
@@ -24,7 +24,7 @@ export default defineConfig({
   },
   plugins: [
     // HTTPS 自签证书，让局域网 Safari 可以使用麦克风
-    BasicSsl(),
+    // BasicSsl(),  // 本地HTTPS录音用，CI环境禁用
 
     VueMacros({
       defineOptions: false,
