@@ -533,20 +533,10 @@ const resetDictation = () => {
     blindMode.value = true
 }
 
-// ─── 进度条渐变 computed（亮/暗模式自动切换）────────────────────────────
-// 响应式暗色检测（MutationObserver 监听 html class 变化）
-const isDark = ref(document.documentElement.classList.contains('dark'))
-if (typeof MutationObserver !== 'undefined') {
-    const _mo = new MutationObserver(() => {
-        isDark.value = document.documentElement.classList.contains('dark')
-    })
-    _mo.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
-}
+// ─── 进度条渐变 computed（将百分比传给 CSS 变量）────────────────────────────
 const progressStyle = computed(() => {
     const pct = duration.value > 0 ? (currentTime.value / duration.value * 100) : 0
-    const played   = isDark.value ? '#ffffff' : '#1f2937'   // 暗色=纯白，亮色=深灰
-    const unplayed = isDark.value ? '#2d4a6e' : '#e5e7eb'   // 暗色=深蓝，亮色=浅灰
-    return { background: `linear-gradient(to right, ${played} 0%, ${played} ${pct}%, ${unplayed} ${pct}%, ${unplayed} 100%)` }
+    return { '--progress-pct': `${pct}%` }
 })
 
 // 焦点句耗时（秒）
@@ -2484,12 +2474,16 @@ onDeactivated(() => {
     width: 100%;
     height: 2px;
     border-radius: 9999px;
-    background: #e5e7eb;
+    /* 亮色模式：已播深灰 #1f2937，未播浅灰 #e5e7eb */
+    background: linear-gradient(to right, #1f2937 0%, #1f2937 var(--progress-pct, 0%), #e5e7eb var(--progress-pct, 0%), #e5e7eb 100%);
     cursor: pointer;
     outline: none;
 }
-/* dark fallback (overridden by :style binding) */
-.dark .player-range { background: #2d4a6e; }
+
+/* 暗色模式：已播纯白 #ffffff，未播深灰蓝 #374151 */
+.dark .player-range {
+    background: linear-gradient(to right, #ffffff 0%, #ffffff var(--progress-pct, 0%), #374151 var(--progress-pct, 0%), #374151 100%);
+}
 
 .player-range::-webkit-slider-thumb {
     -webkit-appearance: none;
